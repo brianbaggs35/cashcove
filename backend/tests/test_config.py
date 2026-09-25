@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
 
 from app.config import Settings, get_settings
 
@@ -29,3 +30,9 @@ def test_reads_prefixed_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: P
 
 def test_get_settings_is_cached() -> None:
     assert get_settings() is get_settings()
+
+
+def test_plaid_needs_both_client_id_and_secret() -> None:
+    assert not Settings(plaid_client_id="id").plaid_configured
+    assert not Settings(plaid_secret=SecretStr("secret")).plaid_configured
+    assert Settings(plaid_client_id="id", plaid_secret=SecretStr("secret")).plaid_configured

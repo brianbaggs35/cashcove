@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import Settings
 from app.db import get_session
 from app.main import create_app
+from app.models import Base
 
 
 @pytest.fixture
@@ -21,6 +22,7 @@ def session() -> Iterator[Session]:
     engine = create_engine(
         "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
     )
+    Base.metadata.create_all(engine)
     with sessionmaker(bind=engine)() as session:
         yield session
     engine.dispose()

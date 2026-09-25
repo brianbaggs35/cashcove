@@ -18,6 +18,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/api/openapi.json" if docs else None,
     )
     app.include_router(api_router, prefix="/api")
+    app.dependency_overrides[get_settings] = lambda: settings
     return app
 
 

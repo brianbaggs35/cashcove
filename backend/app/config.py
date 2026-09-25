@@ -3,6 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,9 +17,18 @@ class Settings(BaseSettings):
     # Interactive OpenAPI docs are off unless explicitly enabled.
     enable_docs: bool = False
 
+    # Plaid API credentials, from https://dashboard.plaid.com/developers/keys.
+    plaid_env: Literal["sandbox", "production"] = "sandbox"
+    plaid_client_id: str | None = None
+    plaid_secret: SecretStr | None = None
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def plaid_configured(self) -> bool:
+        return bool(self.plaid_client_id and self.plaid_secret)
 
 
 @lru_cache
