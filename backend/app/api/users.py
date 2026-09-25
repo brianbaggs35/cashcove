@@ -12,9 +12,8 @@ from app.auth import audit, sessions
 from app.auth.activity import list_activity
 from app.auth.audit import Event
 from app.auth.deps import AdminAuth, AppSettings, CurrentAuth, Db, VerifiedAdmin, fail
-from app.auth.service import turn_off_two_factor
+from app.auth.service import issue_password_reset, one_time_link, turn_off_two_factor
 from app.auth.tokens import hash_token, new_token
-from app.config import Settings
 from app.models import Invitation, Passkey, PasswordReset, Role, User
 from app.models.base import utcnow
 from app.schemas.auth import (
@@ -31,7 +30,6 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/users", tags=["users"])
 
 INVITATION_LIFETIME = timedelta(days=7)
-RESET_LIFETIME = timedelta(hours=24)
 
 EMAIL_TAKEN = "Someone in this household already uses that email."
 
@@ -59,11 +57,6 @@ def _member(db: Session, user: User, *, details: bool) -> MemberOut:
             )
         }
     )
-
-
-def _link(settings: Settings, page: str, token: str) -> str:
-    # The token goes after "#", so browsers never send it to the server or in a Referer.
-    return f"{settings.public_origin}/{page}#{token}"
 
 
 def _not_found() -> NoReturn:
@@ -177,20 +170,12 @@ def create_password_reset(
             "user_inactive",
             "Turn this account back on before creating a reset link.",
         )
-    now = utcnow()
-    token = new_token()
-    db.execute(delete(PasswordReset).where(PasswordReset.user_id == target.id))
-    reset = PasswordReset(
-        token_hash=hash_token(token),
-        user_id=target.id,
-        created_by_id=auth.user.id,
-        created_at=now,
-        expires_at=now + RESET_LIFETIME,
-    )
-    db.add(reset)
+    token, reset = issue_password_reset(db, target, created_by=auth.user, now=utcnow())
     audit.record(db, request, Event.PASSWORD_RESET_CREATED, user=target, actor=auth.user)
     db.commit()
-    return ResetLink(link=_link(settings, "reset-password", token), expires_at=reset.expires_at)
+    return ResetLink(
+        link=one_time_link(settings, "reset-password", token), expires_at=reset.expires_at
+    )
 
 
 @router.delete("/{user_id}/two-factor", status_code=status.HTTP_204_NO_CONTENT)
@@ -272,7 +257,7 @@ def invite_member(
     )
     db.commit()
     return InvitationLink(
-        invitation=_invitation_out(invitation), link=_link(settings, "invite", token)
+        invitation=_invitation_out(invitation), link=one_time_link(settings, "invite", token)
     )
 
 
@@ -302,7 +287,7 @@ def renew_invitation(
     )
     db.commit()
     return InvitationLink(
-        invitation=_invitation_out(invitation), link=_link(settings, "invite", token)
+        invitation=_invitation_out(invitation), link=one_time_link(settings, "invite", token)
     )
 
 

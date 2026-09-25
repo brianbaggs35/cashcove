@@ -1,7 +1,7 @@
 """The steps sign-in, verification and account changes share."""
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import cache
 from typing import Any
 
@@ -15,11 +15,14 @@ from app.auth.challenges import Claimed
 from app.auth.crypto import DecryptionError, SecretBox
 from app.auth.deps import fail
 from app.auth.setup import setup_required
+from app.auth.tokens import hash_token, new_token
 from app.config import Settings
-from app.models import AppSettings, Passkey, RecoveryCode, User, UserSession
+from app.models import AppSettings, Passkey, PasswordReset, RecoveryCode, User, UserSession
 from app.models.app_settings import SINGLETON_ID
 from app.schemas.auth import SessionInfo, SessionState, SignInResult, UserOut
 from app.schemas.preferences import Preferences
+
+RESET_LIFETIME = timedelta(hours=24)
 
 
 @cache
@@ -237,3 +240,28 @@ def turn_off_two_factor(db: Session, user: User) -> None:
     user.totp_secret = None
     user.totp_last_step = None
     db.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
+
+
+# ---- One-time links ---------------------------------------------------------------------
+
+
+def one_time_link(settings: Settings, page: str, token: str) -> str:
+    # The token goes after "#", so browsers never send it to the server or in a Referer.
+    return f"{settings.public_origin}/{page}#{token}"
+
+
+def issue_password_reset(
+    db: Session, user: User, *, created_by: User | None, now: datetime
+) -> tuple[str, PasswordReset]:
+    """A link token, valid for a day, that replaces any earlier one for this person."""
+    token = new_token()
+    db.execute(delete(PasswordReset).where(PasswordReset.user_id == user.id))
+    reset = PasswordReset(
+        token_hash=hash_token(token),
+        user_id=user.id,
+        created_by_id=created_by.id if created_by else None,
+        created_at=now,
+        expires_at=now + RESET_LIFETIME,
+    )
+    db.add(reset)
+    return token, reset
