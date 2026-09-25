@@ -17,3 +17,10 @@ body,
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+// Lists of links are <ul>s with an <li> around each link: Vuetify gives list items that are
+// links the link role, and screen readers expect a list to hold list items.
+ul.v-list,
+ul.v-list ul {
+  list-style: none;
+}

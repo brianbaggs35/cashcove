@@ -13,6 +13,8 @@ describe('AppNavigation', () => {
     expect(links.map((link) => link.text())).toEqual(navItems.map((item) => item.title))
     expect(links.map((link) => link.attributes('href'))).toEqual(navItems.map((item) => item.path))
     expect(wrapper.find('.v-list-item--active').text()).toBe('Budget')
+    // Each link sits in a list item, so screen readers can count the tabs.
+    expect(wrapper.findAll('ul[aria-label="Sections"] > li > a')).toHaveLength(navItems.length)
     wrapper.unmount()
   })
 

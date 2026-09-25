@@ -13,13 +13,20 @@ const light: ThemeDefinition = {
     surface: '#ffffff',
     'surface-variant': '#e8edf3',
     'on-surface-variant': '#334155',
-    primary: '#0d9488',
-    secondary: '#6366f1',
-    accent: '#f59e0b',
-    success: '#16a34a',
-    info: '#0284c7',
-    warning: '#d97706',
-    error: '#dc2626',
+    // Dark enough for white text on each colour, and for each colour's text on its own tonal
+    // tint, to meet WCAG AA contrast (4.5:1).
+    primary: '#0f716a',
+    secondary: '#4f46e5',
+    accent: '#854d0e',
+    success: '#157439',
+    info: '#0369a1',
+    warning: '#a54a0b',
+    error: '#b91c1c',
+  },
+  variables: {
+    // Vuetify's 0.6 leaves field labels, hints and subtitles, which it dims twice, below
+    // WCAG AA contrast (4.5:1) on white. The dark theme already uses 0.7.
+    'medium-emphasis-opacity': 0.7,
   },
 }
 
@@ -37,6 +44,8 @@ const dark: ThemeDefinition = {
     info: '#38bdf8',
     warning: '#fbbf24',
     error: '#f87171',
+    // Vuetify would put white on this light red, which is hard to read.
+    'on-error': '#000000',
   },
 }
 

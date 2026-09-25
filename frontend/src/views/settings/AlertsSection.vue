@@ -86,8 +86,10 @@ const amountRules = [
         test-id="alert-budget"
       >
         <template #default="{ disabled }">
+          <!-- Vuetify names the slider for screen readers from its name. -->
           <v-slider
             v-model="draft.alerts.budget_threshold_percent"
+            name="Budget alert threshold"
             :min="50"
             :max="150"
             :step="5"

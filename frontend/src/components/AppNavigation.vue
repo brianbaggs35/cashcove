@@ -15,24 +15,19 @@ const open = defineModel<boolean | null>({ default: null })
       </div>
     </router-link>
 
-    <v-list nav class="px-3" color="primary" aria-label="Sections">
-      <v-list-item
-        v-for="item in navItems"
-        :key="item.name"
-        :to="item.path"
-        :title="item.title"
-        rounded="lg"
-        class="app-nav__item mb-1"
-      >
-        <template #prepend>
-          <v-icon :icon="item.icon" size="20" />
-        </template>
-      </v-list-item>
+    <v-list tag="ul" nav class="px-3" color="primary" aria-label="Sections">
+      <li v-for="item in navItems" :key="item.name">
+        <v-list-item :to="item.path" :title="item.title" rounded="lg" class="app-nav__item mb-1">
+          <template #prepend>
+            <v-icon :icon="item.icon" size="20" />
+          </template>
+        </v-list-item>
+      </li>
     </v-list>
 
     <template #append>
-      <v-list nav class="px-3 pb-3">
-        <StatusIndicator />
+      <v-list tag="ul" nav class="px-3 pb-3" aria-label="System">
+        <li><StatusIndicator /></li>
       </v-list>
     </template>
   </v-navigation-drawer>

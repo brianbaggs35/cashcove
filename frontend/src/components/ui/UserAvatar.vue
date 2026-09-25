@@ -1,10 +1,27 @@
+<script lang="ts">
+/** Avatar colours, each dark enough for white initials to meet WCAG AA contrast (4.5:1). */
+export const AVATAR_COLORS = [
+  '#0f766e',
+  '#4f46e5',
+  '#b45309',
+  '#be185d',
+  '#0369a1',
+  '#7c3aed',
+  '#15803d',
+]
+
+/** For someone whose account is turned off. */
+export const MUTED_AVATAR_COLOR = '#64748b'
+</script>
+
 <script setup lang="ts">
 import { computed } from 'vue'
 
 /** Initials on a colour picked from the name, so each person keeps the same one. */
-const props = withDefaults(defineProps<{ name: string; size?: number | string }>(), { size: 40 })
-
-const PALETTE = ['#0d9488', '#6366f1', '#d97706', '#db2777', '#0284c7', '#7c3aed', '#16a34a']
+const props = withDefaults(
+  defineProps<{ name: string; size?: number | string; muted?: boolean }>(),
+  { size: 40, muted: false },
+)
 
 /** The first letters of the first and last names, e.g. "AM" for Alex Morgan. */
 const initials = computed(() => {
@@ -14,11 +31,12 @@ const initials = computed(() => {
 })
 
 const color = computed(() => {
+  if (props.muted) return MUTED_AVATAR_COLOR
   let hash = 0
   for (let index = 0; index < props.name.length; index++) {
     hash = (hash * 31 + props.name.charCodeAt(index)) >>> 0
   }
-  return PALETTE[hash % PALETTE.length]
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length]
 })
 </script>
 

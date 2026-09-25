@@ -8,7 +8,7 @@ const items = (['accounts', 'transactions', 'budget', 'subscriptions'] as const)
 </script>
 
 <template>
-  <v-bottom-navigation grow color="primary" height="64" aria-label="Quick navigation">
+  <v-bottom-navigation tag="nav" grow color="primary" height="64" aria-label="Quick navigation">
     <v-btn
       v-for="item in items"
       :key="item.name"

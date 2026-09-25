@@ -237,7 +237,7 @@ async function resetLink(member: Member) {
         data-test="member"
       >
         <template #prepend>
-          <UserAvatar :name="member.name" size="44" />
+          <UserAvatar :name="member.name" :muted="!member.is_active" size="44" />
         </template>
         <v-list-item-title class="d-flex flex-wrap align-center ga-2">
           <span class="font-weight-bold">{{ member.name }}</span>
@@ -387,10 +387,5 @@ async function resetLink(member: Member) {
 <style scoped>
 .member + .member {
   border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-}
-
-.member--off :deep(.user-avatar) {
-  filter: grayscale(1);
-  opacity: 0.6;
 }
 </style>

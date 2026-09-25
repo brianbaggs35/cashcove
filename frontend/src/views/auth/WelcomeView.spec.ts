@@ -66,6 +66,9 @@ describe('WelcomeView', () => {
     expect(view.find('step-welcome').exists()).toBe(true)
     expect(railState(view)).toEqual(['current', 'next', 'next', 'next', 'next', 'next'])
     expect(view.find('wizard-progress').text()).toContain('Step 1 of 6')
+    const progress = view.find('wizard-progress').find('[role="progressbar"]')
+    expect(progress.attributes('aria-label')).toBe('Setup progress')
+    expect(progress.attributes('aria-valuetext')).toBe('Step 1 of 6')
 
     await toAccountStep(view)
     expect(authApi.checkSetupCode).toHaveBeenCalledWith('abcd-efgh-ijkl')
