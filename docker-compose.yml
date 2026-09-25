@@ -1,0 +1,49 @@
+# One container runs all of Cashcove: nginx with TLS, the API, Postgres and the web app.
+# Configure it with a .env file next to this one (see .env.example), then `make up`.
+name: cashcove
+
+services:
+  cashcove:
+    build:
+      context: .
+      target: runtime
+    image: cashcove:${CASHCOVE_VERSION:-latest}
+    container_name: cashcove
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CASHCOVE_SERVER_NAME: ${CASHCOVE_SERVER_NAME:-localhost}
+      CASHCOVE_HTTPS_PORT: ${CASHCOVE_HTTPS_PORT:-443}
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${CASHCOVE_HTTPS_PORT:-443}:8443"
+      - "${CASHCOVE_HTTP_PORT:-80}:8080"
+    volumes:
+      - cashcove-data:/data
+      # Drop fullchain.pem and privkey.pem here to use your own certificate.
+      - ./certs:/certs:ro
+    # Hardening: immutable filesystem, no extra kernel capabilities, no privilege escalation.
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+      - /var/cache/nginx
+      - /etc/nginx/conf.d
+      - /etc/nginx/cashcove
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+      - KILL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 60s
+
+volumes:
+  cashcove-data:

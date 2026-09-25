@@ -18,6 +18,8 @@ coverage/
 # Local config and runtime data
 .env
 data/
-certs/
+backups/
+certs/*
+!certs/README.md
 *.log
 .DS_Store
