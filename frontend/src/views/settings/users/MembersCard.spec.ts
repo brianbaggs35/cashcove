@@ -2,6 +2,7 @@ import { flushPromises, type DOMWrapper } from '@vue/test-utils'
 
 import { ApiError } from '@/api/client'
 import * as users from '@/api/users'
+import UserAvatar from '@/components/ui/UserAvatar.vue'
 import { confirmRequest } from '@/composables/confirm'
 import { notices } from '@/composables/notify'
 import { useAuthStore } from '@/stores/auth'
@@ -94,6 +95,8 @@ describe('MembersCard', () => {
     expect(members[2]!.find('[data-test="member-details"]').text()).toContain('1 passkey')
     expect(members[2]!.find('[data-test="member-off"]').text()).toBe('Turned off')
     expect(members[2]!.classes()).toContain('member--off')
+    expect(members[2]!.findComponent(UserAvatar).props('muted')).toBe(true)
+    expect(members[1]!.findComponent(UserAvatar).props('muted')).toBe(false)
     expect(members[1]!.find('[data-test="member-off"]').exists()).toBe(false)
 
     await find('invite-open').trigger('click')

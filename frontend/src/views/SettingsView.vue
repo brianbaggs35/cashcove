@@ -53,28 +53,39 @@ async function save() {
     <v-row>
       <v-col cols="12" md="4" lg="3">
         <v-card class="d-none d-md-block pa-2 settings-nav" data-test="settings-nav">
-          <v-list nav color="primary" density="comfortable" class="pa-0">
-            <template v-for="(group, index) in settingsGroups" :key="group.title">
+          <v-list
+            tag="ul"
+            nav
+            color="primary"
+            density="comfortable"
+            class="pa-0"
+            aria-label="Settings sections"
+          >
+            <li v-for="(group, index) in settingsGroups" :key="group.title">
               <v-list-subheader
+                :id="`settings-group-${index}`"
                 class="settings-nav__group text-label-medium font-weight-bold"
                 :class="{ 'mt-2': index > 0 }"
               >
                 {{ group.title }}
               </v-list-subheader>
-              <v-list-item
-                v-for="item in group.sections"
-                :key="item.key"
-                :to="`/settings/${item.key}`"
-                :active="item.key === section.key"
-                :title="item.title"
-                rounded="lg"
-                :data-test="`settings-link-${item.key}`"
-              >
-                <template #prepend>
-                  <v-icon :icon="item.icon" size="20" class="me-n2" />
-                </template>
-              </v-list-item>
-            </template>
+              <ul class="pa-0" :aria-labelledby="`settings-group-${index}`">
+                <li v-for="item in group.sections" :key="item.key">
+                  <v-list-item
+                    :to="`/settings/${item.key}`"
+                    :active="item.key === section.key"
+                    :title="item.title"
+                    rounded="lg"
+                    class="mt-1"
+                    :data-test="`settings-link-${item.key}`"
+                  >
+                    <template #prepend>
+                      <v-icon :icon="item.icon" size="20" class="me-n2" />
+                    </template>
+                  </v-list-item>
+                </li>
+              </ul>
+            </li>
           </v-list>
         </v-card>
         <v-slide-group class="d-md-none" show-arrows data-test="settings-chips">

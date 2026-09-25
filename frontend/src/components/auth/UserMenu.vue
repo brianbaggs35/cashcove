@@ -34,21 +34,25 @@ const auth = useAuthStore()
         </div>
       </div>
       <v-divider class="my-1" />
-      <v-list density="compact" nav class="py-0 px-2">
-        <v-list-item
-          :prepend-icon="UserRound"
-          title="Your account"
-          to="/settings/account"
-          rounded="lg"
-          data-test="menu-account"
-        />
-        <v-list-item
-          :prepend-icon="ShieldCheck"
-          title="Sign-in and security"
-          to="/settings/security"
-          rounded="lg"
-          data-test="menu-security"
-        />
+      <v-list tag="ul" density="compact" nav class="py-0 px-2">
+        <li>
+          <v-list-item
+            :prepend-icon="UserRound"
+            title="Your account"
+            to="/settings/account"
+            rounded="lg"
+            data-test="menu-account"
+          />
+        </li>
+        <li>
+          <v-list-item
+            :prepend-icon="ShieldCheck"
+            title="Sign-in and security"
+            to="/settings/security"
+            rounded="lg"
+            data-test="menu-security"
+          />
+        </li>
       </v-list>
       <v-divider class="my-1" />
       <v-list density="compact" nav class="py-0 px-2">

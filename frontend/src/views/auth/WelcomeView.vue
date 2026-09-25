@@ -194,6 +194,8 @@ const nextSteps = [
       </div>
       <v-progress-linear
         :model-value="((index + 1) / STEPS.length) * 100"
+        aria-label="Setup progress"
+        :aria-valuetext="`Step ${index + 1} of ${STEPS.length}`"
         color="primary"
         rounded
         height="6"

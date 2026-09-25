@@ -21,7 +21,10 @@ const options: { value: ThemePreference; title: string; icon: typeof Sun }[] = [
   >
     <v-row>
       <v-col v-for="option in options" :key="option.value" cols="12" sm="4">
+        <!-- A real button, so the keyboard reaches it and screen readers hear it's pressed. -->
         <v-card
+          tag="button"
+          type="button"
           :class="['theme-option', `theme-option--${option.value}`]"
           :color="store.preference === option.value ? 'primary' : undefined"
           :variant="store.preference === option.value ? 'tonal' : 'outlined'"
@@ -29,20 +32,24 @@ const options: { value: ThemePreference; title: string; icon: typeof Sun }[] = [
           :data-test="`theme-option-${option.value}`"
           @click="store.setPreference(option.value)"
         >
-          <div class="theme-option__preview ma-3" aria-hidden="true">
-            <div class="theme-option__side" />
-            <div class="theme-option__body">
-              <div class="theme-option__bar" />
-              <div class="theme-option__line" />
-              <div class="theme-option__line short" />
-            </div>
-          </div>
-          <div class="d-flex align-center ga-2 px-4 pb-4">
+          <span class="theme-option__preview ma-3" aria-hidden="true">
+            <span class="theme-option__side" />
+            <span class="theme-option__body">
+              <span class="theme-option__bar" />
+              <span class="theme-option__line" />
+              <span class="theme-option__line short" />
+            </span>
+          </span>
+          <span class="d-flex align-center ga-2 px-4 pb-4">
             <v-icon :icon="option.icon" size="18" />
             <span class="text-label-large">{{ option.title }}</span>
-            <v-spacer />
-            <v-icon v-if="store.preference === option.value" :icon="Check" size="18" />
-          </div>
+            <v-icon
+              v-if="store.preference === option.value"
+              :icon="Check"
+              size="18"
+              class="ms-auto"
+            />
+          </span>
         </v-card>
       </v-col>
     </v-row>
@@ -50,6 +57,11 @@ const options: { value: ThemePreference; title: string; icon: typeof Sun }[] = [
 </template>
 
 <style scoped>
+.theme-option {
+  width: 100%;
+  text-align: start;
+}
+
 .theme-option.v-card--variant-outlined {
   border-color: rgba(var(--v-border-color), 0.2);
 }
@@ -58,7 +70,7 @@ const options: { value: ThemePreference; title: string; icon: typeof Sun }[] = [
   --bg: #f5f7fa;
   --panel: #ffffff;
   --ink: #cbd5e1;
-  --accent: #0d9488;
+  --accent: #0f716a;
   display: flex;
   height: 96px;
   border-radius: 12px;
@@ -84,11 +96,13 @@ const options: { value: ThemePreference; title: string; icon: typeof Sun }[] = [
 }
 
 .theme-option__body {
+  display: block;
   flex: 1;
   padding: 12px;
 }
 
 .theme-option__bar {
+  display: block;
   height: 10px;
   width: 50%;
   border-radius: 5px;
@@ -97,6 +111,7 @@ const options: { value: ThemePreference; title: string; icon: typeof Sun }[] = [
 }
 
 .theme-option__line {
+  display: block;
   height: 8px;
   border-radius: 4px;
   background: var(--ink);
