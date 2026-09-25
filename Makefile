@@ -13,12 +13,13 @@ TRIVY := docker run --rm -v cashcove-trivy-cache:/root/.cache/trivy
 TRIVY_FLAGS := --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart rebuild logs ps shell psql backup setup-code dev dev-down dev-logs \
+.PHONY: help up down restart rebuild logs ps shell psql backup setup-code reset-link turn-off-2fa \
+	dev dev-down dev-logs \
 	install test test-backend test-frontend lint lint-backend lint-frontend lint-infra format audit \
 	scan scan-source scan-image clean
 
 help: ## Show this help
-	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 ## ---- Run -----------------------------------------------------------------------
 up: ## Build and start Cashcove in the background
@@ -55,6 +56,14 @@ backup: ## Dump the database to ./backups
 
 setup-code: ## Print a fresh one-time code for creating the first admin
 	$(COMPOSE) exec -u cashcove -w /app/backend cashcove python -m app.cli setup-code
+
+reset-link: ## Print a password reset link: make reset-link EMAIL=you@example.com
+	$(if $(EMAIL),,$(error Say whose account, e.g. make reset-link EMAIL=you@example.com))
+	$(COMPOSE) exec -u cashcove -w /app/backend cashcove python -m app.cli reset-link '$(EMAIL)'
+
+turn-off-2fa: ## Turn off authenticator codes: make turn-off-2fa EMAIL=you@example.com
+	$(if $(EMAIL),,$(error Say whose account, e.g. make turn-off-2fa EMAIL=you@example.com))
+	$(COMPOSE) exec -u cashcove -w /app/backend cashcove python -m app.cli turn-off-2fa '$(EMAIL)'
 
 ## ---- Develop -------------------------------------------------------------------
 dev: ## Run the dev container with live reload (Vite + API)

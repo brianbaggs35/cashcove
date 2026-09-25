@@ -50,7 +50,7 @@ def client_agent(request: Request) -> str | None:
 
 def record(
     db: Session,
-    request: Request,
+    request: Request | None,
     event: Event,
     *,
     user: User | None,
@@ -63,8 +63,9 @@ def record(
         event=event.value,
         user_id=user.id if user else None,
         actor_id=by.id if by else None,
-        ip_address=client_address(request),
-        user_agent=client_agent(request),
+        # None for maintenance commands run on the server.
+        ip_address=client_address(request) if request else None,
+        user_agent=client_agent(request) if request else None,
         details=details,
     )
     db.add(entry)
