@@ -1,17 +1,29 @@
 # syntax=docker/dockerfile:1
 
 # Cashcove ships as one container: nginx (TLS), the FastAPI app, Postgres and the built
-# Vue frontend, run by supervisord. Build stages keep Node, uv and compilers out of the
-# final image.
+# Vue frontend, run by supervisord. Every stage builds on Chainguard's Wolfi, whose
+# packages are rebuilt as soon as CVE fixes land, and the build stages keep Node, uv and
+# compilers out of the final image.
 
+# Chainguard's free tier only publishes wolfi-base as :latest, so it's pinned by digest to
+# keep builds reproducible; `apk upgrade` below still pulls the newest package fixes.
+ARG WOLFI_BASE=cgr.dev/chainguard/wolfi-base:latest@sha256:fac38d12efdb4bf43ac9e599a31db10a27ad5dd71e5f1618790962eda8d66180
 ARG PYTHON_VERSION=3.14
 ARG NODE_VERSION=24
 ARG POSTGRES_VERSION=18
 ARG UV_VERSION=0.12.19
 ARG SUPERVISOR_VERSION=4.3.0
 
+# ---- Wolfi base, upgraded to the latest packages ----------------------------------------
+FROM ${WOLFI_BASE} AS wolfi
+# CI passes the date here so cached layers are refreshed at least daily.
+ARG APK_REFRESH=""
+RUN echo "apk refresh: ${APK_REFRESH:-none}" && apk upgrade --no-cache
+
 # ---- Frontend: type-check and build static assets ------------------------------------
-FROM node:${NODE_VERSION}-trixie-slim AS frontend-build
+FROM wolfi AS frontend-build
+ARG NODE_VERSION
+RUN apk add --no-cache "nodejs-${NODE_VERSION}" npm
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -22,47 +34,45 @@ RUN npm run build
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
 # ---- Backend: resolve the locked Python environment -----------------------------------
-FROM python:${PYTHON_VERSION}-slim-trixie AS backend-build
+FROM wolfi AS backend-build
+ARG PYTHON_VERSION
 ARG SUPERVISOR_VERSION
+RUN apk add --no-cache "python-${PYTHON_VERSION}"
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_NO_CACHE=1 \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON=/usr/bin/python${PYTHON_VERSION} \
     UV_PYTHON_DOWNLOADS=never
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev
 # supervisord gets its own environment so it never shares dependencies with the app.
-RUN python -m venv /opt/supervisor \
-    && /opt/supervisor/bin/pip install --no-cache-dir "supervisor==${SUPERVISOR_VERSION}"
+RUN uv venv /opt/supervisor \
+    && uv pip install --python /opt/supervisor/bin/python "supervisor==${SUPERVISOR_VERSION}"
 
-# ---- Runtime base: Postgres from PGDG and nginx mainline from nginx.org ----------------
-FROM python:${PYTHON_VERSION}-slim-trixie AS runtime-base
+# ---- Runtime base: Postgres, nginx mainline and Python from Wolfi ----------------------
+FROM wolfi AS runtime-base
+ARG PYTHON_VERSION
 ARG POSTGRES_VERSION
+# Wolfi packages don't create service accounts, so they're made here with fixed IDs that
+# stay the same across rebuilds (the database files on the volume belong to postgres).
 RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl openssl; \
-    install -d /usr/share/postgresql-common/pgdg; \
-    curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-        https://www.postgresql.org/media/keys/ACCC4CF8.asc; \
-    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
-        > /etc/apt/sources.list.d/pgdg.list; \
-    curl -fsSL -o /usr/share/keyrings/nginx-archive-keyring.asc https://nginx.org/keys/nginx_signing.key; \
-    echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.asc] https://nginx.org/packages/mainline/debian trixie nginx" \
-        > /etc/apt/sources.list.d/nginx.list; \
-    printf 'Package: *\nPin: origin nginx.org\nPin-Priority: 900\n' > /etc/apt/preferences.d/99nginx; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends postgresql-common; \
-    sed -ri 's/#?\s*create_main_cluster.*/create_main_cluster = false/' /etc/postgresql-common/createcluster.conf; \
-    apt-get install -y --no-install-recommends "postgresql-${POSTGRES_VERSION}" nginx; \
-    apt-get purge -y --auto-remove curl; \
-    rm -rf /var/lib/apt/lists/* /etc/nginx/conf.d/default.conf; \
-    groupadd --system --gid 10001 cashcove; \
-    useradd --system --uid 10001 --gid cashcove --home-dir /app --shell /usr/sbin/nologin cashcove
-ENV PATH=/opt/venv/bin:/opt/supervisor/bin:/usr/lib/postgresql/${POSTGRES_VERSION}/bin:$PATH \
+    addgroup -S -g 10001 cashcove; \
+    adduser -S -D -H -u 10001 -G cashcove -h /app -s /sbin/nologin cashcove; \
+    addgroup -S -g 10002 postgres; \
+    adduser -S -D -H -u 10002 -G postgres -h /var/lib/postgresql -s /sbin/nologin postgres; \
+    addgroup -S -g 10003 nginx; \
+    adduser -S -D -H -u 10003 -G nginx -h /var/lib/nginx -s /sbin/nologin nginx; \
+    apk add --no-cache ca-certificates-bundle tzdata openssl setpriv \
+        "python-${PYTHON_VERSION}" \
+        "postgresql-${POSTGRES_VERSION}" "postgresql-${POSTGRES_VERSION}-client" \
+        nginx-mainline nginx-mainline-config; \
+    rm -f /etc/nginx/conf.d/default.conf
+ENV PATH=/opt/venv/bin:/opt/supervisor/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    CASHCOVE_POSTGRES_VERSION=${POSTGRES_VERSION}
+    PYTHONUNBUFFERED=1
 COPY --from=backend-build /opt/venv /opt/venv
 COPY --from=backend-build /opt/supervisor /opt/supervisor
 COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
@@ -83,13 +93,12 @@ ENTRYPOINT ["/app/docker/entrypoint.sh"]
 
 # ---- Development: same container plus Node, dev tools and live reload ------------------
 FROM runtime-base AS dev
-COPY --from=frontend-build /usr/local/bin/node /usr/local/bin/node
-COPY --from=frontend-build /usr/local/lib/node_modules /usr/local/lib/node_modules
+ARG NODE_VERSION
+ARG PYTHON_VERSION
+RUN apk add --no-cache "nodejs-${NODE_VERSION}" npm
 COPY --from=uv /uv /usr/local/bin/uv
-RUN set -eux; \
-    ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
-    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
-ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy \
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON=/usr/bin/python${PYTHON_VERSION} \
+    UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy \
     CASHCOVE_MODE=development CASHCOVE_ENVIRONMENT=development
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock ./

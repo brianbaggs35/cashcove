@@ -7,10 +7,15 @@ FRONTEND := cd frontend &&
 HADOLINT_IMAGE := hadolint/hadolint:v2.15.1
 SHELLCHECK_IMAGE := koalaman/shellcheck:v0.11.0
 ACTIONLINT_IMAGE := rhysd/actionlint:1.7.12
+# Run from its image, pinned by digest, rather than a third-party GitHub Action.
+TRIVY_IMAGE := aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+TRIVY := docker run --rm -v cashcove-trivy-cache:/root/.cache/trivy
+TRIVY_FLAGS := --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart rebuild logs ps shell psql backup dev dev-down dev-logs \
-	install test test-backend test-frontend lint lint-backend lint-frontend lint-infra format audit clean
+.PHONY: help up down restart rebuild logs ps shell psql backup setup-code dev dev-down dev-logs \
+	install test test-backend test-frontend lint lint-backend lint-frontend lint-infra format audit \
+	scan scan-source scan-image clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -37,7 +42,7 @@ ps: ## Show container status and health
 	$(COMPOSE) ps
 
 shell: ## Open a shell in the running container
-	$(COMPOSE) exec cashcove bash
+	$(COMPOSE) exec cashcove sh
 
 psql: ## Open a database shell
 	$(COMPOSE) exec -u cashcove cashcove psql -h /run/postgresql cashcove
@@ -47,6 +52,9 @@ backup: ## Dump the database to ./backups
 	$(COMPOSE) exec -T -u cashcove cashcove pg_dump -h /run/postgresql -Fc cashcove \
 		> backups/cashcove-$$(date +%Y%m%d-%H%M%S).dump
 	@ls -1t backups | head -1
+
+setup-code: ## Print a fresh one-time code for creating the first admin
+	$(COMPOSE) exec -u cashcove -w /app/backend cashcove python -m app.cli setup-code
 
 ## ---- Develop -------------------------------------------------------------------
 dev: ## Run the dev container with live reload (Vite + API)
@@ -93,6 +101,16 @@ format: ## Auto-format backend and frontend code
 audit: ## Check dependencies for known vulnerabilities
 	$(BACKEND) uv run pip-audit
 	$(FRONTEND) npm audit
+
+scan: scan-source scan-image ## Scan the code and the built image with Trivy
+
+scan-source: ## Trivy: vulnerable dependencies, leaked secrets and Dockerfile mistakes
+	$(TRIVY) -v "$(CURDIR):/src:ro" -w /src $(TRIVY_IMAGE) fs $(TRIVY_FLAGS) \
+		--scanners vuln,secret,misconfig --ignorefile .trivyignore.yaml .
+
+scan-image: ## Trivy: vulnerabilities in the built image's packages
+	$(TRIVY) -v /var/run/docker.sock:/var/run/docker.sock:ro $(TRIVY_IMAGE) image $(TRIVY_FLAGS) \
+		cashcove:$${CASHCOVE_VERSION:-latest}
 
 clean: ## Remove local build and test artifacts
 	rm -rf backend/.pytest_cache backend/.mypy_cache backend/.ruff_cache backend/.coverage \
