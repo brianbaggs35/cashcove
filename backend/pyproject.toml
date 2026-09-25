@@ -15,8 +15,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.4",
     "httpx2>=2.13.1",
     "mypy>=2.3.1",
+    "pip-audit>=2.10.1",
+    "pyright>=1.1.414",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.9",
@@ -50,3 +53,13 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
+
+[tool.pyright]
+include = ["app", "tests", "migrations"]
+typeCheckingMode = "strict"
+pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
