@@ -91,10 +91,13 @@ RUN set -eux; \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy \
     CASHCOVE_MODE=development CASHCOVE_ENVIRONMENT=development
-COPY backend/pyproject.toml backend/uv.lock /app/backend/
-RUN cd /app/backend && uv sync --frozen
-COPY --chown=cashcove:cashcove frontend/package.json frontend/package-lock.json /app/frontend/
-RUN cd /app/frontend && npm ci --no-audit --no-fund && chown -R cashcove:cashcove /app/frontend
+WORKDIR /app/backend
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen
+WORKDIR /app/frontend
+COPY --chown=cashcove:cashcove frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund && chown -R cashcove:cashcove /app/frontend
+WORKDIR /app
 COPY docker/supervisor/dev.d /etc/supervisor/conf.d
 
 # ---- Production image (default target) ------------------------------------------------

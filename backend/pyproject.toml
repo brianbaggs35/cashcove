@@ -55,7 +55,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [tool.pyright]
-include = ["app", "tests", "migrations"]
+include = ["app", "tests", "migrations", "../docker"]
 typeCheckingMode = "strict"
 pythonVersion = "3.13"
 venvPath = "."
