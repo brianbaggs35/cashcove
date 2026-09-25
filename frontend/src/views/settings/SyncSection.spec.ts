@@ -1,5 +1,5 @@
+import { makeSessionState, makeSystemInfo, makeUser } from '@/test/fixtures'
 import { flushPromises } from '@/test/mount'
-import { makeSystemInfo } from '@/test/fixtures'
 import { mountSection } from '@/test/settings'
 import SyncSection from '@/views/settings/SyncSection.vue'
 
@@ -68,5 +68,18 @@ describe('SyncSection', () => {
     await flushPromises()
     expect(wrapper.find('[data-test="plaid-status"]').exists()).toBe(false)
     wrapper.unmount()
+  })
+
+  it('is read-only for viewers', async () => {
+    const { wrapper, preferences } = await mountSection(SyncSection, {
+      session: makeSessionState({ user: makeUser({ role: 'viewer' }) }),
+    })
+    expect(wrapper.find('[data-test="read-only-notice"]').exists()).toBe(true)
+    await wrapper.find('[data-test="auto-sync"] input').trigger('click')
+    expect(preferences.draft!.sync.auto_sync).toBe(true)
+    const daily = wrapper.find('[data-test="sync-interval"]').findAll('.v-chip')[5]!
+    expect(daily.classes()).toContain('v-chip--disabled')
+    await daily.trigger('click')
+    expect(preferences.draft!.sync.interval_hours).toBe(6)
   })
 })

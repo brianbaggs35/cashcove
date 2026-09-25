@@ -1,56 +1,158 @@
 <script setup lang="ts">
-import { Crown, Eye, UserPlus, UserRound, Users } from '@lucide/vue'
+import { Crown, Eye, ShieldCheck } from '@lucide/vue'
+import { onMounted, ref, useTemplateRef } from 'vue'
 
+import {
+  fetchHouseholdActivity,
+  fetchInvitations,
+  fetchMembers,
+  type Invitation,
+  type Member,
+} from '@/api/users'
+import ReadOnlyNotice from '@/components/ui/ReadOnlyNotice.vue'
+import { useAction } from '@/composables/useAction'
+import { useAuthStore } from '@/stores/auth'
+import ActivityCard from '@/views/settings/ActivityCard.vue'
 import SettingsCard from '@/views/settings/SettingsCard.vue'
+import InvitationsCard from '@/views/settings/users/InvitationsCard.vue'
+import InviteDialog from '@/views/settings/users/InviteDialog.vue'
+import MembersCard from '@/views/settings/users/MembersCard.vue'
+
+const auth = useAuthStore()
+const activity = useTemplateRef('activity')
+
+const members = ref<Member[]>([])
+const invitations = ref<Invitation[]>([])
+const loaded = ref(false)
+const inviting = ref(false)
+
+const loading = useAction(async () => {
+  const [people, pending] = await Promise.all([
+    fetchMembers(),
+    auth.isAdmin ? fetchInvitations() : [],
+  ])
+  members.value = people
+  invitations.value = pending
+  loaded.value = true
+})
+
+/** Every change to the household is logged, so the activity below picks it up. */
+function changed() {
+  void activity.value?.reload()
+}
+
+function memberUpdated(member: Member) {
+  members.value = members.value.map((item) => (item.id === member.id ? member : item))
+  changed()
+}
+
+function memberRemoved(member: Member) {
+  members.value = members.value.filter((item) => item.id !== member.id)
+  changed()
+}
+
+function invited(invitation: Invitation) {
+  invitations.value = [invitation, ...invitations.value]
+  changed()
+}
+
+function invitationRenewed(invitation: Invitation) {
+  invitations.value = invitations.value.map((item) =>
+    item.id === invitation.id ? invitation : item,
+  )
+  changed()
+}
+
+function invitationRevoked(invitation: Invitation) {
+  invitations.value = invitations.value.filter((item) => item.id !== invitation.id)
+  changed()
+}
 
 const roles = [
   {
-    title: 'Owner',
+    title: 'Admin',
     icon: Crown,
-    description: 'Everything, including users, connections and settings.',
+    color: 'primary',
+    text: 'Everything: accounts, budgets, bank connections, household settings, and who has access.',
   },
   {
-    title: 'Member',
-    icon: UserRound,
-    description: 'Manage accounts, budgets, subscriptions and transactions.',
+    title: 'Viewer',
+    icon: Eye,
+    color: 'secondary',
+    text: 'Sees everything and changes nothing. Good for a partner or an accountant who just needs to look.',
   },
-  { title: 'Viewer', icon: Eye, description: 'See everything, change nothing.' },
 ]
+
+onMounted(() => void loading.run())
 </script>
 
 <template>
+  <ReadOnlyNotice
+    v-if="!auth.isAdmin"
+    text="You can see who's in your household. Only an admin can invite people or change what they can do."
+  />
+
+  <MembersCard
+    :members="members"
+    :loaded="loaded"
+    :busy="loading.busy.value"
+    :error="loading.error.value"
+    @invite="inviting = true"
+    @retry="loading.run()"
+    @updated="memberUpdated"
+    @removed="memberRemoved"
+  />
+
+  <InvitationsCard
+    v-if="auth.isAdmin && invitations.length"
+    :invitations="invitations"
+    @renewed="invitationRenewed"
+    @revoked="invitationRevoked"
+  />
+
   <SettingsCard
-    title="People"
-    subtitle="Invite the people you share finances with and choose what they can do."
-    :icon="Users"
+    title="Roles"
+    subtitle="Cashcove keeps it simple: two roles, and one household per install."
+    :icon="ShieldCheck"
   >
-    <template #append>
-      <v-btn color="primary" :prepend-icon="UserPlus" disabled>Invite</v-btn>
-    </template>
-    <v-empty-state
-      :icon="Users"
-      headline="Sign-in comes next"
-      text="User accounts, invitations and roles arrive with Cashcove's sign-in. The first person to open Cashcove becomes its owner."
-      size="64"
-      class="py-6"
-    />
+    <div class="roles">
+      <div v-for="role in roles" :key="role.title" class="role d-flex ga-3 pa-4">
+        <v-avatar :color="role.color" variant="tonal" rounded="lg" size="40">
+          <v-icon :icon="role.icon" size="20" />
+        </v-avatar>
+        <div>
+          <div class="text-title-small font-weight-bold">{{ role.title }}</div>
+          <div class="text-body-small text-medium-emphasis">{{ role.text }}</div>
+        </div>
+      </div>
+    </div>
+    <p class="text-body-small text-medium-emphasis mt-4 mb-0">
+      Everyone manages their own password, passkeys and two-step verification, whatever their role.
+      Cashcove always keeps at least one admin.
+    </p>
   </SettingsCard>
 
-  <SettingsCard title="Roles" subtitle="What each role will be able to do.">
-    <v-list bg-color="transparent" class="pa-0">
-      <v-list-item
-        v-for="role in roles"
-        :key="role.title"
-        :title="role.title"
-        :subtitle="role.description"
-        class="px-0"
-      >
-        <template #prepend>
-          <v-avatar variant="tonal" color="secondary" rounded="lg" size="36" class="me-1">
-            <v-icon :icon="role.icon" size="18" />
-          </v-avatar>
-        </template>
-      </v-list-item>
-    </v-list>
-  </SettingsCard>
+  <ActivityCard
+    v-if="auth.isAdmin"
+    ref="activity"
+    title="Household activity"
+    subtitle="Sign-ins, failed attempts and account changes for everyone in the household."
+    perspective="household"
+    :load="fetchHouseholdActivity"
+  />
+
+  <InviteDialog v-if="auth.isAdmin" v-model="inviting" @invited="invited" />
 </template>
+
+<style scoped>
+.roles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.role {
+  border-radius: 16px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+</style>

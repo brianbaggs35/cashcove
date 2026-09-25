@@ -1,3 +1,4 @@
+import { makeSessionState, makeUser } from '@/test/fixtures'
 import { flushPromises } from '@/test/mount'
 import { mountSection } from '@/test/settings'
 import AlertRow from '@/views/settings/AlertRow.vue'
@@ -74,5 +75,16 @@ describe('AlertsSection', () => {
       ].some(Boolean),
     ).toBe(false)
     wrapper.unmount()
+  })
+
+  it('is read-only for viewers', async () => {
+    const { wrapper, preferences } = await mountSection(AlertsSection, {
+      session: makeSessionState({ user: makeUser({ role: 'viewer' }) }),
+    })
+    expect(wrapper.find('[data-test="read-only-notice"]').exists()).toBe(true)
+    const row = wrapper.find('[data-test="alert-low-balance"]')
+    await row.find('input[type="checkbox"]').trigger('click')
+    expect(preferences.draft!.alerts.low_balance_enabled).toBe(true)
+    expect(row.find('input[inputmode="decimal"]').attributes('readonly')).toBeDefined()
   })
 })

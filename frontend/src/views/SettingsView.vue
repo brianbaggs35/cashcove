@@ -1,15 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, type Component } from 'vue'
+import { computed, onMounted, type Component } from 'vue'
 import { useRoute } from 'vue-router'
 
 import TabPage from '@/components/TabPage.vue'
+import { notify } from '@/composables/notify'
+import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
+import AccountSection from '@/views/settings/AccountSection.vue'
 import AlertsSection from '@/views/settings/AlertsSection.vue'
 import AppearanceSection from '@/views/settings/AppearanceSection.vue'
 import GeneralSection from '@/views/settings/GeneralSection.vue'
 import SaveBar from '@/views/settings/SaveBar.vue'
 import SecuritySection from '@/views/settings/SecuritySection.vue'
-import { findSection, settingsSections, type SettingsSectionKey } from '@/views/settings/sections'
+import {
+  findSection,
+  settingsGroups,
+  settingsSections,
+  type SettingsSectionKey,
+} from '@/views/settings/sections'
 import SyncSection from '@/views/settings/SyncSection.vue'
 import SystemSection from '@/views/settings/SystemSection.vue'
 import UsersSection from '@/views/settings/UsersSection.vue'
@@ -19,24 +27,24 @@ const components: Record<SettingsSectionKey, Component> = {
   users: UsersSection,
   alerts: AlertsSection,
   sync: SyncSection,
+  account: AccountSection,
   security: SecuritySection,
   appearance: AppearanceSection,
   system: SystemSection,
 }
 
 const route = useRoute()
+const auth = useAuthStore()
 const store = usePreferencesStore()
 const section = computed(() => findSection(route.params.section))
-const notice = ref<{ text: string; color: string } | null>(null)
 
 onMounted(() => {
   if (!store.saved) void store.load()
 })
 
 async function save() {
-  notice.value = (await store.save())
-    ? { text: 'Settings saved', color: 'success' }
-    : { text: `Couldn't save: ${store.error ?? 'unknown error'}`, color: 'error' }
+  if (await store.save()) notify('Settings saved')
+  else notify(`Couldn't save your settings. ${store.error ?? ''}`.trim(), 'error')
 }
 </script>
 
@@ -46,18 +54,27 @@ async function save() {
       <v-col cols="12" md="4" lg="3">
         <v-card class="d-none d-md-block pa-2 settings-nav" data-test="settings-nav">
           <v-list nav color="primary" density="comfortable" class="pa-0">
-            <v-list-item
-              v-for="item in settingsSections"
-              :key="item.key"
-              :to="`/settings/${item.key}`"
-              :active="item.key === section.key"
-              :title="item.title"
-              rounded="lg"
-            >
-              <template #prepend>
-                <v-icon :icon="item.icon" size="20" class="me-n2" />
-              </template>
-            </v-list-item>
+            <template v-for="(group, index) in settingsGroups" :key="group.title">
+              <v-list-subheader
+                class="settings-nav__group text-label-medium font-weight-bold"
+                :class="{ 'mt-2': index > 0 }"
+              >
+                {{ group.title }}
+              </v-list-subheader>
+              <v-list-item
+                v-for="item in group.sections"
+                :key="item.key"
+                :to="`/settings/${item.key}`"
+                :active="item.key === section.key"
+                :title="item.title"
+                rounded="lg"
+                :data-test="`settings-link-${item.key}`"
+              >
+                <template #prepend>
+                  <v-icon :icon="item.icon" size="20" class="me-n2" />
+                </template>
+              </v-list-item>
+            </template>
           </v-list>
         </v-card>
         <v-slide-group class="d-md-none" show-arrows data-test="settings-chips">
@@ -81,22 +98,11 @@ async function save() {
     </v-row>
 
     <SaveBar
-      :visible="store.dirty && !!store.saved"
+      :visible="auth.isAdmin && store.dirty && !!store.saved"
       :saving="store.saving"
       @save="save"
       @discard="store.discard()"
     />
-
-    <v-snackbar
-      :model-value="!!notice"
-      :color="notice?.color"
-      timeout="3000"
-      location="top"
-      data-test="settings-notice"
-      @update:model-value="notice = null"
-    >
-      {{ notice?.text }}
-    </v-snackbar>
   </TabPage>
 </template>
 
@@ -104,5 +110,12 @@ async function save() {
 .settings-nav {
   position: sticky;
   top: 96px;
+}
+
+.settings-nav__group {
+  min-height: 32px;
+  padding-inline-start: 12px !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 </style>

@@ -1,22 +1,28 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
-import { useDisplay, useTheme } from 'vuetify'
+import { CloudOff, RefreshCw } from '@lucide/vue'
+import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useTheme } from 'vuetify'
 
-import AppNavigation from '@/components/AppNavigation.vue'
-import MobileBottomNav from '@/components/MobileBottomNav.vue'
-import ThemeToggle from '@/components/ThemeToggle.vue'
-import { useHealthStore } from '@/stores/health'
+import { connectApi } from '@/auth/connect'
+import SessionTimeoutHost from '@/components/auth/SessionTimeoutHost.vue'
+import VerifyIdentityHost from '@/components/auth/VerifyIdentityHost.vue'
+import ConfirmDialogHost from '@/components/ui/ConfirmDialogHost.vue'
+import NotificationHost from '@/components/ui/NotificationHost.vue'
+import AppShell from '@/layouts/AppShell.vue'
+import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
-import { formatLongDate, greeting } from '@/utils/format'
 
-const { mobile } = useDisplay()
+const route = useRoute()
+const router = useRouter()
 const theme = useTheme()
 const themeStore = useThemeStore()
-const healthStore = useHealthStore()
+const auth = useAuthStore()
+const ready = ref(false)
+const retrying = ref(false)
 
-// null lets Vuetify decide: open on desktop, closed on mobile.
-const drawer = ref<boolean | null>(null)
-const now = new Date()
+connectApi()
+void router.isReady().then(() => (ready.value = true))
 
 watch(
   () => themeStore.preference,
@@ -24,58 +30,89 @@ watch(
   { immediate: true },
 )
 
-onMounted(() => healthStore.refresh())
+// Whenever someone stops being signed in (signing out, or the session ending), go to sign-in,
+// coming back to the same page afterwards if the session simply ran out. Pages anyone can open,
+// like an invitation, stay put.
+watch(
+  () => auth.signedIn,
+  (signedIn, wasSignedIn) => {
+    if (signedIn || !wasSignedIn || route.meta.access === 'public') return
+    auth.signedOutReason ??= 'expired'
+    const redirect = auth.signedOutReason === 'expired' ? route.fullPath : undefined
+    void router.push({ name: 'sign-in', query: redirect ? { redirect } : {} })
+  },
+)
+
+async function retry() {
+  retrying.value = true
+  try {
+    await auth.load()
+    await router.replace({ path: route.fullPath, force: true })
+  } catch {
+    // Still unreachable; the message stays up.
+  } finally {
+    retrying.value = false
+  }
+}
 </script>
 
 <template>
   <v-app>
-    <AppNavigation v-model="drawer" />
-
-    <v-app-bar flat border="b" height="68" class="app-bar">
-      <router-link
-        v-if="mobile"
-        to="/"
-        class="app-bar__brand d-flex align-center ga-2 ps-4"
-        data-test="app-brand"
+    <div
+      v-if="auth.loadError && !auth.state"
+      class="startup-error d-flex align-center justify-center pa-6"
+      data-test="startup-error"
+    >
+      <v-empty-state
+        :icon="CloudOff"
+        headline="Can't reach Cashcove"
+        :text="`${auth.loadError} If it keeps happening, check that the Cashcove container is running.`"
       >
-        <img src="/favicon.svg" alt="" width="30" height="30" />
-        <span class="text-title-large font-weight-bold">Cashcove</span>
-      </router-link>
-      <div v-else class="ps-6" data-test="app-greeting">
-        <div class="text-title-medium font-weight-bold">{{ greeting(now) }}</div>
-        <div class="text-label-medium text-medium-emphasis">{{ formatLongDate(now) }}</div>
-      </div>
-      <template #append>
-        <ThemeToggle />
-      </template>
-    </v-app-bar>
+        <template #actions>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :prepend-icon="RefreshCw"
+            :loading="retrying"
+            data-test="startup-retry"
+            @click="retry"
+          >
+            Try again
+          </v-btn>
+        </template>
+      </v-empty-state>
+    </div>
+    <template v-else-if="ready">
+      <router-view v-if="route.meta.bare" />
+      <AppShell v-else />
+      <SessionTimeoutHost v-if="auth.signedIn" />
+    </template>
+    <div v-else class="app-loading" aria-busy="true" data-test="app-loading">
+      <v-progress-circular indeterminate color="primary" size="36" width="3" />
+    </div>
 
-    <v-main>
-      <v-container class="app-main py-6 py-md-10 px-4 px-md-8">
-        <router-view v-slot="{ Component }">
-          <v-fade-transition mode="out-in">
-            <component :is="Component" />
-          </v-fade-transition>
-        </router-view>
-      </v-container>
-    </v-main>
-
-    <MobileBottomNav v-if="mobile" @more="drawer = true" />
+    <ConfirmDialogHost />
+    <VerifyIdentityHost />
+    <NotificationHost />
   </v-app>
 </template>
 
 <style scoped>
-.app-bar {
-  backdrop-filter: saturate(180%) blur(12px);
-  background: rgba(var(--v-theme-background), 0.8) !important;
+.startup-error {
+  min-height: 100dvh;
 }
 
-.app-bar__brand {
-  color: inherit;
-  text-decoration: none;
+.app-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  /* Only shows up if loading takes a moment, so fast loads don't flash a spinner. */
+  animation: appear 0.2s 0.3s both;
 }
 
-.app-main {
-  max-width: 1240px;
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
 }
 </style>

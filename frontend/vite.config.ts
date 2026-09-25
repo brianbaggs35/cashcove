@@ -21,6 +21,9 @@ export default defineConfig({
   },
   build: {
     sourcemap: false,
+    // The password strength checker's word lists (zxcvbn, about 1.2 MB) are split out and load
+    // only when someone chooses a password, so they don't slow down anything else.
+    chunkSizeWarningLimit: 1300,
   },
   test: {
     environment: 'jsdom',

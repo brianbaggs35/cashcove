@@ -67,11 +67,7 @@ const options: { value: ThemePreference; title: string; icon: typeof Sun }[] = [
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 
-.theme-option--dark .theme-option.v-card--variant-outlined {
-  border-color: rgba(var(--v-border-color), 0.2);
-}
-
-.theme-option__preview {
+.theme-option--dark .theme-option__preview {
   --bg: #0b1120;
   --panel: #111a2e;
   --ink: #334155;
