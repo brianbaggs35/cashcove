@@ -5,6 +5,8 @@ cd /app/backend
 
 until pg_isready -q -h /run/postgresql; do sleep 1; done
 alembic upgrade head
+# Until the first admin exists, print a one-time code the setup wizard asks for.
+python -m app.cli setup-code --if-needed
 
 if [ "${CASHCOVE_MODE:-production}" = development ]; then
     exec uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir app

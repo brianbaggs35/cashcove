@@ -85,6 +85,13 @@ jobs:
           uv run alembic downgrade base
           uv run alembic upgrade head
 
+      # The same tests again on the database the app really runs on (after the migration
+      # checks, because the tests replace the schema with the models' own).
+      - name: Tests on Postgres 18
+        env:
+          CASHCOVE_TEST_DATABASE_URL: postgresql+psycopg://cashcove:cashcove@127.0.0.1:5432/cashcove
+        run: uv run pytest --no-cov -p no:cacheprovider
+
       - name: Upload coverage report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -156,7 +163,14 @@ jobs:
       - name: Hadolint, ShellCheck and actionlint
         run: make lint-infra
 
+      - name: Trivy scan of dependencies, secrets and the Dockerfile
+        run: make scan-source
+
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Today's date, to refresh cached OS packages daily
+        id: date
+        run: echo "today=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
       - name: Build the image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -165,8 +179,18 @@ jobs:
           target: runtime
           load: true
           tags: cashcove:ci
+          build-args: APK_REFRESH=${{ steps.date.outputs.today }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trivy scan of the image
+        run: make scan-image
+
+      - name: Password for the smoke test's admin
+        run: |
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          echo "CASHCOVE_SMOKE_PASSWORD=$password" >> "$GITHUB_ENV"
 
       - name: Start the stack
         run: docker compose up --detach --no-build --wait --wait-timeout 180

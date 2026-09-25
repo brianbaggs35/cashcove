@@ -1,12 +1,12 @@
-"""Non-secret facts about this install, shown on the Settings tab."""
+"""Non-secret facts about this install, shown on the Settings tab to signed-in members."""
 
-from typing import Annotated, Literal
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app import __version__
-from app.config import Settings, get_settings
+from app.auth.deps import AppSettings, CurrentAuth
 
 router = APIRouter(tags=["system"])
 
@@ -23,7 +23,7 @@ class SystemInfo(BaseModel):
 
 
 @router.get("/system", response_model=SystemInfo)
-def system_info(settings: Annotated[Settings, Depends(get_settings)]) -> SystemInfo:
+def system_info(auth: CurrentAuth, settings: AppSettings) -> SystemInfo:
     return SystemInfo(
         version=__version__,
         environment=settings.environment,
