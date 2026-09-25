@@ -13,8 +13,8 @@ TRIVY := docker run --rm -v cashcove-trivy-cache:/root/.cache/trivy
 TRIVY_FLAGS := --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart rebuild logs ps shell psql backup setup-code reset-link turn-off-2fa \
-	dev dev-down dev-logs \
+.PHONY: help up down restart rebuild logs ps shell psql backup secret-key \
+	setup-code reset-link turn-off-2fa dev dev-down dev-logs \
 	install test test-backend test-frontend lint lint-backend lint-frontend lint-infra format audit \
 	scan scan-source scan-image clean
 
@@ -53,6 +53,9 @@ backup: ## Dump the database to ./backups
 	$(COMPOSE) exec -T -u cashcove cashcove pg_dump -h /run/postgresql -Fc cashcove \
 		> backups/cashcove-$$(date +%Y%m%d-%H%M%S).dump
 	@ls -1t backups | head -1
+
+secret-key: ## Print the app secret key, to keep somewhere safe apart from the backups
+	@$(COMPOSE) exec -u cashcove cashcove cat /data/secrets/secret.key
 
 setup-code: ## Print a fresh one-time code for creating the first admin
 	$(COMPOSE) exec -u cashcove -w /app/backend cashcove python -m app.cli setup-code
