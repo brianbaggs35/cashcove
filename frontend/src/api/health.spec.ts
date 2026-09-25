@@ -3,18 +3,15 @@ import { fetchHealth } from '@/api/health'
 
 describe('fetchHealth', () => {
   it('returns the API health report', async () => {
-    const report = { status: 'ok', version: '0.1.0', database: 'ok' }
+    const report = { status: 'ok', database: 'ok' }
     vi.spyOn(client, 'apiGet').mockResolvedValue(report)
     await expect(fetchHealth()).resolves.toEqual(report)
+    expect(client.apiGet).toHaveBeenCalledWith('/health')
   })
 
   it('treats a 503 as a degraded report', async () => {
     vi.spyOn(client, 'apiGet').mockRejectedValue(new client.ApiError(503, 'down'))
-    await expect(fetchHealth()).resolves.toEqual({
-      status: 'degraded',
-      version: 'unknown',
-      database: 'unavailable',
-    })
+    await expect(fetchHealth()).resolves.toEqual({ status: 'degraded', database: 'unavailable' })
   })
 
   it('rethrows other API errors', async () => {

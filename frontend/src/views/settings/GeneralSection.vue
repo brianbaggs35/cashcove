@@ -1,55 +1,10 @@
 <script setup lang="ts">
 import { Calendar, House } from '@lucide/vue'
 
-import { currencyName, formatMoney, formatShortDate, localeName, monthName } from '@/utils/format'
+import FormatPreview from '@/components/FormatPreview.vue'
+import { currencyOptions, localeOptions, monthOptions } from '@/utils/regional'
 import PreferencesGate from '@/views/settings/PreferencesGate.vue'
 import SettingsCard from '@/views/settings/SettingsCard.vue'
-
-const CURRENCIES = [
-  'USD',
-  'CAD',
-  'EUR',
-  'GBP',
-  'AUD',
-  'NZD',
-  'JPY',
-  'CHF',
-  'SEK',
-  'NOK',
-  'DKK',
-  'MXN',
-  'BRL',
-  'INR',
-  'CNY',
-  'SGD',
-  'HKD',
-  'ZAR',
-]
-const LOCALES = [
-  'en-US',
-  'en-CA',
-  'en-GB',
-  'en-AU',
-  'fr-CA',
-  'fr-FR',
-  'de-DE',
-  'es-ES',
-  'es-MX',
-  'it-IT',
-  'nl-NL',
-  'pt-BR',
-  'ja-JP',
-]
-
-const currencies = CURRENCIES.map((code) => ({
-  value: code,
-  title: `${code} · ${currencyName(code)}`,
-}))
-const locales = LOCALES.map((code) => ({ value: code, title: localeName(code) }))
-const months = Array.from({ length: 12 }, (_, index) => ({
-  value: index + 1,
-  title: monthName(index + 1),
-}))
 
 const rules = {
   name: [
@@ -57,11 +12,10 @@ const rules = {
     (value: string) => value.length <= 80 || 'Keep it under 80 characters',
   ],
 }
-const today = new Date()
 </script>
 
 <template>
-  <PreferencesGate v-slot="{ draft }">
+  <PreferencesGate v-slot="{ draft, readonly }">
     <SettingsCard title="Household" subtitle="Shown across Cashcove and on alerts." :icon="House">
       <v-text-field
         v-model="draft.general.household_name"
@@ -81,7 +35,7 @@ const today = new Date()
         <v-col cols="12" sm="6">
           <v-autocomplete
             v-model="draft.general.currency"
-            :items="currencies"
+            :items="currencyOptions"
             label="Currency"
             data-test="currency"
           />
@@ -89,7 +43,7 @@ const today = new Date()
         <v-col cols="12" sm="6">
           <v-select
             v-model="draft.general.locale"
-            :items="locales"
+            :items="localeOptions"
             label="Number and date format"
             data-test="locale"
           />
@@ -97,7 +51,7 @@ const today = new Date()
         <v-col cols="12" sm="6">
           <v-select
             v-model="draft.general.fiscal_year_start_month"
-            :items="months"
+            :items="monthOptions"
             label="Budget year starts in"
             data-test="fiscal-month"
           />
@@ -111,6 +65,7 @@ const today = new Date()
             variant="outlined"
             color="primary"
             density="comfortable"
+            :disabled="readonly"
             data-test="week-start"
           >
             <v-btn value="sunday">Sunday</v-btn>
@@ -118,31 +73,11 @@ const today = new Date()
           </v-btn-toggle>
         </v-col>
       </v-row>
-      <v-sheet
-        rounded="lg"
-        class="preview d-flex flex-wrap ga-6 pa-4 mt-2"
-        data-test="format-preview"
-      >
-        <div>
-          <div class="text-label-medium text-medium-emphasis">Amounts look like</div>
-          <div class="text-title-medium font-weight-bold tabular-nums">
-            {{ formatMoney(1234.56, draft.general.currency, draft.general.locale) }}
-          </div>
-        </div>
-        <div>
-          <div class="text-label-medium text-medium-emphasis">Dates look like</div>
-          <div class="text-title-medium font-weight-bold">
-            {{ formatShortDate(today, draft.general.locale) }}
-          </div>
-        </div>
-      </v-sheet>
+      <FormatPreview
+        :currency="draft.general.currency"
+        :locale="draft.general.locale"
+        class="mt-2"
+      />
     </SettingsCard>
   </PreferencesGate>
 </template>
-
-<style scoped>
-.preview {
-  background: rgba(var(--v-theme-primary), 0.06);
-  border: 1px dashed rgba(var(--v-theme-primary), 0.3);
-}
-</style>

@@ -1,6 +1,7 @@
 import * as api from '@/api/preferences'
+import { notices } from '@/composables/notify'
 import { usePreferencesStore } from '@/stores/preferences'
-import { makePreferences } from '@/test/fixtures'
+import { makePreferences, makeSessionState, makeUser } from '@/test/fixtures'
 import { flushPromises, mountWithPlugins } from '@/test/mount'
 import SettingsView from '@/views/SettingsView.vue'
 
@@ -55,6 +56,16 @@ describe('SettingsView', () => {
     wrapper.unmount()
   })
 
+  it('groups the sections in the side navigation', async () => {
+    const { wrapper } = await render('/settings/account')
+    const groups = wrapper.findAll('.settings-nav__group').map((group) => group.text())
+    expect(groups).toEqual(['Household', 'You', 'Cashcove'])
+    const active = wrapper.find('[data-test="settings-nav"] .v-list-item--active')
+    expect(active.attributes('data-test')).toBe('settings-link-account')
+    expect(wrapper.find('[data-test="profile-name"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('offers to save changes and confirms when saved', async () => {
     const { wrapper, store } = await render()
     expect(wrapper.find('[data-test="save-bar"]').exists()).toBe(false)
@@ -67,7 +78,7 @@ describe('SettingsView', () => {
     await wrapper.find('[data-test="save"]').trigger('click')
     await flushPromises()
     expect(store.dirty).toBe(false)
-    expect(document.body.textContent).toContain('Settings saved')
+    expect(notices.value.at(-1)).toMatchObject({ text: 'Settings saved', tone: 'success' })
     expect(wrapper.find('[data-test="save-bar"]').exists()).toBe(false)
     wrapper.unmount()
   })
@@ -75,10 +86,13 @@ describe('SettingsView', () => {
   it('reports a failed save and keeps the changes', async () => {
     const { wrapper, store } = await render()
     await wrapper.find('[data-test="household-name"] input').setValue('The Coves')
-    vi.spyOn(api, 'savePreferences').mockRejectedValue(new Error('PUT /settings failed with 422'))
+    vi.spyOn(api, 'savePreferences').mockRejectedValue(new Error('The name is too long.'))
     await wrapper.find('[data-test="save"]').trigger('click')
     await flushPromises()
-    expect(document.body.textContent).toContain("Couldn't save: PUT /settings failed with 422")
+    expect(notices.value.at(-1)).toMatchObject({
+      text: "Couldn't save your settings. The name is too long.",
+      tone: 'error',
+    })
     expect(store.dirty).toBe(true)
     wrapper.unmount()
   })
@@ -92,7 +106,7 @@ describe('SettingsView', () => {
     })
     await wrapper.find('[data-test="save"]').trigger('click')
     await flushPromises()
-    expect(document.body.textContent).toContain("Couldn't save: unknown error")
+    expect(notices.value.at(-1)?.text).toBe("Couldn't save your settings.")
     wrapper.unmount()
   })
 
@@ -104,17 +118,21 @@ describe('SettingsView', () => {
     wrapper.unmount()
   })
 
-  it('clears the notice when the snackbar closes', async () => {
-    const { wrapper } = await render()
-    await wrapper.find('[data-test="household-name"] input').setValue('The Coves')
-    vi.spyOn(api, 'savePreferences').mockResolvedValue(makePreferences())
-    await wrapper.find('[data-test="save"]').trigger('click')
+  it('shows viewers the settings without a way to change them', async () => {
+    const { wrapper, store } = await mountWithPlugins(SettingsView, {
+      route: '/settings',
+      width: 1920,
+      session: makeSessionState({ user: makeUser({ role: 'viewer' }) }),
+    }).then(async (mounted) => {
+      await flushPromises()
+      return { ...mounted, store: usePreferencesStore() }
+    })
+    expect(wrapper.find('[data-test="read-only-notice"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="household-name"] input').attributes('readonly')).toBeDefined()
+    // Even a change made some other way offers nothing to save.
+    store.draft!.general.household_name = 'The Coves'
     await flushPromises()
-    const snackbar = wrapper.findComponent({ name: 'VSnackbar' })
-    expect(snackbar.props('modelValue')).toBe(true)
-    snackbar.vm.$emit('update:modelValue', false)
-    await flushPromises()
-    expect(snackbar.props('modelValue')).toBe(false)
+    expect(wrapper.find('[data-test="save-bar"]').exists()).toBe(false)
     wrapper.unmount()
   })
 })

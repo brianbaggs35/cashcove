@@ -1,6 +1,6 @@
 import StatusIndicator from '@/components/StatusIndicator.vue'
 import { useHealthStore } from '@/stores/health'
-import { degradedReport, healthyReport } from '@/test/fixtures'
+import { degradedReport, healthyReport, makeSystemInfo } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
 
 describe('StatusIndicator', () => {
@@ -34,6 +34,9 @@ describe('StatusIndicator', () => {
   it('shows the version once known', async () => {
     const { wrapper, store } = await render()
     store.health = healthyReport
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).not.toContain('Version')
+    store.system = makeSystemInfo()
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('Version 0.1.0')
     wrapper.unmount()

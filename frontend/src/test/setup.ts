@@ -1,3 +1,9 @@
+import { resetApiHooks } from '@/api/client'
+import { confirmRequest } from '@/composables/confirm'
+import { notices } from '@/composables/notify'
+import { verificationRequest } from '@/composables/verification'
+import { unmountAll } from '@/test/cleanup'
+
 // jsdom lacks the layout APIs Vuetify relies on.
 class ResizeObserverStub {
   observe() {}
@@ -38,6 +44,13 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  unmountAll()
+  // Module-level state the app shares between components starts fresh for each test.
+  resetApiHooks()
+  notices.value = []
+  confirmRequest.value = null
+  verificationRequest.value?.resolve(false)
+  sessionStorage.clear()
   localStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()

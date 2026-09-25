@@ -100,7 +100,7 @@ export const navItems: NavItem[] = [
     title: 'Settings',
     path: '/settings',
     icon: Settings,
-    summary: 'Users, alerts, appearance and system status.',
+    summary: 'Your household, your account and Cashcove itself.',
     planned: ['Users and roles', 'Alert preferences', 'Security and sessions'],
   },
 ]

@@ -1,5 +1,6 @@
-import { mountSection } from '@/test/settings'
+import { makeSessionState, makeUser } from '@/test/fixtures'
 import { flushPromises } from '@/test/mount'
+import { mountSection } from '@/test/settings'
 import { formatShortDate } from '@/utils/format'
 import GeneralSection from '@/views/settings/GeneralSection.vue'
 
@@ -61,5 +62,17 @@ describe('GeneralSection', () => {
       fiscal_year_start_month: 4,
     })
     wrapper.unmount()
+  })
+
+  it('is read-only for viewers', async () => {
+    const { wrapper, preferences } = await mountSection(GeneralSection, {
+      session: makeSessionState({ user: makeUser({ role: 'viewer' }) }),
+    })
+    expect(wrapper.find('[data-test="read-only-notice"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="household-name"] input').attributes('readonly')).toBeDefined()
+    const monday = wrapper.find('[data-test="week-start"]').findAll('button')[1]!
+    expect(monday.attributes('disabled')).toBeDefined()
+    await monday.trigger('click')
+    expect(preferences.draft!.general.week_starts_on).toBe('sunday')
   })
 })

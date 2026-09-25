@@ -25,8 +25,8 @@ const state = computed(() => {
       <span class="status-indicator__dot" :class="`bg-${state.color}`" />
     </template>
     <v-list-item-title class="text-label-large">{{ state.label }}</v-list-item-title>
-    <v-list-item-subtitle v-if="store.health"
-      >Version {{ store.health.version }}</v-list-item-subtitle
+    <v-list-item-subtitle v-if="store.system"
+      >Version {{ store.system.version }}</v-list-item-subtitle
     >
   </v-list-item>
 </template>

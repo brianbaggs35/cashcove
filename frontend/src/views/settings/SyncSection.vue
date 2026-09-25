@@ -25,7 +25,7 @@ const history = HISTORY_DAYS.map((days) => ({ value: days, title: historyLabels[
 </script>
 
 <template>
-  <PreferencesGate v-slot="{ draft }">
+  <PreferencesGate v-slot="{ draft, readonly }">
     <SettingsCard
       title="Automatic sync"
       subtitle="Cashcove checks your linked banks for new transactions and balances on a schedule."
@@ -48,7 +48,7 @@ const history = HISTORY_DAYS.map((days) => ({ value: days, title: historyLabels[
         mandatory
         column
         selected-class="text-primary"
-        :disabled="!draft.sync.auto_sync"
+        :disabled="readonly || !draft.sync.auto_sync"
         data-test="sync-interval"
       >
         <v-chip
