@@ -70,8 +70,13 @@ done
 csrf="$(jq --raw-output '.session.csrf_token' <<<"$state")"
 
 echo "Signed-in requests"
-api GET /api/system --fail | jq --exit-status '.version' >/dev/null ||
-    fail "/api/system did not return a version"
+system="$(api GET /api/system --fail)"
+jq --exit-status '.version' <<<"$system" >/dev/null || fail "/api/system did not return a version"
+# The release workflow checks the image reports the version it was built as.
+if [ -n "${CASHCOVE_SMOKE_VERSION:-}" ]; then
+    jq --exit-status --arg version "$CASHCOVE_SMOKE_VERSION" '.version == $version' <<<"$system" \
+        >/dev/null || fail "the image reports version $(jq -r .version <<<"$system"), not $CASHCOVE_SMOKE_VERSION"
+fi
 api GET /api/settings --fail --dump-header "$work/api-headers" --output /dev/null
 grep --quiet --ignore-case '^cache-control: no-store' "$work/api-headers" ||
     fail "API responses may be cached"

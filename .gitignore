@@ -15,6 +15,9 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# End-to-end test reports and coverage (make e2e)
+e2e-results/
+
 # Local config and runtime data
 .env
 data/

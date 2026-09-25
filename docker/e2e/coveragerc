@@ -1,0 +1,8 @@
+# Coverage settings for the e2e image's API, which runs under `coverage run` so the
+# Playwright tests can report what they exercised (GET /api/e2e/coverage).
+[run]
+branch = true
+source = app
+# Paths relative to /app/backend, so reports line up with backend/ in the repository.
+relative_files = true
+data_file = /tmp/cashcove-api.coverage

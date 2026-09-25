@@ -13,7 +13,8 @@ web app, managed by supervisord. One `make up` brings the whole thing online.
 | Database | PostgreSQL 18, on a unix socket only, peer auth, no password to leak    |
 | Edge     | nginx mainline, TLS 1.3 only, HSTS, strict CSP (allows Plaid Link only) |
 | Image    | Chainguard's Wolfi base, read-only filesystem, scanned by Trivy in CI   |
-| Quality  | pytest, vitest (100% coverage), ruff, pyright, mypy, bandit, ESLint     |
+| Tests    | pytest and vitest at 100% coverage, Playwright end to end, axe          |
+| Quality  | SonarQube, ruff, pyright, mypy, bandit, ESLint, vue-tsc, Trivy          |
 
 ## Quick start
 
@@ -120,6 +121,7 @@ Both are recorded in the activity log.
 make dev      # the same single container, with Vite hot reload and API auto-reload
 make install  # or install dependencies locally to run tests and linters outside Docker
 make test     # pytest + vitest, both must stay at 100% coverage
+make e2e      # Playwright end-to-end tests against a test server built from the image
 make lint     # ruff, pyright, mypy, bandit, ESLint, Prettier, vue-tsc, hadolint, ShellCheck, actionlint
 make audit    # pip-audit and npm audit
 make scan     # Trivy on the source, dependencies, Dockerfile and built image
@@ -127,21 +129,48 @@ make scan     # Trivy on the source, dependencies, Dockerfile and built image
 
 Every pull request runs the same checks in GitHub Actions (`.github/workflows/ci.yml`):
 the **Backend** and **Frontend** jobs run the linters, type checkers, dependency audits and
-tests with 100% coverage, and the **Container** job scans with Trivy, builds the image,
-starts it with `docker compose` and smoke-tests TLS, the API, first-run setup, the redirect
-and the security headers.
+tests with 100% coverage; the **Container** job scans with Trivy, builds the image, starts
+it with `docker compose` and smoke-tests TLS, the API, first-run setup, the redirect and the
+security headers; the **End-to-end** job runs the Playwright tests; and the **SonarQube**
+job holds the code to SonarQube's quality gate.
 
 `make dev` mounts `backend/app`, `backend/migrations` and `frontend/` into the container,
 so edits reload instantly at `https://localhost`. API docs are at `/api/docs` in dev.
 
+### End-to-end tests
+
+The Playwright tests start every spec from the same baseline data (a household with two
+admins, a viewer, a turned-off account and a pending invitation), which a before block
+resets. Fixtures sign the browser in as anyone, call the API as anyone, and collect coverage
+of both the web app and the API; every page is also checked for accessibility problems.
+[frontend/e2e/README.md](frontend/e2e/README.md) covers running them, the baseline and
+writing specs.
+
+### Code quality
+
+The **SonarQube** job sends every pull request and every push to master to
+[SonarQube Cloud](https://sonarcloud.io), free for public repositories, with both test
+suites' coverage, and fails when the code misses its quality gate. To turn it on:
+
+1. Sign in to SonarQube Cloud with GitHub, import your GitHub account as an organization,
+   and analyze this repository.
+2. In the project's **Administration > Analysis Method**, turn off **Automatic Analysis**,
+   since CI runs it.
+3. Create a token (**My Account > Security**) and add it to the repository as the
+   `SONAR_TOKEN` Actions secret (**Settings > Secrets and variables > Actions**).
+4. If SonarQube Cloud's organization or project key differs from the ones in
+   `sonar-project.properties`, change them there.
+
+Until the secret exists, the job skips the analysis.
+
 ### Layout
 
 ```
-backend/     FastAPI app (app/), Alembic migrations, pytest suite
-frontend/    Vue + Vuetify app (src/), vitest suite
-docker/      entrypoint, nginx templates, supervisord programs, healthcheck
-.github/     CI workflow and the container smoke test
-Dockerfile   frontend build, backend build, runtime and dev stages
+backend/     FastAPI app (app/), Alembic migrations, pytest suite, e2e test harness (e2e/)
+frontend/    Vue + Vuetify app (src/), vitest suite, Playwright tests (e2e/)
+docker/      entrypoint, nginx templates, supervisord programs, healthcheck, e2e image files
+.github/     CI and release workflows, the container smoke test
+Dockerfile   frontend build, backend build, runtime, dev and e2e stages
 ```
 
 ### Database migrations
@@ -152,6 +181,33 @@ uv run alembic revision --autogenerate -m "describe the change"
 ```
 
 Migrations run automatically every time the container starts.
+
+## Releases
+
+Publishing a release on GitHub builds the image and pushes it to GitHub's container
+registry (`.github/workflows/release.yml`):
+
+1. Draft a release with a new tag like `v1.4.0` (or `v2.0.0-rc.1` for a pre-release).
+2. Publish it. GitHub doesn't run workflows for drafts, so publishing starts the build.
+
+The workflow builds the image, scans it with Trivy, starts it and smoke-tests it, then
+builds it for `linux/amd64` and `linux/arm64` and pushes `ghcr.io/brianbaggs35/cashcove`
+tagged `1.4.0`, `1.4`, `1` and `latest` (pre-releases only get their own tag), with a
+software bill of materials and signed build provenance. The image reports the release's
+version on **Settings > System**. Only the production stages go in: Node and the other
+build tools stay in the build stages.
+
+To run a release instead of building the image yourself, set these in `.env` and run
+`make pull`:
+
+```sh
+CASHCOVE_IMAGE=ghcr.io/brianbaggs35/cashcove
+CASHCOVE_VERSION=1.4.0
+```
+
+New packages on GitHub start out private: make it public under the package's settings, or
+`docker login ghcr.io` first. `gh attestation verify oci://ghcr.io/brianbaggs35/cashcove:1.4.0
+--owner brianbaggs35` checks an image was built by this repository's workflow.
 
 ## Operations
 

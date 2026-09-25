@@ -2,6 +2,7 @@
 SHELL := /bin/bash
 COMPOSE := docker compose
 DEV_COMPOSE := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
+E2E_COMPOSE := $(COMPOSE) -f docker-compose.e2e.yml
 BACKEND := cd backend &&
 FRONTEND := cd frontend &&
 HADOLINT_IMAGE := hadolint/hadolint:v2.15.1
@@ -13,10 +14,10 @@ TRIVY := docker run --rm -v cashcove-trivy-cache:/root/.cache/trivy
 TRIVY_FLAGS := --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart rebuild logs ps shell psql backup secret-key \
+.PHONY: help up pull down restart rebuild logs ps shell psql backup secret-key \
 	setup-code reset-link turn-off-2fa dev dev-down dev-logs \
-	install test test-backend test-frontend lint lint-backend lint-frontend lint-infra format audit \
-	scan scan-source scan-image clean
+	install test test-backend test-frontend e2e e2e-up e2e-down e2e-ui e2e-report e2e-logs \
+	lint lint-backend lint-frontend lint-infra format audit scan scan-source scan-image clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -24,6 +25,11 @@ help: ## Show this help
 ## ---- Run -----------------------------------------------------------------------
 up: ## Build and start Cashcove in the background
 	$(COMPOSE) up -d --build
+	@echo "Cashcove is starting at https://$${CASHCOVE_SERVER_NAME:-localhost}"
+
+pull: ## Download and start the release in .env's CASHCOVE_IMAGE and CASHCOVE_VERSION
+	$(COMPOSE) pull
+	$(COMPOSE) up -d --no-build
 	@echo "Cashcove is starting at https://$${CASHCOVE_SERVER_NAME:-localhost}"
 
 down: ## Stop Cashcove (your data is kept)
@@ -78,9 +84,9 @@ dev-down: ## Stop the dev container
 dev-logs: ## Follow the dev container's logs
 	$(DEV_COMPOSE) logs -f
 
-install: ## Install backend and frontend dependencies locally
+install: ## Install backend and frontend dependencies locally, and Chromium for Playwright
 	$(BACKEND) uv sync
-	$(FRONTEND) npm ci
+	$(FRONTEND) npm ci && npx playwright install chromium
 
 test: test-backend test-frontend ## Run all tests with coverage (100% required)
 
@@ -90,20 +96,39 @@ test-backend: ## Run pytest with coverage
 test-frontend: ## Run vitest with coverage
 	$(FRONTEND) npm run coverage
 
+## ---- End-to-end tests (frontend/e2e/README.md) --------------------------------------
+e2e: e2e-up ## Run the Playwright tests, e.g. make e2e ARGS="sign-in --project=desktop"
+	$(FRONTEND) npm run e2e -- $(ARGS)
+
+e2e-up: ## Build and start the test server at https://localhost:9443 (fresh data)
+	$(E2E_COMPOSE) up -d --build --wait --wait-timeout 180
+
+e2e-down: ## Stop the test server and throw its data away
+	$(E2E_COMPOSE) down --volumes
+
+e2e-ui: e2e-up ## Open Playwright's UI to run and debug tests step by step
+	$(FRONTEND) npm run e2e:ui
+
+e2e-report: ## Open the last run's HTML report
+	$(FRONTEND) npm run e2e:report
+
+e2e-logs: ## Follow the test server's logs
+	$(E2E_COMPOSE) logs -f
+
 lint: lint-backend lint-frontend lint-infra ## Run every linter and type checker
 
 lint-backend: ## ruff, pyright, mypy and bandit (API and container scripts)
 	$(BACKEND) uv run ruff check . ../docker && uv run ruff format --check . ../docker \
-		&& uv run pyright && uv run mypy app tests migrations \
-		&& uv run bandit -c pyproject.toml -r app migrations ../docker -q
+		&& uv run pyright && uv run mypy app e2e tests migrations \
+		&& uv run bandit -c pyproject.toml -r app e2e migrations ../docker -q
 
 lint-frontend: ## ESLint, Prettier and vue-tsc
 	$(FRONTEND) npm run lint && npm run format:check && npm run typecheck
 
-lint-infra: ## hadolint, ShellCheck and actionlint (Dockerfile, scripts, CI workflow)
+lint-infra: ## hadolint, ShellCheck and actionlint (Dockerfile, scripts, CI workflows)
 	docker run --rm -v "$(CURDIR):/work:ro" -w /work $(HADOLINT_IMAGE) hadolint Dockerfile
 	docker run --rm -v "$(CURDIR):/mnt:ro" $(SHELLCHECK_IMAGE) docker/entrypoint.sh docker/start-api.sh \
-		.github/scripts/smoke-test.sh
+		docker/e2e/start-api.sh .github/scripts/smoke-test.sh
 	docker run --rm -v "$(CURDIR):/repo:ro" -w /repo $(ACTIONLINT_IMAGE) -color
 
 format: ## Auto-format backend and frontend code
@@ -122,8 +147,8 @@ scan-source: ## Trivy: vulnerable dependencies, leaked secrets and Dockerfile mi
 
 scan-image: ## Trivy: vulnerabilities in the built image's packages
 	$(TRIVY) -v /var/run/docker.sock:/var/run/docker.sock:ro $(TRIVY_IMAGE) image $(TRIVY_FLAGS) \
-		cashcove:$${CASHCOVE_VERSION:-latest}
+		$${CASHCOVE_IMAGE:-cashcove}:$${CASHCOVE_VERSION:-latest}
 
 clean: ## Remove local build and test artifacts
 	rm -rf backend/.pytest_cache backend/.mypy_cache backend/.ruff_cache backend/.coverage \
-		backend/coverage.xml frontend/dist frontend/coverage
+		backend/coverage.xml frontend/dist frontend/coverage frontend/e2e-results

@@ -2,7 +2,6 @@
 
 from fastapi import FastAPI
 
-from app import __version__
 from app.api import api_router
 from app.config import Settings, get_settings
 
@@ -12,7 +11,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     docs = settings.enable_docs
     app = FastAPI(
         title="Cashcove API",
-        version=__version__,
+        version=settings.version,
         docs_url="/api/docs" if docs else None,
         redoc_url=None,
         openapi_url="/api/openapi.json" if docs else None,
