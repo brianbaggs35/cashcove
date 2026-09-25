@@ -1,59 +1,120 @@
-import * as healthApi from '@/api/health'
-import { useThemeStore } from '@/stores/theme'
+import * as api from '@/api/preferences'
+import { usePreferencesStore } from '@/stores/preferences'
+import { makePreferences } from '@/test/fixtures'
 import { flushPromises, mountWithPlugins } from '@/test/mount'
 import SettingsView from '@/views/SettingsView.vue'
 
 describe('SettingsView', () => {
-  it('shows a healthy API and database', async () => {
-    vi.spyOn(healthApi, 'fetchHealth').mockResolvedValue({
-      status: 'ok',
-      version: '0.1.0',
-      database: 'ok',
-    })
-    const { wrapper } = await mountWithPlugins(SettingsView)
+  beforeEach(() => {
+    vi.spyOn(api, 'fetchPreferences').mockResolvedValue(makePreferences())
+  })
+
+  async function render(route = '/settings') {
+    const mounted = await mountWithPlugins(SettingsView, { route, width: 1920 })
     await flushPromises()
-    expect(wrapper.find('[data-test="health-api"]').text()).toContain('Healthy')
-    expect(wrapper.find('[data-test="health-database"]').text()).toContain('Connected')
-    expect(wrapper.text()).toContain('0.1.0')
+    return { ...mounted, store: usePreferencesStore() }
+  }
+
+  it('loads preferences and opens General by default', async () => {
+    const { wrapper } = await render()
+    expect(api.fetchPreferences).toHaveBeenCalledOnce()
+    expect(wrapper.find('[data-test="household-name"]').exists()).toBe(true)
+    const active = wrapper.find('[data-test="settings-nav"] .v-list-item--active')
+    expect(active.text()).toBe('General')
     wrapper.unmount()
   })
 
-  it('shows a degraded API with the database down', async () => {
-    vi.spyOn(healthApi, 'fetchHealth').mockResolvedValue({
-      status: 'degraded',
-      version: 'unknown',
-      database: 'unavailable',
+  it('does not reload preferences it already has', async () => {
+    const { wrapper } = await mountWithPlugins(SettingsView, {
+      route: '/settings/alerts',
+      beforeMount: () => {
+        const store = usePreferencesStore()
+        store.saved = makePreferences()
+        store.draft = makePreferences()
+      },
     })
-    const { wrapper } = await mountWithPlugins(SettingsView)
-    await flushPromises()
-    expect(wrapper.find('[data-test="health-api"]').text()).toContain('Degraded')
-    expect(wrapper.find('[data-test="health-database"]').text()).toContain('Unavailable')
+    expect(api.fetchPreferences).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="alert-budget"]').exists()).toBe(true)
     wrapper.unmount()
   })
 
-  it('shows a loader, then an error when the API is unreachable, and retries', async () => {
-    const fetchHealth = vi
-      .spyOn(healthApi, 'fetchHealth')
-      .mockRejectedValue(new Error('Failed to fetch'))
-    const { wrapper } = await mountWithPlugins(SettingsView)
-    expect(wrapper.find('.v-skeleton-loader').exists()).toBe(true)
+  it('opens the section named in the URL, with links to every section', async () => {
+    const { wrapper, router } = await render('/settings/sync')
+    expect(wrapper.find('[data-test="sync-interval"]').exists()).toBe(true)
+    const chips = wrapper.find('[data-test="settings-chips"]').findAll('a')
+    expect(chips.map((chip) => chip.attributes('href'))).toContain('/settings/system')
+    await router.push('/settings/appearance')
     await flushPromises()
-    expect(wrapper.find('[data-test="health-error"]').text()).toContain('Failed to fetch')
-    await wrapper.find('[data-test="refresh-health"]').trigger('click')
-    expect(fetchHealth).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-test="theme-option-dark"]').exists()).toBe(true)
     wrapper.unmount()
   })
 
-  it('changes the theme preference', async () => {
-    vi.spyOn(healthApi, 'fetchHealth').mockResolvedValue({
-      status: 'ok',
-      version: '0.1.0',
-      database: 'ok',
+  it('falls back to General for an unknown section', async () => {
+    const { wrapper } = await render('/settings/bogus')
+    expect(wrapper.find('[data-test="household-name"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('offers to save changes and confirms when saved', async () => {
+    const { wrapper, store } = await render()
+    expect(wrapper.find('[data-test="save-bar"]').exists()).toBe(false)
+    await wrapper.find('[data-test="household-name"] input').setValue('The Coves')
+    expect(wrapper.find('[data-test="save-bar"]').exists()).toBe(true)
+
+    const saved = { ...makePreferences() }
+    saved.general.household_name = 'The Coves'
+    vi.spyOn(api, 'savePreferences').mockResolvedValue(saved)
+    await wrapper.find('[data-test="save"]').trigger('click')
+    await flushPromises()
+    expect(store.dirty).toBe(false)
+    expect(document.body.textContent).toContain('Settings saved')
+    expect(wrapper.find('[data-test="save-bar"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('reports a failed save and keeps the changes', async () => {
+    const { wrapper, store } = await render()
+    await wrapper.find('[data-test="household-name"] input').setValue('The Coves')
+    vi.spyOn(api, 'savePreferences').mockRejectedValue(new Error('PUT /settings failed with 422'))
+    await wrapper.find('[data-test="save"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain("Couldn't save: PUT /settings failed with 422")
+    expect(store.dirty).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('reports a failed save without a message', async () => {
+    const { wrapper, store } = await render()
+    await wrapper.find('[data-test="household-name"] input').setValue('The Coves')
+    vi.spyOn(store, 'save').mockImplementation(() => {
+      store.error = null
+      return Promise.resolve(false)
     })
-    const { wrapper } = await mountWithPlugins(SettingsView)
-    const buttons = wrapper.find('[data-test="theme-choice"]').findAll('button')
-    await buttons[1]!.trigger('click')
-    expect(useThemeStore().preference).toBe('dark')
+    await wrapper.find('[data-test="save"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain("Couldn't save: unknown error")
+    wrapper.unmount()
+  })
+
+  it('discards changes', async () => {
+    const { wrapper, store } = await render()
+    await wrapper.find('[data-test="household-name"] input').setValue('The Coves')
+    await wrapper.find('[data-test="discard"]').trigger('click')
+    expect(store.draft!.general.household_name).toBe('My household')
+    wrapper.unmount()
+  })
+
+  it('clears the notice when the snackbar closes', async () => {
+    const { wrapper } = await render()
+    await wrapper.find('[data-test="household-name"] input').setValue('The Coves')
+    vi.spyOn(api, 'savePreferences').mockResolvedValue(makePreferences())
+    await wrapper.find('[data-test="save"]').trigger('click')
+    await flushPromises()
+    const snackbar = wrapper.findComponent({ name: 'VSnackbar' })
+    expect(snackbar.props('modelValue')).toBe(true)
+    snackbar.vm.$emit('update:modelValue', false)
+    await flushPromises()
+    expect(snackbar.props('modelValue')).toBe(false)
     wrapper.unmount()
   })
 })

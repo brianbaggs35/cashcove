@@ -2,18 +2,29 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly detail?: unknown,
   ) {
     super(message)
     this.name = 'ApiError'
   }
 }
 
-export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers)
-  headers.set('Accept', 'application/json')
-  const response = await fetch(`/api${path}`, { ...init, headers, credentials: 'same-origin' })
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+export async function apiRequest<T>(method: Method, path: string, body?: unknown): Promise<T> {
+  const headers = new Headers({ Accept: 'application/json' })
+  const init: RequestInit = { method, headers, credentials: 'same-origin' }
+  if (body !== undefined) {
+    headers.set('Content-Type', 'application/json')
+    init.body = JSON.stringify(body)
+  }
+  const response = await fetch(`/api${path}`, init)
   if (!response.ok) {
-    throw new ApiError(response.status, `GET ${path} failed with ${response.status}`)
+    const detail: unknown = await response.json().catch(() => undefined)
+    throw new ApiError(response.status, `${method} ${path} failed with ${response.status}`, detail)
   }
   return (await response.json()) as T
 }
+
+export const apiGet = <T>(path: string) => apiRequest<T>('GET', path)
+export const apiPut = <T>(path: string, body: unknown) => apiRequest<T>('PUT', path, body)

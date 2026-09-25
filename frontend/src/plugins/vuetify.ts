@@ -49,6 +49,8 @@ export function buildVuetify() {
       VBtn: { rounded: 'lg', style: 'text-transform: none; letter-spacing: normal' },
       VTextField: { variant: 'outlined', density: 'comfortable' },
       VSelect: { variant: 'outlined', density: 'comfortable' },
+      VAutocomplete: { variant: 'outlined', density: 'comfortable' },
+      VNumberInput: { variant: 'outlined', density: 'comfortable' },
       VChip: { rounded: 'lg' },
     },
   })
