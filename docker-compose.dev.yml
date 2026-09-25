@@ -1,0 +1,21 @@
+# Development overlay: `make dev`. Same single container, plus the Vite dev server and API
+# auto-reload, with your source mounted in.
+services:
+  cashcove:
+    build:
+      target: dev
+    image: cashcove:dev
+    container_name: cashcove-dev
+    environment:
+      CASHCOVE_ENABLE_DOCS: "true"
+    volumes:
+      - cashcove-dev-data:/data
+      - ./backend/app:/app/backend/app
+      - ./backend/migrations:/app/backend/migrations
+      - ./frontend:/app/frontend
+      - cashcove-dev-node-modules:/app/frontend/node_modules
+    read_only: false
+
+volumes:
+  cashcove-dev-data:
+  cashcove-dev-node-modules:
