@@ -15,7 +15,8 @@ const views: Record<NavName, NonNullable<RouteRecordRaw['component']>> = {
 export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/accounts' },
   ...navItems.map((item): RouteRecordRaw => ({
-    path: item.path,
+    // Settings sections are deep-linkable, e.g. /settings/alerts.
+    path: item.name === 'settings' ? `${item.path}/:section?` : item.path,
     name: item.name,
     component: views[item.name],
     meta: { title: item.title },

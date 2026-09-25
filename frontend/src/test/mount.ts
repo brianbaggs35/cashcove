@@ -15,6 +15,8 @@ export interface MountOptions {
   withApp?: boolean
   /** Viewport width used for Vuetify's display breakpoints (jsdom defaults to 1024, i.e. mobile). */
   width?: number
+  /** Runs after Pinia is active and before mounting, e.g. to seed stores. */
+  beforeMount?: () => void
 }
 
 export async function mountWithPlugins(component: Component, options: MountOptions = {}) {
@@ -23,6 +25,7 @@ export async function mountWithPlugins(component: Component, options: MountOptio
   setActivePinia(pinia)
   const router = buildRouter(createMemoryHistory())
   const vuetify = buildVuetify()
+  options.beforeMount?.()
 
   if (options.route) {
     await router.push(options.route)

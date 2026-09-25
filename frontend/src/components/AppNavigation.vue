@@ -1,42 +1,55 @@
 <script setup lang="ts">
+import StatusIndicator from '@/components/StatusIndicator.vue'
 import { navItems } from '@/navigation'
 
 const open = defineModel<boolean | null>({ default: null })
-defineProps<{ version?: string }>()
 </script>
 
 <template>
-  <v-navigation-drawer v-model="open" width="264" class="app-nav" aria-label="Main navigation">
-    <div class="d-flex align-center ga-3 px-5 pt-6 pb-4">
-      <img src="/favicon.svg" alt="" width="36" height="36" />
+  <v-navigation-drawer v-model="open" width="272" class="app-nav" aria-label="Main navigation">
+    <router-link to="/" class="app-nav__brand d-flex align-center ga-3 px-5 pt-6 pb-5">
+      <img src="/favicon.svg" alt="" width="38" height="38" />
       <div>
-        <div class="text-h6 font-weight-bold">Cashcove</div>
-        <div class="text-caption text-medium-emphasis">Personal finance</div>
+        <div class="text-title-large font-weight-bold">Cashcove</div>
+        <div class="text-label-medium text-medium-emphasis">Personal finance</div>
       </div>
-    </div>
+    </router-link>
 
-    <v-list nav density="comfortable" class="px-3" color="primary">
+    <v-list nav class="px-3" color="primary" aria-label="Sections">
       <v-list-item
         v-for="item in navItems"
         :key="item.name"
         :to="item.path"
         :title="item.title"
-        :prepend-icon="item.icon"
         rounded="lg"
-        class="mb-1"
-      />
+        class="app-nav__item mb-1"
+      >
+        <template #prepend>
+          <v-icon :icon="item.icon" size="20" />
+        </template>
+      </v-list-item>
     </v-list>
 
     <template #append>
-      <div v-if="version" class="px-5 pb-4 text-caption text-medium-emphasis">
-        Version {{ version }}
-      </div>
+      <v-list nav class="px-3 pb-3">
+        <StatusIndicator />
+      </v-list>
     </template>
   </v-navigation-drawer>
 </template>
 
 <style scoped>
-.app-nav :deep(.v-list-item-title) {
+.app-nav__brand {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-nav__item :deep(.v-list-item-title) {
+  font-size: 0.9375rem;
   font-weight: 500;
+}
+
+.app-nav__item :deep(.v-list-item__spacer) {
+  width: 14px !important;
 }
 </style>

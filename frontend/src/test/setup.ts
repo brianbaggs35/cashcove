@@ -1,5 +1,3 @@
-import { config } from '@vue/test-utils'
-
 // jsdom lacks the layout APIs Vuetify relies on.
 class ResizeObserverStub {
   observe() {}
@@ -34,7 +32,10 @@ globalThis.visualViewport = Object.assign(new EventTarget(), {
   onscrollend: null,
 })
 
-config.global.stubs = { transition: false, 'transition-group': false }
+// Nothing reaches a real network; tests mock the API functions they rely on.
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch is not mocked')))
+})
 
 afterEach(() => {
   localStorage.clear()

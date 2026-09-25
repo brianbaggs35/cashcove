@@ -9,7 +9,7 @@ describe('PageHeader', () => {
     const { wrapper } = await mountWithPlugins(PageHeader, { props: { item } })
     expect(wrapper.find('h1').text()).toBe('Accounts')
     expect(wrapper.text()).toContain(item.summary)
-    expect(wrapper.find('.ga-2').exists()).toBe(false)
+    expect(wrapper.find('.page-header__actions').exists()).toBe(false)
     wrapper.unmount()
   })
 

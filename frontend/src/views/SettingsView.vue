@@ -1,105 +1,108 @@
 <script setup lang="ts">
-import { Activity, Paintbrush, RefreshCw } from '@lucide/vue'
-import { onMounted } from 'vue'
+import { computed, onMounted, ref, type Component } from 'vue'
+import { useRoute } from 'vue-router'
 
-import FeaturePreview from '@/components/FeaturePreview.vue'
 import TabPage from '@/components/TabPage.vue'
-import { findNavItem } from '@/navigation'
-import { useHealthStore } from '@/stores/health'
-import { useThemeStore } from '@/stores/theme'
+import { usePreferencesStore } from '@/stores/preferences'
+import AlertsSection from '@/views/settings/AlertsSection.vue'
+import AppearanceSection from '@/views/settings/AppearanceSection.vue'
+import GeneralSection from '@/views/settings/GeneralSection.vue'
+import SaveBar from '@/views/settings/SaveBar.vue'
+import SecuritySection from '@/views/settings/SecuritySection.vue'
+import { findSection, settingsSections, type SettingsSectionKey } from '@/views/settings/sections'
+import SyncSection from '@/views/settings/SyncSection.vue'
+import SystemSection from '@/views/settings/SystemSection.vue'
+import UsersSection from '@/views/settings/UsersSection.vue'
 
-const themeStore = useThemeStore()
-const healthStore = useHealthStore()
-const item = findNavItem('settings')
+const components: Record<SettingsSectionKey, Component> = {
+  general: GeneralSection,
+  users: UsersSection,
+  alerts: AlertsSection,
+  sync: SyncSection,
+  security: SecuritySection,
+  appearance: AppearanceSection,
+  system: SystemSection,
+}
 
-onMounted(() => healthStore.refresh())
+const route = useRoute()
+const store = usePreferencesStore()
+const section = computed(() => findSection(route.params.section))
+const notice = ref<{ text: string; color: string } | null>(null)
+
+onMounted(() => {
+  if (!store.saved) void store.load()
+})
+
+async function save() {
+  notice.value = (await store.save())
+    ? { text: 'Settings saved', color: 'success' }
+    : { text: `Couldn't save: ${store.error ?? 'unknown error'}`, color: 'error' }
+}
 </script>
 
 <template>
   <TabPage name="settings">
     <v-row>
-      <v-col cols="12" md="6">
-        <v-card class="h-100">
-          <v-card-item :prepend-icon="Paintbrush" title="Appearance" />
-          <v-card-text>
-            <p class="text-medium-emphasis mb-4">
-              Choose a theme, or follow your device's setting.
-            </p>
-            <v-btn-toggle
-              :model-value="themeStore.preference"
-              mandatory
-              color="primary"
-              variant="outlined"
-              divided
-              data-test="theme-choice"
-              @update:model-value="themeStore.setPreference"
+      <v-col cols="12" md="4" lg="3">
+        <v-card class="d-none d-md-block pa-2 settings-nav" data-test="settings-nav">
+          <v-list nav color="primary" density="comfortable" class="pa-0">
+            <v-list-item
+              v-for="item in settingsSections"
+              :key="item.key"
+              :to="`/settings/${item.key}`"
+              :active="item.key === section.key"
+              :title="item.title"
+              rounded="lg"
             >
-              <v-btn value="light">Light</v-btn>
-              <v-btn value="dark">Dark</v-btn>
-              <v-btn value="system">System</v-btn>
-            </v-btn-toggle>
-          </v-card-text>
+              <template #prepend>
+                <v-icon :icon="item.icon" size="20" class="me-n2" />
+              </template>
+            </v-list-item>
+          </v-list>
         </v-card>
+        <v-slide-group class="d-md-none" show-arrows data-test="settings-chips">
+          <v-chip
+            v-for="item in settingsSections"
+            :key="item.key"
+            :to="`/settings/${item.key}`"
+            :color="item.key === section.key ? 'primary' : undefined"
+            :variant="item.key === section.key ? 'flat' : 'outlined'"
+            :prepend-icon="item.icon"
+            class="me-2"
+          >
+            {{ item.title }}
+          </v-chip>
+        </v-slide-group>
       </v-col>
 
-      <v-col cols="12" md="6">
-        <v-card class="h-100">
-          <v-card-item :prepend-icon="Activity" title="System status">
-            <template #append>
-              <v-btn
-                :icon="RefreshCw"
-                variant="text"
-                size="small"
-                aria-label="Refresh status"
-                :loading="healthStore.loading"
-                data-test="refresh-health"
-                @click="healthStore.refresh()"
-              />
-            </template>
-          </v-card-item>
-          <v-card-text>
-            <v-alert
-              v-if="healthStore.error"
-              type="error"
-              variant="tonal"
-              density="compact"
-              data-test="health-error"
-            >
-              Can't reach the Cashcove API: {{ healthStore.error }}
-            </v-alert>
-            <v-list v-else-if="healthStore.health" density="compact" bg-color="transparent">
-              <v-list-item title="API" data-test="health-api">
-                <template #append>
-                  <v-chip
-                    :color="healthStore.health.status === 'ok' ? 'success' : 'warning'"
-                    size="small"
-                    variant="tonal"
-                  >
-                    {{ healthStore.health.status === 'ok' ? 'Healthy' : 'Degraded' }}
-                  </v-chip>
-                </template>
-              </v-list-item>
-              <v-list-item title="Database" data-test="health-database">
-                <template #append>
-                  <v-chip
-                    :color="healthStore.health.database === 'ok' ? 'success' : 'error'"
-                    size="small"
-                    variant="tonal"
-                  >
-                    {{ healthStore.health.database === 'ok' ? 'Connected' : 'Unavailable' }}
-                  </v-chip>
-                </template>
-              </v-list-item>
-              <v-list-item title="Version" :subtitle="healthStore.health.version" />
-            </v-list>
-            <v-skeleton-loader v-else type="list-item@3" />
-          </v-card-text>
-        </v-card>
-      </v-col>
-
-      <v-col cols="12">
-        <FeaturePreview :item="item" />
+      <v-col cols="12" md="8" lg="9">
+        <component :is="components[section.key]" :key="section.key" />
       </v-col>
     </v-row>
+
+    <SaveBar
+      :visible="store.dirty && !!store.saved"
+      :saving="store.saving"
+      @save="save"
+      @discard="store.discard()"
+    />
+
+    <v-snackbar
+      :model-value="!!notice"
+      :color="notice?.color"
+      timeout="3000"
+      location="top"
+      data-test="settings-notice"
+      @update:model-value="notice = null"
+    >
+      {{ notice?.text }}
+    </v-snackbar>
   </TabPage>
 </template>
+
+<style scoped>
+.settings-nav {
+  position: sticky;
+  top: 96px;
+}
+</style>
