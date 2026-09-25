@@ -20,6 +20,21 @@ def test_reports_unconfigured_plaid(viewer_client: TestClient) -> None:
     }
 
 
+def test_reports_the_release_an_image_was_built_as(
+    viewer_client: TestClient, settings: Settings
+) -> None:
+    settings.release = "1.4.0"
+    assert viewer_client.get("/api/system").json()["version"] == "1.4.0"
+
+
+def test_an_image_built_without_a_release_reports_the_source_version(
+    viewer_client: TestClient, settings: Settings
+) -> None:
+    # The Dockerfile's RELEASE build argument is empty outside the release workflow.
+    settings.release = ""
+    assert viewer_client.get("/api/system").json()["version"] == __version__
+
+
 def test_reports_configured_plaid_without_leaking_secrets(
     admin_client: TestClient, settings: Settings
 ) -> None:

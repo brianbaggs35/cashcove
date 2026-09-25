@@ -1,9 +1,9 @@
-/// <reference types="vitest/config" />
 import { fileURLToPath, URL } from 'node:url'
 
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 import vuetify from 'vite-plugin-vuetify'
+import { configDefaults } from 'vitest/config'
 
 // In development the API runs on uvicorn; nginx does this proxying in production.
 const apiTarget = process.env.CASHCOVE_API_URL ?? 'http://127.0.0.1:8000'
@@ -29,12 +29,15 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['src/test/setup.ts'],
+    // Playwright runs the end-to-end tests in e2e/ (npm run e2e).
+    exclude: [...configDefaults.exclude, 'e2e/**'],
     server: { deps: { inline: ['vuetify'] } },
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,vue}'],
       exclude: ['src/**/*.spec.ts', 'src/test/**'],
-      reporter: ['text', 'lcov', 'html'],
+      // lcov.info names files from the repository root (frontend/src/…), as SonarQube expects.
+      reporter: ['text', ['lcovonly', { projectRoot: '..' }], 'html'],
       thresholds: { lines: 100, functions: 100, branches: 100, statements: 100 },
     },
   },

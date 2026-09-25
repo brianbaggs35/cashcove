@@ -1,10 +1,14 @@
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
 import prettier from 'eslint-config-prettier'
+import playwright from 'eslint-plugin-playwright'
 import pluginVue from 'eslint-plugin-vue'
 
 export default defineConfigWithVueTs(
   { name: 'cashcove/files', files: ['**/*.{ts,mts,vue}'] },
-  { name: 'cashcove/ignores', ignores: ['dist/**', 'coverage/**', 'node_modules/**'] },
+  {
+    name: 'cashcove/ignores',
+    ignores: ['dist/**', 'coverage/**', 'e2e-results/**', 'node_modules/**'],
+  },
   pluginVue.configs['flat/recommended'],
   vueTsConfigs.strictTypeChecked,
   {
@@ -18,10 +22,26 @@ export default defineConfigWithVueTs(
   },
   {
     name: 'cashcove/tests',
-    files: ['src/**/*.spec.ts', 'src/test/**'],
+    files: ['src/**/*.spec.ts', 'src/test/**', 'e2e/**'],
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-empty-function': 'off',
+    },
+  },
+  {
+    ...playwright.configs['flat/recommended'],
+    name: 'cashcove/e2e',
+    files: ['e2e/**'],
+    settings: {
+      // Specs use the fixtures from e2e/support, which extend Playwright's test and expect.
+      playwright: { globalAliases: { test: ['test'], expect: ['expect'] } },
+    },
+    rules: {
+      ...playwright.configs['flat/recommended'].rules,
+      'playwright/expect-expect': [
+        'error',
+        { assertFunctionNames: ['expectAccessible'], assertFunctionPatterns: ['^expect'] },
+      ],
     },
   },
   prettier,

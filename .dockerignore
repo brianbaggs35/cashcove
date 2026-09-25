@@ -8,6 +8,7 @@
 **/coverage.xml
 **/.coverage
 **/dist
+**/e2e-results
 **/*.tsbuildinfo
 .git
 .env

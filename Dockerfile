@@ -21,9 +21,13 @@ ARG APK_REFRESH=""
 RUN echo "apk refresh: ${APK_REFRESH:-none}" && apk upgrade --no-cache
 
 # ---- Frontend: type-check and build static assets ------------------------------------
-FROM wolfi AS frontend-build
+# The web app is the same on every CPU, so a multi-platform release builds it once, natively
+# on the build machine, instead of under emulation for each platform.
+FROM --platform=$BUILDPLATFORM ${WOLFI_BASE} AS frontend-build
 ARG NODE_VERSION
-RUN apk add --no-cache "nodejs-${NODE_VERSION}" npm
+ARG APK_REFRESH=""
+RUN echo "apk refresh: ${APK_REFRESH:-none}" && apk upgrade --no-cache \
+    && apk add --no-cache "nodejs-${NODE_VERSION}" npm
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -109,7 +113,34 @@ RUN npm ci --no-audit --no-fund && chown -R cashcove:cashcove /app/frontend
 WORKDIR /app
 COPY docker/supervisor/dev.d /etc/supervisor/conf.d
 
+# ---- End-to-end test image: `make e2e` -------------------------------------------------
+# The production image plus what the Playwright tests need: the test harness (backend/e2e),
+# which resets the database and signs browsers in, coverage.py around the API, source maps
+# in the web app, and nginx's per-address rate limits lifted, since tests sign in far faster
+# than people do. The harness can erase everything, so this image is never deployed.
+FROM frontend-build AS frontend-e2e-build
+RUN npm run build:e2e
+
+FROM backend-build AS backend-e2e-build
+RUN uv sync --frozen --no-dev --group e2e
+
+FROM runtime-base AS e2e
+COPY --from=backend-e2e-build /opt/venv /opt/venv
+COPY --from=frontend-e2e-build /src/dist /usr/share/cashcove/www
+COPY backend/e2e /app/backend/e2e
+COPY docker/e2e/coveragerc /app/docker/e2e/coveragerc
+COPY --chmod=0755 docker/e2e/start-api.sh /app/docker/e2e/start-api.sh
+COPY docker/e2e/api.conf /etc/supervisor/conf.d/api.conf
+RUN sed -i -e 's|zone=api:10m rate=20r/s;|zone=api:10m rate=500r/s;|' \
+        -e 's|zone=auth:10m rate=10r/m;|zone=auth:10m rate=500r/s;|' /etc/nginx/nginx.conf \
+    && grep -q 'zone=api:10m rate=500r/s;' /etc/nginx/nginx.conf \
+    && grep -q 'zone=auth:10m rate=500r/s;' /etc/nginx/nginx.conf
+ENV CASHCOVE_MODE=production CASHCOVE_ENVIRONMENT=test
+
 # ---- Production image (default target) ------------------------------------------------
 FROM runtime-base AS runtime
+# The release workflow passes the release's version (e.g. 1.4.0), which Settings > System
+# shows; other builds report the version in backend/app/__init__.py.
+ARG RELEASE=""
 COPY --from=frontend-build /src/dist /usr/share/cashcove/www
-ENV CASHCOVE_MODE=production CASHCOVE_ENVIRONMENT=production
+ENV CASHCOVE_MODE=production CASHCOVE_ENVIRONMENT=production CASHCOVE_RELEASE=${RELEASE}

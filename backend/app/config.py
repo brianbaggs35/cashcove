@@ -8,11 +8,16 @@ from typing import Annotated, Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app import __version__
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CASHCOVE_", env_file=".env", extra="ignore")
 
     environment: Literal["production", "development", "test"] = "production"
+    # The version a release image was built as, which the release workflow stamps in from
+    # the release's tag. Builds from source report the version in app/__init__.py.
+    release: str | None = None
     # The bundled Postgres only listens on its unix socket, and the API connects with peer auth.
     database_url: str = "postgresql+psycopg://cashcove@/cashcove?host=/run/postgresql"
     database_echo: bool = False
@@ -38,6 +43,10 @@ class Settings(BaseSettings):
     plaid_env: Literal["sandbox", "production"] = "sandbox"
     plaid_client_id: str | None = None
     plaid_secret: SecretStr | None = None
+
+    @property
+    def version(self) -> str:
+        return self.release or __version__
 
     @property
     def is_production(self) -> bool:

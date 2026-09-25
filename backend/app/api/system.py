@@ -5,7 +5,6 @@ from typing import Literal
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app import __version__
 from app.auth.deps import AppSettings, CurrentAuth
 
 router = APIRouter(tags=["system"])
@@ -25,7 +24,7 @@ class SystemInfo(BaseModel):
 @router.get("/system", response_model=SystemInfo)
 def system_info(auth: CurrentAuth, settings: AppSettings) -> SystemInfo:
     return SystemInfo(
-        version=__version__,
+        version=settings.version,
         environment=settings.environment,
         plaid=PlaidStatus(configured=settings.plaid_configured, environment=settings.plaid_env),
     )
