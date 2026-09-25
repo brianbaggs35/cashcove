@@ -82,9 +82,11 @@ CONNECT_EXTRA=""
 
 # Everything is same-origin except Plaid Link, which must load from cdn.plaid.com
 # (https://plaid.com/docs/link/web/). Vuetify and Plaid both inject styles at runtime.
-CASHCOVE_CSP="default-src 'self'; script-src 'self' https://cdn.plaid.com/link/v2/stable/link-initialize.js; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.plaid.com; font-src 'self' data:; connect-src 'self' $PLAID_API$CONNECT_EXTRA; frame-src https://cdn.plaid.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
+# The single quotes are part of the CSP syntax, not shell quoting.
+# shellcheck disable=SC2089,SC2090
+export CASHCOVE_CSP="default-src 'self'; script-src 'self' https://cdn.plaid.com/link/v2/stable/link-initialize.js; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.plaid.com; font-src 'self' data:; connect-src 'self' $PLAID_API$CONNECT_EXTRA; frame-src https://cdn.plaid.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
 if [ "$CASHCOVE_HTTPS_PORT" = 443 ]; then CASHCOVE_HTTPS_PORT_SUFFIX=""; else CASHCOVE_HTTPS_PORT_SUFFIX=":$CASHCOVE_HTTPS_PORT"; fi
-export CASHCOVE_CSP CASHCOVE_HTTPS_PORT_SUFFIX
+export CASHCOVE_HTTPS_PORT_SUFFIX
 
 TEMPLATES=/etc/nginx/cashcove-templates
 python3 /app/docker/render-template.py "$TEMPLATES/cashcove.conf" /etc/nginx/conf.d/cashcove.conf

@@ -49,8 +49,14 @@ fetches new transactions on a schedule you choose in **Settings > Sync**.
 make dev      # the same single container, with Vite hot reload and API auto-reload
 make install  # or install dependencies locally to run tests and linters outside Docker
 make test     # pytest + vitest, both must stay at 100% coverage
-make lint     # ruff, pyright, mypy, bandit, ESLint, Prettier, vue-tsc
+make lint     # ruff, pyright, mypy, bandit, ESLint, Prettier, vue-tsc, hadolint, ShellCheck, actionlint
+make audit    # pip-audit and npm audit
 ```
+
+Every pull request runs the same checks in GitHub Actions (`.github/workflows/ci.yml`):
+the **Backend** and **Frontend** jobs run the linters, type checkers, dependency audits and
+tests with 100% coverage, and the **Container** job builds the image, starts it with
+`docker compose` and smoke-tests TLS, the API, the redirect and the security headers.
 
 `make dev` mounts `backend/app`, `backend/migrations` and `frontend/` into the container,
 so edits reload instantly at `https://localhost`. API docs are at `/api/docs` in dev.
@@ -61,6 +67,7 @@ so edits reload instantly at `https://localhost`. API docs are at `/api/docs` in
 backend/     FastAPI app (app/), Alembic migrations, pytest suite
 frontend/    Vue + Vuetify app (src/), vitest suite
 docker/      entrypoint, nginx templates, supervisord programs, healthcheck
+.github/     CI workflow and the container smoke test
 Dockerfile   frontend build, backend build, runtime and dev stages
 ```
 

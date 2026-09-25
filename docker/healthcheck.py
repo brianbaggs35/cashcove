@@ -12,10 +12,11 @@ context.check_hostname = False
 context.verify_mode = ssl.CERT_NONE
 
 try:
-    with urllib.request.urlopen(  # noqa: S310 - fixed loopback URL
+    # The URL is a fixed https loopback address, so B310's file:// concern doesn't apply.
+    with urllib.request.urlopen(  # nosec B310
         "https://127.0.0.1:8443/api/health", timeout=4, context=context
     ) as response:
         sys.exit(0 if json.load(response).get("status") == "ok" else 1)
-except Exception as error:  # noqa: BLE001 - any failure means unhealthy
+except Exception as error:
     print(f"unhealthy: {error}", file=sys.stderr)
     sys.exit(1)
