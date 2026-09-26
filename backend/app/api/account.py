@@ -14,12 +14,12 @@ from app.auth.activity import list_activity
 from app.auth.audit import Event, client_agent
 from app.auth.crypto import DecryptionError
 from app.auth.deps import (
+    ApiError,
     AppSettings,
     Auth,
     CurrentAuth,
     Db,
     VerifiedAuth,
-    fail,
     require_recent_verification,
 )
 from app.auth.passwords import get_passwords, password_problem
@@ -86,7 +86,7 @@ def _verification_failed(
         now=utcnow(),
         event=Event.VERIFICATION_FAILED,
     )
-    fail(status.HTTP_401_UNAUTHORIZED, code, message)
+    raise ApiError(status.HTTP_401_UNAUTHORIZED, code, message)
 
 
 def _verified(db: Db, auth: Auth) -> None:
@@ -145,7 +145,9 @@ def _own_passkeys(db: Db, user: User) -> list[Passkey]:
 def verify_with_passkey_options(auth: CurrentAuth, db: Db, settings: AppSettings) -> PasskeyOptions:
     allowed = _own_passkeys(db, auth.user)
     if not allowed or not settings.passkeys_supported:
-        fail(status.HTTP_409_CONFLICT, "no_passkeys", "There are no passkeys on this account.")
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "no_passkeys", "There are no passkeys on this account."
+        )
     challenge, options = passkeys.authentication_options(settings, allowed)
     challenge_id, _ = challenges.create(
         db,
@@ -197,7 +199,7 @@ def update_profile(body: ProfileUpdate, auth: CurrentAuth, request: Request, db:
             select(exists().where(Invitation.email == body.email))
         )
         if in_use:
-            fail(
+            raise ApiError(
                 status.HTTP_409_CONFLICT,
                 "email_taken",
                 "Someone in this household already uses that email.",
@@ -235,13 +237,13 @@ def change_password(
             message="Your current password isn't right.",
         )
     if body.new_password == body.current_password:
-        fail(
+        raise ApiError(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             TOO_WEAK,
             "Choose a new password that's different from your current one.",
         )
     if problem := password_problem(body.new_password, email=user.email, name=user.name):
-        fail(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_WEAK, problem)
+        raise ApiError(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_WEAK, problem)
     now = utcnow()
     user.password_hash = hasher.hash(body.new_password)
     user.password_changed_at = now
@@ -259,7 +261,9 @@ def start_totp_setup(auth: VerifiedAuth, db: Db, settings: AppSettings) -> TotpS
     """A new authenticator key. It's only turned on once a code from it is confirmed."""
     user = auth.user
     if user.totp_enabled:
-        fail(status.HTTP_409_CONFLICT, "totp_enabled", "Two-step verification is already on.")
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "totp_enabled", "Two-step verification is already on."
+        )
     now = utcnow()
     secret = totp.new_secret()
     challenges.clear(db, challenges.TOTP_SETUP, user.id)
@@ -280,7 +284,7 @@ def start_totp_setup(auth: VerifiedAuth, db: Db, settings: AppSettings) -> TotpS
 
 
 def _setup_expired(message: str) -> NoReturn:
-    fail(status.HTTP_409_CONFLICT, SETUP_EXPIRED, message)
+    raise ApiError(status.HTTP_409_CONFLICT, SETUP_EXPIRED, message)
 
 
 @router.post("/totp/confirm", response_model=RecoveryCodes)
@@ -312,7 +316,7 @@ def confirm_totp_setup(
             db.commit()
             _setup_expired("Too many codes didn't match. Start again to get a new QR code.")
         db.commit()
-        fail(
+        raise ApiError(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "invalid_code",
             "That code doesn't match. Make sure your phone's clock is right, then enter the "
@@ -339,7 +343,7 @@ def turn_off_totp(auth: VerifiedAuth, request: Request, db: Db) -> None:
 def create_recovery_codes(auth: VerifiedAuth, request: Request, db: Db) -> RecoveryCodes:
     """Replaces every recovery code with a new set."""
     if not auth.user.totp_enabled:
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "totp_disabled",
             "Recovery codes come with two-step verification. Turn it on first.",
@@ -375,14 +379,14 @@ def passkey_registration_options(
     auth: VerifiedAuth, db: Db, settings: AppSettings
 ) -> PasskeyOptions:
     if not settings.passkeys_supported:
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "passkeys_unavailable",
             "Passkeys need Cashcove to be opened by its domain name, not an IP address.",
         )
     existing = _own_passkeys(db, auth.user)
     if len(existing) >= MAX_PASSKEYS:
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "too_many_passkeys",
             f"You can save up to {MAX_PASSKEYS} passkeys. Remove one you don't use first.",
@@ -422,7 +426,7 @@ def add_passkey(
         else None
     )
     if challenge is None:
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "passkey_expired",
             "That took too long. Try adding the passkey again.",
@@ -431,14 +435,14 @@ def add_passkey(
         verified = passkeys.verify_registration(settings, body.credential, challenge)
     except passkeys.VERIFICATION_ERRORS:
         db.commit()
-        fail(
+        raise ApiError(
             status.HTTP_400_BAD_REQUEST,
             "passkey_failed",
             "Your device couldn't create a passkey for Cashcove. Try again.",
-        )
+        ) from None
     if db.scalar(select(exists().where(Passkey.credential_id == verified.credential_id))):
         db.commit()
-        fail(status.HTTP_409_CONFLICT, "passkey_exists", "This passkey is already saved.")
+        raise ApiError(status.HTTP_409_CONFLICT, "passkey_exists", "This passkey is already saved.")
     passkey = Passkey(
         user_id=auth.user.id,
         credential_id=verified.credential_id,
@@ -459,7 +463,9 @@ def add_passkey(
 def _own_passkey(db: Db, user: User, passkey_id: uuid.UUID) -> Passkey:
     passkey = db.scalar(select(Passkey).where(Passkey.id == passkey_id, Passkey.user_id == user.id))
     if passkey is None:
-        fail(status.HTTP_404_NOT_FOUND, "not_found", "That passkey has already been removed.")
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "not_found", "That passkey has already been removed."
+        )
     return passkey
 
 
@@ -521,9 +527,11 @@ def end_session(session_id: uuid.UUID, auth: CurrentAuth, request: Request, db: 
         select(UserSession).where(UserSession.id == session_id, UserSession.user_id == auth.user.id)
     )
     if target is None:
-        fail(status.HTTP_404_NOT_FOUND, "not_found", "That session has already ended.")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "not_found", "That session has already ended.")
     if target.id == auth.session.id:
-        fail(status.HTTP_409_CONFLICT, "current_session", "Use Sign out to end this session.")
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "current_session", "Use Sign out to end this session."
+        )
     db.delete(target)
     device = describe(target.user_agent).label
     audit.record(db, request, Event.SESSION_REVOKED, user=auth.user, device=device)

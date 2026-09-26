@@ -8,7 +8,7 @@ from sqlalchemy import delete, exists, func, select
 
 from app.auth import audit, challenges, passkeys, sessions, setup, throttle
 from app.auth.audit import Event
-from app.auth.deps import AppSettings, CurrentAuth, Db, fail
+from app.auth.deps import ApiError, AppSettings, CurrentAuth, Db
 from app.auth.passwords import get_passwords, password_problem
 from app.auth.service import (
     address_key,
@@ -78,7 +78,7 @@ def read_session(
 
 def _require_setup(db: Db) -> None:
     if not setup.setup_required(db):
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "already_set_up",
             "Cashcove is already set up. Sign in instead.",
@@ -95,7 +95,7 @@ def check_setup_code(body: SetupCodeRequest, request: Request, db: Db) -> None:
     if not setup.code_is_valid(db, body.setup_code, now):
         throttle.record_failure(db, key, throttle.SETUP, now)
         db.commit()
-        fail(status.HTTP_403_FORBIDDEN, "invalid_setup_code", INVALID_SETUP_CODE)
+        raise ApiError(status.HTTP_403_FORBIDDEN, "invalid_setup_code", INVALID_SETUP_CODE)
 
 
 @router.post("/setup", response_model=SessionState, status_code=status.HTTP_201_CREATED)
@@ -108,11 +108,11 @@ def complete_setup(
     key = address_key(request, throttle.SETUP)
     ensure_not_locked(db, [key], now)
     if problem := password_problem(body.password, email=body.email, name=body.name):
-        fail(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_WEAK, problem)
+        raise ApiError(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_WEAK, problem)
     if not setup.claim_code(db, body.setup_code, now):
         throttle.record_failure(db, key, throttle.SETUP, now)
         db.commit()
-        fail(status.HTTP_403_FORBIDDEN, "invalid_setup_code", INVALID_SETUP_CODE)
+        raise ApiError(status.HTTP_403_FORBIDDEN, "invalid_setup_code", INVALID_SETUP_CODE)
     user = User(
         email=body.email,
         name=body.name,
@@ -145,7 +145,7 @@ def sign_in(
     )
     if user is None or not matched:
         record_failed_attempt(db, request, user=user, email=email, method="password", now=now)
-        fail(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
             "invalid_credentials",
             "That email and password don't match.",
@@ -154,7 +154,7 @@ def sign_in(
         user.password_hash = new_hash
     if not user.is_active:
         db.commit()
-        fail(status.HTTP_403_FORBIDDEN, "account_disabled", ACCOUNT_DISABLED)
+        raise ApiError(status.HTTP_403_FORBIDDEN, "account_disabled", ACCOUNT_DISABLED)
     if not user.totp_enabled:
         return complete_sign_in(
             db,
@@ -190,7 +190,7 @@ def _pending_sign_in(request: Request, db: Db) -> tuple[AuthChallenge, User]:
     )
     user = db.get(User, challenge.user_id) if challenge and challenge.user_id else None
     if challenge is None or user is None or not user.is_active:
-        fail(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
             "sign_in_expired",
             "Your sign-in timed out. Enter your email and password again.",
@@ -208,12 +208,12 @@ def _second_step_failed(
         db.delete(challenge)
     record_failed_attempt(db, request, user=user, email=user.email, method=method, now=utcnow())
     if out_of_tries:
-        fail(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
             "sign_in_expired",
             "That was the last try. Enter your email and password to start again.",
         )
-    fail(status.HTTP_401_UNAUTHORIZED, "invalid_code", message)
+    raise ApiError(status.HTTP_401_UNAUTHORIZED, "invalid_code", message)
 
 
 def _finish_second_step(
@@ -281,7 +281,9 @@ def second_step_passkey_options(request: Request, db: Db, settings: AppSettings)
     _, user = _pending_sign_in(request, db)
     allowed = db.scalars(select(Passkey).where(Passkey.user_id == user.id)).all()
     if not allowed or not settings.passkeys_supported:
-        fail(status.HTTP_409_CONFLICT, "no_passkeys", "There are no passkeys on this account.")
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "no_passkeys", "There are no passkeys on this account."
+        )
     challenge, options = passkeys.authentication_options(settings, allowed)
     challenge_id, _ = challenges.create(
         db,
@@ -321,7 +323,7 @@ def sign_in_second_step_with_passkey(
 def passkey_sign_in_options(db: Db, settings: AppSettings) -> PasskeyOptions:
     """A challenge any of this site's passkeys can answer, including through autofill."""
     if not settings.passkeys_supported:
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "passkeys_unavailable",
             "Passkeys need Cashcove to be opened by its domain name, not an IP address.",
@@ -365,13 +367,13 @@ def sign_in_with_passkey(
             and not _passkey_known(db, credential_id)
         ):
             # The browser is told, so its password manager stops offering this passkey.
-            fail(
+            raise ApiError(
                 status.HTTP_401_UNAUTHORIZED,
                 "passkey_failed",
                 "This passkey was removed from Cashcove. Sign in with your password instead.",
                 unknown_credential=True,
             )
-        fail(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
             "passkey_failed",
             "That passkey didn't work here. Try again, or sign in with your password.",
@@ -379,7 +381,7 @@ def sign_in_with_passkey(
         )
     if not passkey.user.is_active:
         db.commit()
-        fail(status.HTTP_403_FORBIDDEN, "account_disabled", ACCOUNT_DISABLED)
+        raise ApiError(status.HTTP_403_FORBIDDEN, "account_disabled", ACCOUNT_DISABLED)
     return complete_sign_in(
         db,
         request,
@@ -404,7 +406,7 @@ def sign_out(auth: CurrentAuth, request: Request, response: Response, db: Db) ->
 
 
 def _invitation_gone() -> NoReturn:
-    fail(
+    raise ApiError(
         status.HTTP_404_NOT_FOUND,
         LINK_EXPIRED,
         "This invitation has expired or was already used. Ask for a new link.",
@@ -461,9 +463,9 @@ def accept_invitation(
     email, role = claimed.email, claimed.role
     inviter = db.get(User, claimed.invited_by_id) if claimed.invited_by_id else None
     if problem := password_problem(body.password, email=email, name=body.name):
-        fail(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_WEAK, problem)
+        raise ApiError(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_WEAK, problem)
     if db.scalar(select(exists().where(User.email == email))):
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "email_taken",
             "There's already an account with this email. Sign in instead.",
@@ -491,7 +493,7 @@ def accept_invitation(
 
 
 def _reset_gone() -> NoReturn:
-    fail(
+    raise ApiError(
         status.HTTP_404_NOT_FOUND,
         LINK_EXPIRED,
         "This link has expired or was already used. Ask an admin for a new one.",
@@ -535,7 +537,7 @@ def complete_password_reset(
     if user is None or not user.is_active:
         _reset_gone()
     if problem := password_problem(body.password, email=user.email, name=user.name):
-        fail(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_WEAK, problem)
+        raise ApiError(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_WEAK, problem)
     db.execute(delete(PasswordReset).where(PasswordReset.user_id == user.id))
     user.password_hash = get_passwords(settings).hash(body.password)
     user.password_changed_at = now

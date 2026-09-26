@@ -97,7 +97,6 @@ function submit() {
         v-if="method === 'password'"
         v-model="password"
         label="Your password"
-        autocomplete="current-password"
         :autofocus="!hasPasskeys"
         test-id="verify-password"
       />

@@ -267,11 +267,7 @@ onBeforeUnmount(cancelPasskeyPrompt)
           hide-details="auto"
           data-test="sign-in-email"
         />
-        <PasswordField
-          v-model="password"
-          autocomplete="current-password"
-          test-id="sign-in-password"
-        />
+        <PasswordField v-model="password" test-id="sign-in-password" />
         <div class="d-flex align-center justify-space-between flex-wrap mt-2 mb-4">
           <v-checkbox
             v-model="remember"

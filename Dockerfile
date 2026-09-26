@@ -30,7 +30,9 @@ RUN echo "apk refresh: ${APK_REFRESH:-none}" && apk upgrade --no-cache \
     && apk add --no-cache "nodejs-${NODE_VERSION}" npm
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# No package's install scripts run (none of these need one), and the Python stages below
+# install prebuilt wheels only, so installing dependencies never runs their code.
+RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
@@ -51,10 +53,11 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-build
 # supervisord gets its own environment so it never shares dependencies with the app.
 RUN uv venv /opt/supervisor \
-    && uv pip install --python /opt/supervisor/bin/python "supervisor==${SUPERVISOR_VERSION}"
+    && uv pip install --no-build --python /opt/supervisor/bin/python \
+        "supervisor==${SUPERVISOR_VERSION}"
 
 # ---- Runtime base: Postgres, nginx mainline and Python from Wolfi ----------------------
 FROM wolfi AS runtime-base
@@ -83,7 +86,7 @@ COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY docker/nginx/templates /etc/nginx/cashcove-templates
 COPY docker/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 COPY docker/supervisor/conf.d /etc/supervisor/conf.d
-COPY --chmod=0755 docker/entrypoint.sh docker/start-api.sh docker/render-template.py \
+COPY --chmod=0755 docker/entrypoint.sh docker/start-api.sh docker/render-nginx-config.py \
     docker/healthcheck.py docker/exit-on-fatal.py /app/docker/
 COPY backend/alembic.ini /app/backend/alembic.ini
 COPY backend/migrations /app/backend/migrations
@@ -106,10 +109,10 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON=/usr/bin/python${PYTHON_VERSION} 
     CASHCOVE_MODE=development CASHCOVE_ENVIRONMENT=development
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen
+RUN uv sync --frozen --no-build
 WORKDIR /app/frontend
 COPY --chown=cashcove:cashcove frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund && chown -R cashcove:cashcove /app/frontend
+RUN npm ci --ignore-scripts --no-audit --no-fund && chown -R cashcove:cashcove /app/frontend
 WORKDIR /app
 COPY docker/supervisor/dev.d /etc/supervisor/conf.d
 
@@ -122,7 +125,7 @@ FROM frontend-build AS frontend-e2e-build
 RUN npm run build:e2e
 
 FROM backend-build AS backend-e2e-build
-RUN uv sync --frozen --no-dev --group e2e
+RUN uv sync --frozen --no-dev --no-build --group e2e
 
 FROM runtime-base AS e2e
 COPY --from=backend-e2e-build /opt/venv /opt/venv

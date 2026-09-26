@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     # The version a release image was built as, which the release workflow stamps in from
     # the release's tag. Builds from source report the version in app/__init__.py.
     release: str | None = None
-    # The bundled Postgres only listens on its unix socket, and the API connects with peer auth.
+    # The bundled Postgres only listens on its unix socket, and the API connects with peer
+    # auth, so there's no password (sonar-project.properties tells SonarQube so).
     database_url: str = "postgresql+psycopg://cashcove@/cashcove?host=/run/postgresql"
     database_echo: bool = False
     # Interactive OpenAPI docs are off unless explicitly enabled.

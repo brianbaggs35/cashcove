@@ -33,8 +33,9 @@ const initials = computed(() => {
 const color = computed(() => {
   if (props.muted) return MUTED_AVATAR_COLOR
   let hash = 0
-  for (let index = 0; index < props.name.length; index++) {
-    hash = (hash * 31 + props.name.charCodeAt(index)) >>> 0
+  // Code points rather than UTF-16 units, so a character such as an emoji counts once.
+  for (const character of props.name) {
+    hash = (hash * 31 + (character.codePointAt(0) as number)) >>> 0
   }
   return AVATAR_COLORS[hash % AVATAR_COLORS.length]
 })

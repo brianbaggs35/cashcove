@@ -27,7 +27,7 @@ api() {
     local method="$1" path="$2"
     shift 2
     local request=(--header "Origin: $origin" --header "Content-Type: application/json")
-    [ -n "$csrf" ] && request+=(--header "X-CSRF-Token: $csrf")
+    [[ -n "$csrf" ]] && request+=(--header "X-CSRF-Token: $csrf")
     curl --silent --show-error --insecure --cookie "$jar" --cookie-jar "$jar" \
         "${request[@]}" --request "$method" "$@" "$base$path"
 }
@@ -43,7 +43,7 @@ jq --exit-status '.status == "ok" and .database == "ok"' <<<"$health" >/dev/null
     fail "API health is not ok"
 
 echo "Signed-out visitors can't read anything"
-[ "$(status_of GET /api/system)" = 401 ] || fail "/api/system answered without a session"
+[[ "$(status_of GET /api/system)" = 401 ]] || fail "/api/system answered without a session"
 
 echo "First-run setup, or signing in once it's done"
 state="$(api GET /api/auth/session --fail)"
@@ -73,7 +73,7 @@ echo "Signed-in requests"
 system="$(api GET /api/system --fail)"
 jq --exit-status '.version' <<<"$system" >/dev/null || fail "/api/system did not return a version"
 # The release workflow checks the image reports the version it was built as.
-if [ -n "${CASHCOVE_SMOKE_VERSION:-}" ]; then
+if [[ -n "${CASHCOVE_SMOKE_VERSION:-}" ]]; then
     jq --exit-status --arg version "$CASHCOVE_SMOKE_VERSION" '.version == $version' <<<"$system" \
         >/dev/null || fail "the image reports version $(jq -r .version <<<"$system"), not $CASHCOVE_SMOKE_VERSION"
 fi
@@ -84,15 +84,15 @@ grep --quiet --ignore-case '^cache-control: no-store' "$work/api-headers" ||
 echo "Changes need the CSRF token and must come from Cashcove itself"
 token="$csrf"
 csrf=""
-[ "$(status_of POST /api/auth/sign-out)" = 403 ] || fail "a change without the CSRF token went through"
+[[ "$(status_of POST /api/auth/sign-out)" = 403 ]] || fail "a change without the CSRF token went through"
 csrf="$token"
 origin="https://evil.example"
-[ "$(status_of POST /api/auth/sign-out)" = 403 ] || fail "a change from another origin went through"
+[[ "$(status_of POST /api/auth/sign-out)" = 403 ]] || fail "a change from another origin went through"
 origin="$base"
 
 echo "Signing out"
-[ "$(status_of POST /api/auth/sign-out)" = 204 ] || fail "signing out failed"
-[ "$(status_of GET /api/system)" = 401 ] || fail "still signed in after signing out"
+[[ "$(status_of POST /api/auth/sign-out)" = 204 ]] || fail "signing out failed"
+[[ "$(status_of GET /api/system)" = 401 ]] || fail "still signed in after signing out"
 
 echo "Web app"
 index="$(curl --silent --show-error --fail --insecure "$base/")"
@@ -101,7 +101,7 @@ grep --quiet '<div id="app">' <<<"$index" || fail "the web app's index page did 
 echo "HTTP redirects to HTTPS"
 location="$(curl --silent --output /dev/null --write-out '%{http_code} %{redirect_url}' \
     "http://localhost:${http_port}/settings" || true)"
-[ "$location" = "301 ${base}/settings" ] || fail "expected '301 ${base}/settings', got '$location'"
+[[ "$location" = "301 ${base}/settings" ]] || fail "expected '301 ${base}/settings', got '$location'"
 
 echo "Security headers"
 headers="$(curl --silent --show-error --fail --insecure --dump-header - --output /dev/null "$base/")"

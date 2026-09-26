@@ -32,6 +32,7 @@ import AuthLayout from '@/layouts/AuthLayout.vue'
 import { HOME } from '@/router'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
+import { isEmail } from '@/utils/email'
 import { currencyOptions, localeOptions } from '@/utils/regional'
 
 type Step = 'welcome' | 'code' | 'account' | 'secure' | 'household' | 'done'
@@ -111,17 +112,11 @@ watch(
 
 const accountErrors = computed(() => creating.error.value)
 const nameRules = [(value: string) => value.trim().length > 0 || 'Tell Cashcove your name']
-const emailRules = [
-  (value: string) =>
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) || 'Enter a valid email address',
-]
+const emailRules = [(value: string) => isEmail(value) || 'Enter a valid email address']
 const householdRules = [(value: string) => value.trim().length > 0 || 'Give your household a name']
 
 const accountValid = computed(
-  () =>
-    name.value.trim().length > 0 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim()) &&
-    password.value.length > 0,
+  () => name.value.trim().length > 0 && isEmail(email.value) && password.value.length > 0,
 )
 
 async function finish() {
@@ -333,8 +328,7 @@ const nextSteps = [
           <PasswordField
             v-model="password"
             label="Password"
-            autocomplete="new-password"
-            meter
+            new-password
             :context="{ email, name }"
             test-id="account-password"
           />

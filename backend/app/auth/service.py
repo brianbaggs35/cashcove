@@ -13,7 +13,7 @@ from app.auth import audit, passkeys, sessions, throttle, totp
 from app.auth.audit import Event, client_address
 from app.auth.challenges import Claimed
 from app.auth.crypto import DecryptionError, SecretBox
-from app.auth.deps import fail
+from app.auth.deps import ApiError
 from app.auth.setup import setup_required
 from app.auth.tokens import hash_token, new_token
 from app.config import Settings
@@ -100,7 +100,7 @@ def _wait_message(seconds: int) -> str:
 def ensure_not_locked(db: Session, keys: list[str], now: datetime) -> None:
     wait = throttle.seconds_locked(db, keys, now)
     if wait:
-        fail(
+        raise ApiError(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "too_many_attempts",
             f"Too many attempts. Try again in {_wait_message(wait)}.",
@@ -192,12 +192,12 @@ def check_totp(db: Session, settings: Settings, user: User, code: str, now: date
     try:
         secret = totp_box(settings).decrypt(user.totp_secret)
     except DecryptionError:
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "totp_unavailable",
             "Cashcove can't read your authenticator key, so codes from the app won't work. "
             "Use a recovery code or a passkey instead.",
-        )
+        ) from None
     step = totp.matching_step(secret, code, at=now, last_step=user.totp_last_step)
     return step is not None and _claim_totp_step(db, user, step)
 

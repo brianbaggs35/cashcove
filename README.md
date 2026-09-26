@@ -150,7 +150,12 @@ writing specs.
 
 The **SonarQube** job sends every pull request and every push to master to
 [SonarQube Cloud](https://sonarcloud.io), free for public repositories, with both test
-suites' coverage, and fails when the code misses its quality gate. To turn it on:
+suites' coverage, and fails when the code misses its quality gate. The job's log then lists
+why, with the new code's issues and security hotspots. `sonar-project.properties` sets what's
+checked: the API, migrations, web app, container files and workflows as code, and the unit
+tests, Playwright tests and end-to-end harness as tests. Coverage counts everything except
+the migrations and scripts, which have no unit tests. The free plan analyzes master and
+pull requests into master. To turn it on:
 
 1. Sign in to SonarQube Cloud with GitHub, import your GitHub account as an organization,
    and analyze this repository.

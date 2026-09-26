@@ -37,7 +37,7 @@ describe('ActivityCard', () => {
     expect(days.map((day) => day.find('h3').text())).toEqual(['Today', 'Yesterday'])
     const items = wrapper.findAll('[data-test="activity-item"]')
     expect(items[0]!.text()).toContain('Signed in with a passkey')
-    expect(items[0]!.text()).toContain('Chrome on macOS · 192.168.1.20')
+    expect(items[0]!.text()).toContain('Chrome on macOS · 192.0.2.20')
     expect(items[0]!.find('.v-avatar').classes()).toContain('text-success')
     // Only the time is known for this one.
     expect(items[1]!.find('.text-body-small').text()).not.toContain('·')

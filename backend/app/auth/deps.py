@@ -1,7 +1,7 @@
 """FastAPI dependencies that authenticate requests and enforce roles."""
 
 from dataclasses import dataclass
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -20,18 +20,21 @@ Db = Annotated[Session, Depends(get_session)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
 
 
-def fail(
-    status_code: int,
-    code: str,
-    message: str,
-    *,
-    headers: dict[str, str] | None = None,
-    **extra: Any,
-) -> NoReturn:
-    """Raises an error the web app can act on by ``code`` and show by ``message``."""
-    raise HTTPException(
-        status_code, detail={"code": code, "message": message, **extra}, headers=headers
-    )
+class ApiError(HTTPException):
+    """An error the web app can act on by ``code`` and show by ``message``."""
+
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        *,
+        headers: dict[str, str] | None = None,
+        **extra: Any,
+    ) -> None:
+        super().__init__(
+            status_code, detail={"code": code, "message": message, **extra}, headers=headers
+        )
 
 
 def verify_origin(request: Request, settings: AppSettings) -> None:
@@ -48,7 +51,9 @@ def verify_origin(request: Request, settings: AppSettings) -> None:
     if any(origin != settings.public_origin for origin in origins) or any(
         site not in {"same-origin", "none"} for site in sites
     ):
-        fail(status.HTTP_403_FORBIDDEN, "cross_origin", "Requests must come from Cashcove itself.")
+        raise ApiError(
+            status.HTTP_403_FORBIDDEN, "cross_origin", "Requests must come from Cashcove itself."
+        )
 
 
 @dataclass(frozen=True)
@@ -61,11 +66,13 @@ def current_auth(request: Request, db: Db) -> Auth:
     now = utcnow()
     session = sessions.load(db, request.cookies.get(sessions.SESSION_COOKIE), now)
     if session is None:
-        fail(status.HTTP_401_UNAUTHORIZED, "not_signed_in", "Sign in to continue.")
+        raise ApiError(status.HTTP_401_UNAUTHORIZED, "not_signed_in", "Sign in to continue.")
     if request.method not in SAFE_METHODS and not tokens_match(
         session.csrf_token, request.headers.get(CSRF_HEADER, "")
     ):
-        fail(status.HTTP_403_FORBIDDEN, "csrf", "This page is out of date. Reload and try again.")
+        raise ApiError(
+            status.HTTP_403_FORBIDDEN, "csrf", "This page is out of date. Reload and try again."
+        )
     sessions.touch(session, now)
     db.commit()
     return Auth(session=session, user=session.user)
@@ -76,7 +83,7 @@ CurrentAuth = Annotated[Auth, Depends(current_auth)]
 
 def require_admin(auth: CurrentAuth) -> Auth:
     if not auth.user.is_admin:
-        fail(status.HTTP_403_FORBIDDEN, "admin_only", "Only admins can do that.")
+        raise ApiError(status.HTTP_403_FORBIDDEN, "admin_only", "Only admins can do that.")
     return auth
 
 
@@ -86,7 +93,7 @@ AdminAuth = Annotated[Auth, Depends(require_admin)]
 def require_recent_verification(auth: CurrentAuth) -> Auth:
     """Sensitive changes need a password or passkey check from the last few minutes."""
     if utcnow() - auth.session.verified_at > sessions.RECENT_VERIFICATION:
-        fail(
+        raise ApiError(
             status.HTTP_403_FORBIDDEN,
             "verification_required",
             "Confirm it's you to continue.",

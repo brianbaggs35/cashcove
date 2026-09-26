@@ -8,13 +8,13 @@ import { signalUserDetails } from '@/auth/passkeys'
 import PasswordField from '@/components/ui/PasswordField.vue'
 import RoleChip from '@/components/ui/RoleChip.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
+import UsernameHint from '@/components/ui/UsernameHint.vue'
 import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
 import { useAuthStore } from '@/stores/auth'
+import { isEmail } from '@/utils/email'
 import { formatShortDate } from '@/utils/format'
 import SettingsCard from '@/views/settings/SettingsCard.vue'
-
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const auth = useAuthStore()
 const user = computed(() => auth.user)
@@ -33,17 +33,14 @@ function resetProfile() {
 const emailChanged = computed(() => email.value.trim().toLowerCase() !== user.value?.email)
 const profileChanged = computed(() => name.value.trim() !== user.value?.name || emailChanged.value)
 const profileValid = computed(
-  () =>
-    name.value.trim().length > 0 &&
-    name.value.trim().length <= 80 &&
-    EMAIL.test(email.value.trim()),
+  () => name.value.trim().length > 0 && name.value.trim().length <= 80 && isEmail(email.value),
 )
 
 const nameRules = [
   (value: string) => value.trim().length > 0 || 'Enter your name',
   (value: string) => value.trim().length <= 80 || 'Keep it under 80 characters',
 ]
-const emailRules = [(value: string) => EMAIL.test(value.trim()) || 'Enter a valid email address']
+const emailRules = [(value: string) => isEmail(value) || 'Enter a valid email address']
 
 const saving = useAction(async () => {
   const before = user.value
@@ -223,19 +220,10 @@ const samePassword = computed(
       :icon="KeyRound"
     >
       <v-form class="account-password" @submit.prevent="passwordReady && changing.run()">
-        <!-- Tells password managers which account the new password belongs to. -->
-        <input
-          type="text"
-          name="username"
-          autocomplete="username"
-          :value="user.email"
-          hidden
-          readonly
-        />
+        <UsernameHint :email="user.email" />
         <PasswordField
           v-model="currentPassword"
           label="Current password"
-          autocomplete="current-password"
           :error-messages="currentPasswordError ?? undefined"
           test-id="current-password"
           class="mb-4"
@@ -243,8 +231,7 @@ const samePassword = computed(
         <PasswordField
           v-model="newPassword"
           label="New password"
-          autocomplete="new-password"
-          meter
+          new-password
           :context="passwordContext"
           :error-messages="
             newPasswordError ??

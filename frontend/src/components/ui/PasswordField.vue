@@ -13,9 +13,11 @@ import {
 const props = withDefaults(
   defineProps<{
     label?: string
-    autocomplete: 'current-password' | 'new-password'
-    /** Shows how strong a new password is, using the same rules as the API. */
-    meter?: boolean
+    /**
+     * A password being chosen rather than entered: password managers offer to save it, and a
+     * meter shows how strong it is, using the same rules as the API.
+     */
+    newPassword?: boolean
     /** The person's name and email, which a new password shouldn't be built from. */
     context?: PasswordContext
     errorMessages?: string | string[]
@@ -24,7 +26,7 @@ const props = withDefaults(
   }>(),
   {
     label: 'Password',
-    meter: false,
+    newPassword: false,
     context: () => ({}),
     errorMessages: () => [],
     autofocus: false,
@@ -47,7 +49,7 @@ watch(
   [password, () => props.context],
   async ([value]) => {
     const request = ++latest
-    if (!props.meter || !value) {
+    if (!props.newPassword || !value) {
       strength.value = null
       return
     }
@@ -91,7 +93,7 @@ const tip = computed(() => {
       v-model="password"
       :label="label"
       :type="visible ? 'text' : 'password'"
-      :autocomplete="autocomplete"
+      :autocomplete="newPassword ? 'new-password' : 'current-password'"
       :autofocus="autofocus"
       :error-messages="errorMessages"
       :messages="capsLock ? ['Caps Lock is on'] : []"
@@ -116,7 +118,7 @@ const tip = computed(() => {
       </template>
     </v-text-field>
 
-    <div v-if="meter" class="password-field__meter mt-3" :data-test="`${testId}-meter`">
+    <div v-if="newPassword" class="password-field__meter mt-3" :data-test="`${testId}-meter`">
       <div class="d-flex align-center ga-3">
         <div class="password-field__bars flex-grow-1" aria-hidden="true">
           <span

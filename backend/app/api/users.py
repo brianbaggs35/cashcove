@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.auth import audit, sessions
 from app.auth.activity import list_activity
 from app.auth.audit import Event
-from app.auth.deps import AdminAuth, AppSettings, CurrentAuth, Db, VerifiedAdmin, fail
+from app.auth.deps import AdminAuth, ApiError, AppSettings, CurrentAuth, Db, VerifiedAdmin
 from app.auth.service import issue_password_reset, one_time_link, turn_off_two_factor
 from app.auth.tokens import hash_token, new_token
 from app.models import Invitation, Passkey, PasswordReset, Role, User
@@ -60,7 +60,9 @@ def _member(db: Session, user: User, *, details: bool) -> MemberOut:
 
 
 def _not_found() -> NoReturn:
-    fail(status.HTTP_404_NOT_FOUND, "not_found", "That person isn't in this household anymore.")
+    raise ApiError(
+        status.HTTP_404_NOT_FOUND, "not_found", "That person isn't in this household anymore."
+    )
 
 
 def _target(db: Session, user_id: uuid.UUID) -> User:
@@ -82,7 +84,7 @@ def _lock_admins(db: Session) -> None:
 def _ensure_an_admin_remains(db: Session) -> None:
     db.flush()
     if not db.scalar(select(exists(_active_admins()))):
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "last_admin",
             "Cashcove needs at least one active admin. Make someone else an admin first.",
@@ -114,7 +116,7 @@ def update_member(
     _lock_admins(db)
     target = _target(db, user_id)
     if target.id == auth.user.id and body.is_active is False:
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "cannot_deactivate_self",
             "You can't turn off your own account. Ask another admin to do it.",
@@ -142,7 +144,7 @@ def remove_member(user_id: uuid.UUID, auth: VerifiedAdmin, request: Request, db:
     _lock_admins(db)
     target = _target(db, user_id)
     if target.id == auth.user.id:
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "cannot_remove_self",
             "You can't remove your own account. Ask another admin to do it.",
@@ -165,7 +167,7 @@ def create_password_reset(
     """A one-time link, valid for a day, that lets someone choose a new password."""
     target = _target(db, user_id)
     if not target.is_active:
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "user_inactive",
             "Turn this account back on before creating a reset link.",
@@ -206,7 +208,9 @@ def _invitation_out(invitation: Invitation) -> InvitationOut:
 def _invitation(db: Session, invitation_id: uuid.UUID) -> Invitation:
     invitation = db.get(Invitation, invitation_id)
     if invitation is None:
-        fail(status.HTTP_404_NOT_FOUND, "not_found", "That invitation was already used or removed.")
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "not_found", "That invitation was already used or removed."
+        )
     return invitation
 
 
@@ -227,9 +231,9 @@ def invite_member(
 ) -> InvitationLink:
     """A one-time link, valid for a week, that lets someone create their own account."""
     if db.scalar(select(exists().where(User.email == body.email))):
-        fail(status.HTTP_409_CONFLICT, "email_taken", EMAIL_TAKEN)
+        raise ApiError(status.HTTP_409_CONFLICT, "email_taken", EMAIL_TAKEN)
     if db.scalar(select(exists().where(Invitation.email == body.email))):
-        fail(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
             "already_invited",
             "This email already has an invitation. Create a new link from it instead.",
