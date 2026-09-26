@@ -1,9 +1,11 @@
 """Declarative base and column types shared by all ORM models."""
 
 from datetime import UTC, datetime
+from decimal import Decimal
+from enum import StrEnum
 from typing import override
 
-from sqlalchemy import DateTime, Dialect, MetaData, func
+from sqlalchemy import BigInteger, DateTime, Dialect, Enum, MetaData, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -46,6 +48,53 @@ class UTCDateTime(TypeDecorator[datetime]):
         if value.tzinfo is None:
             return value.replace(tzinfo=UTC)
         return value.astimezone(UTC)
+
+
+CENT = Decimal("0.01")
+
+
+class Money(TypeDecorator[Decimal]):
+    """An amount of money, stored exactly as a whole number of cents.
+
+    SQLite (used by the tests) has no exact decimal type, so counting cents keeps amounts and
+    their sums exact on both databases. Python sees Decimals with two decimal places.
+    """
+
+    impl = BigInteger()
+    cache_ok = True
+
+    @override
+    def process_bind_param(self, value: Decimal | None, dialect: Dialect) -> int | None:
+        if value is None:
+            return None
+        cents = Decimal(value).scaleb(2)
+        if cents != cents.to_integral_value():
+            raise ValueError("Amounts of money can't have more than two decimal places")
+        return int(cents)
+
+    @override
+    def process_result_value(self, value: object, dialect: Dialect) -> Decimal | None:
+        if value is None:
+            return None
+        # Postgres sums whole numbers as numeric, which arrives as a Decimal.
+        return Decimal(str(value)).scaleb(-2).quantize(CENT)
+
+
+def _values(enum: type[StrEnum]) -> list[str]:
+    return [member.value for member in enum]
+
+
+def enum_type(enum: type[StrEnum], name: str) -> Enum:
+    """A column of an enum's values, stored as text that a CHECK constraint limits."""
+    return Enum(
+        enum,
+        name=name,
+        native_enum=False,
+        create_constraint=True,
+        length=16,
+        values_callable=_values,
+        validate_strings=True,
+    )
 
 
 class Base(DeclarativeBase):

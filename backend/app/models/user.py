@@ -5,10 +5,10 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, Enum, LargeBinary, String, Uuid
+from sqlalchemy import BigInteger, LargeBinary, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin, UTCDateTime, utcnow
+from app.models.base import Base, TimestampMixin, UTCDateTime, enum_type, utcnow
 
 
 class Role(StrEnum):
@@ -18,19 +18,7 @@ class Role(StrEnum):
     VIEWER = "viewer"
 
 
-def _values(enum: type[StrEnum]) -> list[str]:
-    return [member.value for member in enum]
-
-
-ROLE_TYPE = Enum(
-    Role,
-    name="role",
-    native_enum=False,
-    create_constraint=True,
-    length=16,
-    values_callable=_values,
-    validate_strings=True,
-)
+ROLE_TYPE = enum_type(Role, "role")
 
 
 def new_webauthn_id() -> bytes:
