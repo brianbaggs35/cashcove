@@ -24,6 +24,7 @@ from app.auth.service import (
     use_recovery_code,
 )
 from app.auth.tokens import hash_token
+from app.finance.categories import add_suggested_categories
 from app.models import AuthChallenge, Invitation, Passkey, PasswordReset, RecoveryCode, Role, User
 from app.models.base import utcnow
 from app.schemas.auth import (
@@ -122,6 +123,8 @@ def complete_setup(
     )
     db.add(user)
     db.flush()
+    # A new household starts with categories it can rename or remove in Settings.
+    add_suggested_categories(db)
     session = sessions.start(db, request, response, user, remember=False, now=now)
     throttle.clear(db, key)
     audit.record(db, request, Event.SETUP_COMPLETED, user=user)

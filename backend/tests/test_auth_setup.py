@@ -71,6 +71,30 @@ def test_setup_creates_the_first_admin_and_signs_them_in(
     assert again["session"]["remember"] is False
 
 
+def test_setup_starts_the_household_with_the_suggested_categories(
+    client: TestClient, session: Session
+) -> None:
+    code = issue(session)
+
+    use_session(client, client.post("/api/auth/setup", json=setup_body(code)).json())
+
+    groups = client.get("/api/categories").json()
+    assert [group["name"] for group in groups] == [
+        "Income",
+        "Bills & utilities",
+        "Family & education",
+        "Financial",
+        "Food & drink",
+        "Health & wellness",
+        "Housing",
+        "Lifestyle",
+        "Shopping",
+        "Transportation",
+        "Transfers",
+    ]
+    assert sum(len(group["categories"]) for group in groups) == 37
+
+
 def test_a_wrong_setup_code_is_refused_and_guessing_is_slowed(
     client: TestClient, session: Session
 ) -> None:
