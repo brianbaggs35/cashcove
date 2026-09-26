@@ -1,26 +1,21 @@
 # Builds the production image and publishes it to GitHub's container registry
-# (ghcr.io/<owner>/<repo>) when a release is published. GitHub doesn't run workflows for
-# draft releases, so publishing the draft is what starts it. The release's tag, e.g. v1.4.0,
-# names the image and is the version Settings > System shows.
-#
-# Pull requests that change the image or this workflow get a dry run: everything is built
-# and tested, nothing is published.
+# (ghcr.io/<owner>/<repo>) when a release is published, and at no other time: pull requests
+# and pushes are CI's (ci.yml). GitHub doesn't run workflows for draft releases, so
+# publishing the draft is what starts it. The release's tag, e.g. v1.4.0, names the image
+# and is the version Settings > System shows.
 name: Release
 
 on:
   release:
     types: [published]
-  pull_request:
-    paths:
-      - Dockerfile
-      - .github/workflows/release.yml
 
 permissions:
   contents: read
 
+# One build per release, never cancelled halfway through a push.
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 # Actions are pinned to full commit SHAs so a moved or hijacked tag can't change what runs.
 jobs:
@@ -44,13 +39,8 @@ jobs:
         id: version
         env:
           TAG: ${{ github.event.release.tag_name }}
-          PULL_REQUEST: ${{ github.event.number }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = release ]; then
-            version="${TAG#v}"
-          else
-            version="0.0.0-pr.${PULL_REQUEST}"
-          fi
+          version="${TAG#v}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Release tags need to be versions like v1.4.0 or v2.0.0-rc.1, not '$TAG'."
             exit 1
@@ -116,7 +106,6 @@ jobs:
   publish:
     name: Publish
     needs: test
-    if: ${{ github.event_name == 'release' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
