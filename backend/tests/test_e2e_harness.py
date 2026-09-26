@@ -49,8 +49,9 @@ def count(session: Session, model: type[object]) -> int:
 
 
 def test_the_harness_refuses_to_run_outside_a_test_server(settings: Settings) -> None:
+    production = settings.model_copy(update={"environment": "production"})
     with pytest.raises(RuntimeError, match="CASHCOVE_ENVIRONMENT=test"):
-        create_e2e_app(settings.model_copy(update={"environment": "production"}))
+        create_e2e_app(production)
 
 
 def test_the_harness_reads_its_settings_from_the_environment(
@@ -118,7 +119,8 @@ def test_the_baseline_is_a_household_with_admins_a_viewer_and_a_turned_off_accou
     ]
     jordan = baseline["users"]["two_step"]
     stored_jordan = session.get(User, uuid.UUID(jordan["id"]))
-    assert stored_jordan is not None and stored_jordan.totp_secret is not None
+    assert stored_jordan is not None
+    assert stored_jordan.totp_secret is not None
     assert totp_box(settings).decrypt(stored_jordan.totp_secret) == jordan["totp_secret"]
     assert len(jordan["recovery_codes"]) == count(session, RecoveryCode) == 10
     for key in ("admin", "viewer", "deactivated"):

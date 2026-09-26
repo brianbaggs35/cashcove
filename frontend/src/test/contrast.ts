@@ -5,7 +5,7 @@ type Rgb = [number, number, number]
 /** Reads #rgb or #rrggbb, the forms Vuetify's theme colours come in. */
 function parse(hex: string): Rgb {
   const digits = hex.length === 4 ? hex.slice(1).replace(/./g, '$&$&') : hex.slice(1)
-  return [0, 2, 4].map((start) => parseInt(digits.slice(start, start + 2), 16)) as Rgb
+  return [0, 2, 4].map((start) => Number.parseInt(digits.slice(start, start + 2), 16)) as Rgb
 }
 
 function luminance([r, g, b]: Rgb): number {

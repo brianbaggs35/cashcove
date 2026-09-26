@@ -8,6 +8,7 @@ import { errorMessage } from '@/api/client'
 import SecureAccountStep from '@/components/auth/SecureAccountStep.vue'
 import PasswordField from '@/components/ui/PasswordField.vue'
 import RoleChip from '@/components/ui/RoleChip.vue'
+import UsernameHint from '@/components/ui/UsernameHint.vue'
 import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
 import AuthLayout from '@/layouts/AuthLayout.vue'
@@ -124,13 +125,11 @@ onMounted(async () => {
           :rules="[(value: string) => value.trim().length > 0 || 'Tell us your name']"
           data-test="invite-name"
         />
-        <!-- Lets password managers save the new password under the right email. -->
-        <input type="email" :value="invitation.email" autocomplete="username" hidden readonly />
+        <UsernameHint :email="invitation.email" />
         <PasswordField
           v-model="password"
           label="Choose a password"
-          autocomplete="new-password"
-          meter
+          new-password
           :context="{ email: invitation.email, name }"
           test-id="invite-password"
         />

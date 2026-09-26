@@ -52,11 +52,11 @@ describe('DevicesCard', () => {
     expect(devices).toHaveLength(4)
     expect(devices[0]!.find('[data-test="device-current"]').text()).toBe('This device')
     expect(devices[0]!.text()).toContain('Active now')
-    expect(devices[0]!.text()).toContain('192.168.1.20')
+    expect(devices[0]!.text()).toContain('192.0.2.20')
     expect(devices[0]!.find('[data-test="device-sign-out"]').exists()).toBe(false)
     expect(devices[1]!.text()).toContain('Active 5 days ago')
     expect(devices[1]!.text().replace(/\s+/g, ' ')).toContain(
-      '192.168.1.20 · Stays signed in for up to 30 days',
+      '192.0.2.20 · Stays signed in for up to 30 days',
     )
     expect(devices[2]!.find('[data-test="device-remembered"]').exists()).toBe(true)
     expect(devices[2]!.text()).not.toContain(' · Stays')

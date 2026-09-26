@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import { completePasswordReset, previewPasswordReset, type PasswordResetPreview } from '@/api/auth'
 import { errorMessage } from '@/api/client'
 import PasswordField from '@/components/ui/PasswordField.vue'
+import UsernameHint from '@/components/ui/UsernameHint.vue'
 import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
 import AuthLayout from '@/layouts/AuthLayout.vue'
@@ -68,13 +69,11 @@ onMounted(async () => {
         >. Once it's changed, you'll be signed out everywhere and can sign in with the new one.
       </p>
       <v-form @submit.prevent="saving.run(reset.email)">
-        <!-- Lets password managers save the new password under the right email. -->
-        <input type="email" :value="reset.email" autocomplete="username" hidden readonly />
+        <UsernameHint :email="reset.email" />
         <PasswordField
           v-model="password"
           label="New password"
-          autocomplete="new-password"
-          meter
+          new-password
           autofocus
           :context="{ email: reset.email, name: reset.name }"
           test-id="reset-password"

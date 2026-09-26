@@ -7,13 +7,12 @@ import { inviteMember, type Invitation, type InvitationLink } from '@/api/users'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import CopyField from '@/components/ui/CopyField.vue'
 import { useAction } from '@/composables/useAction'
+import { isEmail } from '@/utils/email'
 import { formatDateTime } from '@/utils/format'
 
 /** Invites someone to the household: their details and role, then a link to send them. */
 const open = defineModel<boolean>({ required: true })
 const emit = defineEmits<{ invited: [invitation: Invitation] }>()
-
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const ROLES: { value: Role; title: string; icon: LucideIcon; text: string }[] = [
   {
@@ -39,12 +38,9 @@ const nameRules = [
   (value: string) => value.trim().length > 0 || 'Enter their name',
   (value: string) => value.trim().length <= 80 || 'Keep it under 80 characters',
 ]
-const emailRules = [(value: string) => EMAIL.test(value.trim()) || 'Enter a valid email address']
+const emailRules = [(value: string) => isEmail(value) || 'Enter a valid email address']
 const valid = computed(
-  () =>
-    name.value.trim().length > 0 &&
-    name.value.trim().length <= 80 &&
-    EMAIL.test(email.value.trim()),
+  () => name.value.trim().length > 0 && name.value.trim().length <= 80 && isEmail(email.value),
 )
 
 function reset() {

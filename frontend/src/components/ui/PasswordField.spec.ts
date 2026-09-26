@@ -11,7 +11,6 @@ async function render(props: Props = {}) {
   const Host = defineComponent({
     render: () =>
       h(PasswordField, {
-        autocomplete: 'new-password',
         ...props,
         modelValue: value.value,
         'onUpdate:modelValue': (next: string) => (value.value = next),
@@ -38,7 +37,7 @@ describe('PasswordField', () => {
     const { wrapper, find, value } = await render()
     const input = () => wrapper.find('input')
     expect(input().attributes('type')).toBe('password')
-    expect(input().attributes('autocomplete')).toBe('new-password')
+    expect(input().attributes('autocomplete')).toBe('current-password')
     expect(wrapper.find('label').text()).toBe('Password')
     await input().setValue('secret')
     expect(value.value).toBe('secret')
@@ -73,7 +72,8 @@ describe('PasswordField', () => {
 
   it('explains what makes a good password before anything is typed', async () => {
     const estimate = vi.spyOn(password, 'estimateStrength')
-    const { find } = await render({ meter: true })
+    const { wrapper, find } = await render({ newPassword: true })
+    expect(wrapper.find('input').attributes('autocomplete')).toBe('new-password')
     expect(find('-strength').text()).toBe('Strength')
     expect(find('-tip').text()).toContain('Use at least 12 characters')
     expect(estimate).not.toHaveBeenCalled()
@@ -81,7 +81,7 @@ describe('PasswordField', () => {
 
   it('points out a password the API would reject', async () => {
     vi.spyOn(password, 'estimateStrength').mockResolvedValue(strength(4))
-    const { wrapper, find } = await render({ meter: true, context: { name: 'Alex Morgan' } })
+    const { wrapper, find } = await render({ newPassword: true, context: { name: 'Alex Morgan' } })
     await wrapper.find('input').setValue('alexmorgan12')
     await flushPromises()
     expect(find('-strength').text()).toBe('Not yet')
@@ -121,7 +121,7 @@ describe('PasswordField', () => {
     ],
   ])('rates %j', async (result, label, tip, color, bars) => {
     vi.spyOn(password, 'estimateStrength').mockResolvedValue(result)
-    const { wrapper, find } = await render({ meter: true, testId: 'new' })
+    const { wrapper, find } = await render({ newPassword: true, testId: 'new' })
     await wrapper.find('input').setValue('violet harbor compass')
     await flushPromises()
     expect(find('-strength').text()).toBe(label)
@@ -132,7 +132,7 @@ describe('PasswordField', () => {
 
   it('has no tip for a weak password without advice', async () => {
     vi.spyOn(password, 'estimateStrength').mockResolvedValue(strength(1))
-    const { wrapper, find } = await render({ meter: true })
+    const { wrapper, find } = await render({ newPassword: true })
     await wrapper.find('input').setValue('violet harbor compass')
     await flushPromises()
     expect(find('-tip').exists()).toBe(false)
@@ -143,7 +143,7 @@ describe('PasswordField', () => {
     vi.spyOn(password, 'estimateStrength').mockImplementation(
       () => new Promise((resolve) => pending.push(resolve)),
     )
-    const { wrapper, find } = await render({ meter: true })
+    const { wrapper, find } = await render({ newPassword: true })
     await wrapper.find('input').setValue('violet harbor')
     await wrapper.find('input').setValue('violet harbor compass')
     // Nothing to show until the estimate arrives.

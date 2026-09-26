@@ -86,7 +86,7 @@ dev-logs: ## Follow the dev container's logs
 
 install: ## Install backend and frontend dependencies locally, and Chromium for Playwright
 	$(BACKEND) uv sync
-	$(FRONTEND) npm ci && npx playwright install chromium
+	$(FRONTEND) npm ci --ignore-scripts && npm run e2e:install
 
 test: test-backend test-frontend ## Run all tests with coverage (100% required)
 

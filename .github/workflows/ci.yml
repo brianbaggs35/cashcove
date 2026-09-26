@@ -30,8 +30,9 @@ jobs:
         image: postgres:18
         env:
           POSTGRES_USER: cashcove
-          POSTGRES_PASSWORD: cashcove
           POSTGRES_DB: cashcove
+          # A throwaway database only this job can reach, so no password is kept for it.
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         # Check over TCP so the check can't pass while the init scripts' socket-only server runs.
@@ -51,46 +52,50 @@ jobs:
           python-version: "3.14"
           working-directory: backend
 
+      # Exactly the locked versions, as prebuilt wheels only, so installing runs none of the
+      # packages' own code. The steps after this run the tools from that environment as is.
       - name: Install dependencies
-        run: uv sync --locked
+        run: |
+          uv sync --locked --no-build
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Ruff lint
-        run: uv run ruff check --output-format=github . ../docker
+        run: ruff check --output-format=github . ../docker
 
       - name: Ruff format
-        run: uv run ruff format --check . ../docker
+        run: ruff format --check . ../docker
 
       - name: Pyright
-        run: uv run pyright
+        run: pyright
 
       - name: Mypy
-        run: uv run mypy app e2e tests migrations
+        run: mypy app e2e tests migrations
 
       - name: Bandit
-        run: uv run bandit -c pyproject.toml -r app e2e migrations ../docker
+        run: bandit -c pyproject.toml -r app e2e migrations ../docker
 
       - name: Dependency audit
-        run: uv run pip-audit
+        run: pip-audit
 
       - name: Tests with 100% coverage
-        run: uv run pytest
+        run: pytest
 
       - name: Migrations on Postgres 18
         env:
-          CASHCOVE_DATABASE_URL: postgresql+psycopg://cashcove:cashcove@127.0.0.1:5432/cashcove
+          CASHCOVE_DATABASE_URL: postgresql+psycopg://cashcove@127.0.0.1:5432/cashcove
         run: |
-          uv run alembic upgrade head
+          alembic upgrade head
           # Fails if the models have changes no migration covers.
-          uv run alembic check
-          uv run alembic downgrade base
-          uv run alembic upgrade head
+          alembic check
+          alembic downgrade base
+          alembic upgrade head
 
       # The same tests again on the database the app really runs on (after the migration
       # checks, because the tests replace the schema with the models' own).
       - name: Tests on Postgres 18
         env:
-          CASHCOVE_TEST_DATABASE_URL: postgresql+psycopg://cashcove:cashcove@127.0.0.1:5432/cashcove
-        run: uv run pytest --no-cov -p no:cacheprovider
+          CASHCOVE_TEST_DATABASE_URL: postgresql+psycopg://cashcove@127.0.0.1:5432/cashcove
+        run: pytest --no-cov -p no:cacheprovider
 
       - name: Upload coverage report
         if: ${{ !cancelled() }}
@@ -120,8 +125,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # Without running any package's install scripts; none of these need one.
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: ESLint
         run: npm run lint -- --max-warnings=0
@@ -231,10 +237,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Install Chromium for Playwright
-        run: npx playwright install --with-deps chromium
+        run: npm run e2e:install -- --with-deps
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -304,6 +310,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # The web app's packages too, so the TypeScript analysis sees the same types and
+      # settings vue-tsc does.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install the web app's packages
+        if: ${{ env.SONAR_TOKEN != '' }}
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
       - name: Download the backend's coverage
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -320,31 +340,53 @@ jobs:
 
       # Settings are in sonar-project.properties.
       - name: SonarQube analysis and quality gate
+        id: scan
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
         with:
           args: -Dsonar.qualitygate.wait=true
 
-      # When the quality gate fails, list the new code's open issues and unreviewed security
-      # hotspots here too, so they can be fixed without opening SonarQube Cloud.
+      # Only when the quality gate fails: why, and the new code's open issues and security
+      # hotspots, so they can be fixed without opening SonarQube Cloud. Empty lists aren't shown.
       - name: What SonarQube found
-        if: ${{ failure() && env.SONAR_TOKEN != '' }}
+        if: ${{ failure() && steps.scan.outcome == 'failure' }}
         env:
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           BRANCH: ${{ github.ref_name }}
         run: |
           project="$(sed -n 's/^sonar\.projectKey=//p' sonar-project.properties)"
-          if [ -n "$PULL_REQUEST" ]; then
+          # All of a pull request is new code; on master, only what changed lately is.
+          if [[ -n "$PULL_REQUEST" ]]; then
             scope="pullRequest=$PULL_REQUEST"
+            new_code=""
           else
-            scope="branch=$BRANCH&sinceLeakPeriod=true"
+            scope="branch=$BRANCH"
+            new_code="&sinceLeakPeriod=true"
           fi
           sonar() {
-            curl -sS -H "Authorization: Bearer $SONAR_TOKEN" "https://sonarcloud.io/api/$1&$scope&ps=500"
+            curl -sS -H "Authorization: Bearer $SONAR_TOKEN" "https://sonarcloud.io/api/$1&$scope"
           }
-          echo "Open issues in new code:"
-          sonar "issues/search?componentKeys=$project&issueStatuses=OPEN,CONFIRMED" | jq -r '.errors[]?.msg,
-            (.issues[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.rule)  \(.message)")'
-          echo "Security hotspots to review:"
-          sonar "hotspots/search?projectKey=$project&status=TO_REVIEW" | jq -r '.errors[]?.msg,
-            (.hotspots[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.ruleKey)  \(.message)")'
+          # Prints the heading and the lines piped in, or nothing when there are none.
+          section() {
+            local lines
+            lines="$(cat)"
+            if [[ -n "$lines" ]]; then
+              printf '%s\n%s\n\n' "$1" "$lines"
+            fi
+          }
+          sonar "qualitygates/project_status?projectKey=$project" | jq -r '
+            def grade: ["A", "B", "C", "D", "E"][tonumber - 1];
+            (.errors[]? | "  \(.msg)"),
+            (.projectStatus.conditions[]? | select(.status == "ERROR") |
+              if (.metricKey | endswith("_rating"))
+              then "  \(.metricKey) is \(.actualValue | grade), needs \(.errorThreshold | grade)"
+              else "  \(.metricKey) is \(.actualValue), needs \(if .comparator == "GT" then "at most" else "at least" end) \(.errorThreshold)"
+              end)' | section "Quality gate conditions not met:"
+          sonar "issues/search?componentKeys=$project&issueStatuses=OPEN,CONFIRMED$new_code&ps=500" | jq -r '
+            (.errors[]? | "  \(.msg)"),
+            (.issues[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.rule)  \(.message)")' |
+            section "Open issues in new code:"
+          sonar "hotspots/search?projectKey=$project&status=TO_REVIEW$new_code&ps=500" | jq -r '
+            (.errors[]? | "  \(.msg)"),
+            (.hotspots[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.ruleKey)  \(.message)")' |
+            section "Security hotspots to review:"

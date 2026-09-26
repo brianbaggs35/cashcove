@@ -15,7 +15,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 
 from app.auth import sessions
-from app.auth.deps import AppSettings, Db, fail
+from app.auth.deps import ApiError, AppSettings, Db
 from app.auth.service import session_state
 from app.auth.setup import issue_code
 from app.models import User
@@ -67,9 +67,11 @@ def start_session(
     """Signs this browser in as someone, skipping the password, two-step and rate limits."""
     user = db.scalar(select(User).where(User.email == body.email.lower()))
     if user is None:
-        fail(status.HTTP_404_NOT_FOUND, "not_found", f"Nobody signs in as {body.email}.")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "not_found", f"Nobody signs in as {body.email}.")
     if not user.is_active:
-        fail(status.HTTP_409_CONFLICT, "account_disabled", f"{body.email}'s account is off.")
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "account_disabled", f"{body.email}'s account is off."
+        )
     session = sessions.start(db, request, response, user, remember=body.remember, now=utcnow())
     db.commit()
     return session_state(db, settings, session)
@@ -101,7 +103,9 @@ class CoverageReport(BaseModel):
 def api_coverage(measurement: Measurement) -> CoverageReport:
     """The API's coverage so far, as an HTML report and an LCOV file."""
     if measurement is None:
-        fail(status.HTTP_404_NOT_FOUND, "coverage_off", "The API isn't running under coverage.")
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "coverage_off", "The API isn't running under coverage."
+        )
     measurement.save()
     with tempfile.TemporaryDirectory() as folder:
         output = Path(folder)

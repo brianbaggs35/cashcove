@@ -37,7 +37,8 @@ if [ "$pg_owner" != "$(id -u postgres)" ]; then
 fi
 chown postgres:postgres "$PGDATA" /run/postgresql
 chmod 0700 "$PGDATA"
-chmod 2775 /run/postgresql
+# Only postgres writes its socket here; everyone else just needs to reach it.
+chmod 0755 /run/postgresql
 chown nginx:nginx /run/nginx /var/cache/nginx
 
 # The database listens only on a unix socket and trusts the OS user via peer auth, so no
@@ -122,8 +123,8 @@ CASHCOVE_SERVER_NAMES="$CASHCOVE_SERVER_NAME"
 export CASHCOVE_HTTPS_PORT_SUFFIX CASHCOVE_SERVER_NAMES
 
 TEMPLATES=/etc/nginx/cashcove-templates
-python3 /app/docker/render-template.py "$TEMPLATES/cashcove.conf" /etc/nginx/conf.d/cashcove.conf
-python3 /app/docker/render-template.py "$TEMPLATES/security-headers.conf" /etc/nginx/cashcove/security-headers.conf
+# Fills in cashcove.conf and security-headers.conf from the variables above.
+python3 /app/docker/render-nginx-config.py
 cp "$TEMPLATES/api-proxy.conf" /etc/nginx/cashcove/api-proxy.conf
 cp "$TEMPLATES/app-$CASHCOVE_MODE.conf" /etc/nginx/cashcove/app.conf
 nginx -e stderr -t -q

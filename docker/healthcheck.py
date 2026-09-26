@@ -1,23 +1,52 @@
 #!/usr/bin/env python3
-"""Container healthcheck: GET /api/health through nginx on the TLS port."""
+"""Container healthcheck: GET /api/health through nginx on the TLS port.
 
+It connects to this container's own nginx, but checks the certificate the way a browser
+does, for the name people browse to: one from a certificate authority, such as Let's
+Encrypt, or the self-signed one Cashcove makes when there isn't one. So an expired
+certificate, or one for another name, makes the container unhealthy too.
+"""
+
+import http.client
 import json
+import os
+import socket
 import ssl
 import sys
-import urllib.request
 
-# The certificate may be self-signed or issued for another name; this only checks liveness.
-context = ssl.create_default_context()
-context.check_hostname = False
-context.verify_mode = ssl.CERT_NONE
+PORT = 8443
+# The certificate nginx is serving, copied here by entrypoint.sh.
+CERTIFICATE = "/run/cashcove/tls/cert.pem"
 
-try:
-    # nginx refuses TLS connections that don't name a site it serves, and "localhost" is one.
-    # The URL is a fixed https loopback address, so B310's file:// concern doesn't apply.
-    with urllib.request.urlopen(  # nosec B310
-        "https://localhost:8443/api/health", timeout=4, context=context
-    ) as response:
-        sys.exit(0 if json.load(response).get("status") == "ok" else 1)
-except Exception as error:
-    print(f"unhealthy: {error}", file=sys.stderr)
-    sys.exit(1)
+
+class LoopbackConnection(http.client.HTTPSConnection):
+    """HTTPS to 127.0.0.1 that asks for, and verifies, the server's name."""
+
+    def __init__(self, server_name: str, context: ssl.SSLContext) -> None:
+        super().__init__(server_name, PORT, timeout=4, context=context)
+        self.tls = context
+
+    def connect(self) -> None:
+        connection = socket.create_connection(("127.0.0.1", PORT), self.timeout)
+        self.sock = self.tls.wrap_socket(connection, server_hostname=self.host)
+
+
+def healthy() -> bool:
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.load_verify_locations(cafile=CERTIFICATE)
+    connection = LoopbackConnection(os.environ.get("CASHCOVE_SERVER_NAME") or "localhost", context)
+    try:
+        connection.request("GET", "/api/health")
+        response = connection.getresponse()
+        return response.status == 200 and json.load(response).get("status") == "ok"
+    finally:
+        connection.close()
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(0 if healthy() else 1)
+    except Exception as error:
+        print(f"unhealthy: {error}", file=sys.stderr)
+        sys.exit(1)
