@@ -118,18 +118,17 @@ watch(open, (value) => {
   if (value) reset()
 })
 
-/** The amount with its sign: money out is negative. */
-const signed = computed(() => {
-  const amount = form.amount ?? '0'
+/** An amount with its sign: money out is negative. */
+function withSign(amount: string): string {
   return form.direction === 'out' ? negate(amount) : amount
-})
+}
 
 /** How a manual account's balance changes when this is saved. */
 const balanceHint = computed(() => {
   const target = account.value
   if (!target || target.source !== 'manual' || locked.value || !form.amount) return null
   const before = props.transaction?.account_id === target.id ? props.transaction.amount : '0'
-  const change = toCents(signed.value) - toCents(before)
+  const change = toCents(withSign(form.amount)) - toCents(before)
   if (change === 0) return null
   const after = fromCents(toCents(target.balance) + change)
   return `${target.name} goes from ${money(target.balance, target.currency)} to ${money(after, target.currency)}.`
@@ -144,12 +143,13 @@ const saving = useAction(async () => {
   const transaction = props.transaction
   const notes = form.notes.trim() || null
   const common = { payee: form.payee.trim(), category_id: form.categoryId, notes }
+  const amount = withSign(form.amount as string)
   const saved = !transaction
     ? await createTransaction({
         ...common,
         account_id: form.accountId as string,
         date: form.date as string,
-        amount: signed.value,
+        amount,
       })
     : await updateTransaction(
         transaction.id,
@@ -159,12 +159,17 @@ const saving = useAction(async () => {
               ...common,
               account_id: form.accountId as string,
               date: form.date as string,
-              amount: signed.value,
+              amount,
             },
       )
   notify(transaction ? 'Saved the transaction' : `Added ${saved.payee}`)
   emit('saved', saved)
   open.value = false
+})
+
+// What the API rejected no longer applies once the form changes, so it can be sent again.
+watch(form, () => {
+  saving.clear()
 })
 
 function submit() {

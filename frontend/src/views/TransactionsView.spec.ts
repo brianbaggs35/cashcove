@@ -305,6 +305,10 @@ describe('TransactionsView', () => {
     await flushPromises()
     expect(fetch).toHaveBeenCalledTimes(3)
     expect(fetchAccounts).toHaveBeenCalledTimes(2)
+
+    dialog().vm.$emit('update:modelValue', false)
+    await flushPromises()
+    expect(dialog().props('modelValue')).toBe(false)
   })
 
   it('shows viewers everything without ways to change it', async () => {
@@ -348,9 +352,11 @@ describe('TransactionsView', () => {
       const dialog = component('CategorizeDialog')
       expect(dialog.props()).toMatchObject({ modelValue: true, ids: [latte.id, wholeFoods.id] })
       dialog.vm.$emit('done')
+      dialog.vm.$emit('update:modelValue', false)
       await flushPromises()
       expect(fetch).toHaveBeenCalledTimes(2)
       expect(find('bulk-bar').exists()).toBe(false)
+      expect(dialog.props('modelValue')).toBe(false)
     })
 
     it('deletes them once confirmed', async () => {

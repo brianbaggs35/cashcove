@@ -6,12 +6,21 @@ import {
   Server,
   ShieldCheck,
   SlidersHorizontal,
+  Tags,
   Users,
   type LucideIcon,
 } from '@lucide/vue'
 
 export type SettingsSectionKey =
-  'general' | 'users' | 'alerts' | 'sync' | 'account' | 'security' | 'appearance' | 'system'
+  | 'general'
+  | 'categories'
+  | 'users'
+  | 'alerts'
+  | 'sync'
+  | 'account'
+  | 'security'
+  | 'appearance'
+  | 'system'
 
 export interface SettingsSection {
   key: SettingsSectionKey
@@ -38,6 +47,12 @@ export const settingsGroups: SettingsGroup[] = [
     title: 'Household',
     sections: [
       defaultSection,
+      {
+        key: 'categories',
+        title: 'Categories',
+        subtitle: 'How transactions are sorted',
+        icon: Tags,
+      },
       { key: 'users', title: 'Users', subtitle: 'People and roles', icon: Users },
       { key: 'alerts', title: 'Alerts', subtitle: 'What Cashcove warns you about', icon: Bell },
       {

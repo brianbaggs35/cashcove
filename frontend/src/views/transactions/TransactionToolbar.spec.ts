@@ -51,10 +51,10 @@ describe('TransactionToolbar', () => {
     await wrapper.setProps({ filters: { ...emptyFilters(), q: 'rent' } })
     expect((search.element as HTMLInputElement).value).toBe('rent')
 
-    // Typing a trailing space doesn't get undone by the search it started.
-    await search.setValue('rent ')
-    await wrapper.setProps({ filters: { ...emptyFilters(), q: 'rent' } })
-    expect((search.element as HTMLInputElement).value).toBe('rent ')
+    // The search typing started coming back doesn't undo a space typed since.
+    await search.setValue('rent due ')
+    await wrapper.setProps({ filters: { ...emptyFilters(), q: 'rent due' } })
+    expect((search.element as HTMLInputElement).value).toBe('rent due ')
   })
 
   it('picks a period, or custom dates in the filters', async () => {

@@ -8,11 +8,12 @@ import { coffee, groceries, makeGroups, seedFinance } from '@/test/finance'
 import { makeSessionState, makeUser } from '@/test/fixtures'
 import { mountWithPlugins, type MountOptions } from '@/test/mount'
 
-async function render(initial: string | null, options: MountOptions = {}) {
+async function render(initial: string | null, options: MountOptions = {}, exclude?: string) {
   const category = ref<string | null>(initial)
   const Host = defineComponent({
     render: () =>
       h(CategoryPicker, {
+        exclude,
         modelValue: category.value,
         'onUpdate:modelValue': (value: string | null) => (category.value = value),
       }),
@@ -54,6 +55,17 @@ describe('CategoryPicker', () => {
 
     expect(category.value).toBe(groceries.id)
     expect(wrapper.find('.category-picker__emoji').text()).toBe('🛒')
+  })
+
+  it('leaves out the category it was told to', async () => {
+    const { open } = await render(null, {}, 'category-paycheck')
+    await open()
+    expect(subheaders()).toEqual(['Food & drink', 'Transfers'])
+    expect(options().map((option) => option.text())).toEqual([
+      '☕Coffee',
+      '🛒Groceries',
+      '🔁Transfers',
+    ])
   })
 
   it('finds categories by their name or their group', async () => {

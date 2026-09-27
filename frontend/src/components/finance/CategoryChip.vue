@@ -2,7 +2,7 @@
 import { CircleDashed } from '@lucide/vue'
 import { computed } from 'vue'
 
-import type { CategoryKind } from '@/api/categories'
+import { categoryKind } from '@/components/finance/categoryKinds'
 import { useCategoriesStore } from '@/stores/categories'
 
 /** A transaction's category, its emoji and name, or that it has none yet. */
@@ -11,12 +11,6 @@ const props = withDefaults(
   { size: 'small' },
 )
 
-const colors: Record<CategoryKind, string | undefined> = {
-  income: 'success',
-  expense: undefined,
-  transfer: 'info',
-}
-
 const category = computed(() => useCategoriesStore().find(props.categoryId))
 </script>
 
@@ -24,7 +18,7 @@ const category = computed(() => useCategoriesStore().find(props.categoryId))
   <v-chip
     v-if="category"
     :size="size"
-    :color="colors[category.group.kind]"
+    :color="categoryKind(category.group.kind).color"
     variant="tonal"
     class="category-chip"
     data-test="category-chip"
