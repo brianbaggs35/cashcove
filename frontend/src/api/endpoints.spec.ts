@@ -1,14 +1,34 @@
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/browser'
 
 import * as account from '@/api/account'
+import * as accounts from '@/api/accounts'
 import * as auth from '@/api/auth'
+import * as categories from '@/api/categories'
 import * as preferences from '@/api/preferences'
 import * as system from '@/api/system'
+import * as transactions from '@/api/transactions'
 import * as users from '@/api/users'
 import { makePreferences } from '@/test/fixtures'
 
 const assertion = { id: 'credential' } as AuthenticationResponseJSON
 const attestation = { id: 'credential' } as RegistrationResponseJSON
+const accountInput: accounts.AccountInput = {
+  name: 'Rainy day fund',
+  type: 'savings',
+  institution: null,
+  mask: null,
+  balance: '2500.00',
+  credit_limit: null,
+  notes: null,
+}
+const transactionInput: transactions.TransactionInput = {
+  account_id: 'a1',
+  date: '2026-09-20',
+  amount: '-42.50',
+  payee: 'Corner Market',
+  category_id: null,
+  notes: null,
+}
 
 // Each API function, the request it should make, and the body it should send.
 const endpoints: [string, () => Promise<unknown>, string, string, unknown][] = [
@@ -276,6 +296,123 @@ const endpoints: [string, () => Promise<unknown>, string, string, unknown][] = [
     makePreferences(),
   ],
   ['fetchSystemInfo', () => system.fetchSystemInfo(), 'GET', '/system', undefined],
+  ['fetchAccounts', () => accounts.fetchAccounts(), 'GET', '/accounts', undefined],
+  [
+    'createAccount',
+    () => accounts.createAccount(accountInput),
+    'POST',
+    '/accounts',
+    accountInput,
+  ],
+  [
+    'updateAccount',
+    () => accounts.updateAccount('a1', { closed: true }),
+    'PATCH',
+    '/accounts/a1',
+    { closed: true },
+  ],
+  ['deleteAccount', () => accounts.deleteAccount('a1'), 'DELETE', '/accounts/a1', undefined],
+  ['fetchCategories', () => categories.fetchCategories(), 'GET', '/categories', undefined],
+  [
+    'addSuggestedCategories',
+    () => categories.addSuggestedCategories(),
+    'POST',
+    '/categories/suggested',
+    undefined,
+  ],
+  [
+    'createGroup',
+    () => categories.createGroup({ name: 'Hobbies', kind: 'expense' }),
+    'POST',
+    '/categories/groups',
+    { name: 'Hobbies', kind: 'expense' },
+  ],
+  [
+    'updateGroup',
+    () => categories.updateGroup('g1', { name: 'Fun' }),
+    'PATCH',
+    '/categories/groups/g1',
+    { name: 'Fun' },
+  ],
+  ['deleteGroup', () => categories.deleteGroup('g1'), 'DELETE', '/categories/groups/g1', undefined],
+  [
+    'createCategory',
+    () => categories.createCategory({ group_id: 'g1', name: 'Yarn', emoji: '🧶' }),
+    'POST',
+    '/categories',
+    { group_id: 'g1', name: 'Yarn', emoji: '🧶' },
+  ],
+  [
+    'updateCategory',
+    () => categories.updateCategory('c1', { emoji: '🎨' }),
+    'PATCH',
+    '/categories/c1',
+    { emoji: '🎨' },
+  ],
+  ['deleteCategory', () => categories.deleteCategory('c1'), 'DELETE', '/categories/c1', undefined],
+  [
+    'deleteCategory moving its transactions',
+    () => categories.deleteCategory('c1', 'c2'),
+    'DELETE',
+    '/categories/c1?move_to=c2',
+    undefined,
+  ],
+  ['fetchTransactions', () => transactions.fetchTransactions(), 'GET', '/transactions', undefined],
+  [
+    'fetchTransactions with filters',
+    () =>
+      transactions.fetchTransactions({
+        q: 'coffee',
+        account_id: ['a1', 'a2'],
+        uncategorized: true,
+        page: 2,
+      }),
+    'GET',
+    '/transactions?q=coffee&account_id=a1&account_id=a2&uncategorized=true&page=2',
+    undefined,
+  ],
+  [
+    'fetchPayees',
+    () => transactions.fetchPayees(' whole '),
+    'GET',
+    '/transactions/payees?q=whole&limit=8',
+    undefined,
+  ],
+  [
+    'createTransaction',
+    () => transactions.createTransaction(transactionInput),
+    'POST',
+    '/transactions',
+    transactionInput,
+  ],
+  [
+    'updateTransaction',
+    () => transactions.updateTransaction('t1', { payee: 'Market' }),
+    'PATCH',
+    '/transactions/t1',
+    { payee: 'Market' },
+  ],
+  [
+    'deleteTransaction',
+    () => transactions.deleteTransaction('t1'),
+    'DELETE',
+    '/transactions/t1',
+    undefined,
+  ],
+  [
+    'deleteTransactions',
+    () => transactions.deleteTransactions(['t1', 't2']),
+    'POST',
+    '/transactions/bulk/delete',
+    { ids: ['t1', 't2'] },
+  ],
+  [
+    'categorizeTransactions',
+    () => transactions.categorizeTransactions(['t1'], null),
+    'POST',
+    '/transactions/bulk/categorize',
+    { ids: ['t1'], category_id: null },
+  ],
 ]
 
 describe('API endpoints', () => {
@@ -289,5 +426,22 @@ describe('API endpoints', () => {
     expect(url).toBe(`/api${path}`)
     expect(init.method).toBe(method)
     expect(init.body === undefined ? undefined : JSON.parse(init.body as string)).toEqual(body)
+  })
+})
+
+describe('queryString', () => {
+  it('repeats lists and leaves out empty values', () => {
+    expect(
+      transactions.queryString({
+        q: '',
+        account_id: [],
+        category_id: ['c1', 'c2'],
+        uncategorized: false,
+        start: undefined,
+        min_amount: null,
+        sort: '-amount',
+      }),
+    ).toBe('?category_id=c1&category_id=c2&sort=-amount')
+    expect(transactions.queryString({})).toBe('')
   })
 })

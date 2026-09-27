@@ -40,6 +40,13 @@ describe('format utils', () => {
     expect(formatMoney('99.99', 'EUR', 'de-DE')).toBe('99,99\u00a0€')
   })
 
+  it('can sign money coming in and leave the sign off', () => {
+    expect(formatMoney('42.5', 'USD', 'en-US', { signDisplay: 'exceptZero' })).toBe('+$42.50')
+    expect(formatMoney('-42.5', 'USD', 'en-US', { signDisplay: 'exceptZero' })).toBe('-$42.50')
+    expect(formatMoney('0', 'USD', 'en-US', { signDisplay: 'exceptZero' })).toBe('$0.00')
+    expect(formatMoney('-42.5', 'USD', 'en-US', { signDisplay: 'never' })).toBe('$42.50')
+  })
+
   it('finds the currency symbol', () => {
     expect(currencySymbol()).toBe('$')
     expect(currencySymbol('GBP', 'en-GB')).toBe('£')

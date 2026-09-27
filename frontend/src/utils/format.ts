@@ -18,8 +18,19 @@ export function formatShortDate(date: Date, locale = 'en-US'): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
 }
 
-export function formatMoney(amount: number | string, currency = 'USD', locale = 'en-US'): string {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(Number(amount))
+/**
+ * An amount of money in a currency, e.g. "$1,234.56". `signDisplay: 'exceptZero'` adds a "+"
+ * to money coming in.
+ */
+export function formatMoney(
+  amount: number | string,
+  currency = 'USD',
+  locale = 'en-US',
+  { signDisplay = 'auto' }: { signDisplay?: 'auto' | 'exceptZero' | 'never' } = {},
+): string {
+  return new Intl.NumberFormat(locale, { style: 'currency', currency, signDisplay }).format(
+    Number(amount),
+  )
 }
 
 export function currencySymbol(currency = 'USD', locale = 'en-US'): string {

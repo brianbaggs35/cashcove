@@ -7,7 +7,9 @@ describe('TabPage', () => {
     const { wrapper } = await mountWithPlugins(TabPage, { props: { name: 'import' } })
     expect(wrapper.find('h1').text()).toBe('Import')
     expect(wrapper.text()).toContain('Coming soon')
-    for (const feature of findNavItem('import').planned) expect(wrapper.text()).toContain(feature)
+    for (const feature of findNavItem('import').planned ?? []) {
+      expect(wrapper.text()).toContain(feature)
+    }
     wrapper.unmount()
   })
 
