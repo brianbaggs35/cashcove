@@ -5,9 +5,9 @@ import { mountWithPlugins } from '@/test/mount'
 import TransactionToolbar from '@/views/transactions/TransactionToolbar.vue'
 import { emptyFilters } from '@/views/transactions/view'
 
-async function render(filterCount = 0) {
+async function render(filterCount = 0, width = 1280) {
   const mounted = await mountWithPlugins(TransactionToolbar, {
-    width: 1280,
+    width,
     props: { filters: emptyFilters(), sort: '-date', filterCount },
   })
   const find = (name: string) => mounted.wrapper.find(`[data-test="${name}"]`)
@@ -97,5 +97,35 @@ describe('TransactionToolbar', () => {
     ])
     await click('.v-overlay--active [data-test="transaction-sort--amount"]')
     expect(wrapper.emitted('sort')).toEqual([['-amount']])
+  })
+
+  it('keeps to one row on computers, with every label spelled out', async () => {
+    const { wrapper, find } = await render()
+    expect(wrapper.find('.transaction-toolbar--stacked').exists()).toBe(false)
+    expect(find('transaction-search').text()).toContain(
+      'Search payees, notes, categories or amounts',
+    )
+    expect(find('transaction-filters').text()).toBe('Filters')
+    expect(find('transaction-filters').classes()).not.toContain('v-btn--icon')
+  })
+
+  it('puts the search on a row of its own on tablets', async () => {
+    const { wrapper, find } = await render(0, 700)
+    expect(wrapper.find('.transaction-toolbar--stacked').exists()).toBe(true)
+    expect(find('transaction-filters').text()).toBe('Filters')
+    expect(find('transaction-sort').text()).toBe('Sort')
+  })
+
+  it('shows just the icons of the filters and order on phones, so they fit beside the period', async () => {
+    const { wrapper, find } = await render(2, 400)
+    expect(wrapper.find('.transaction-toolbar--stacked').exists()).toBe(true)
+    expect(find('transaction-search').text()).toContain('Search transactions')
+    for (const name of ['transaction-filters', 'transaction-sort']) {
+      expect(find(name).classes()).toContain('v-btn--icon')
+      expect(find(name).text()).toBe('')
+    }
+    expect(find('transaction-filters').attributes('aria-label')).toBe('Filters')
+    expect(find('transaction-sort').attributes('aria-label')).toBe('Sort')
+    expect(wrapper.find('.v-badge__badge').text()).toBe('2')
   })
 })

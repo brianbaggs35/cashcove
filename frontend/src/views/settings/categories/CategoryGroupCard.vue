@@ -89,7 +89,7 @@ function uses(category: Category): string {
         data-test="category-link"
       >
         <span class="category-row__emoji" aria-hidden="true">{{ category.emoji }}</span>
-        <span class="text-body-medium font-weight-medium text-truncate flex-grow-1">
+        <span class="text-body-medium font-weight-medium text-break flex-grow-1">
           {{ category.name }}
         </span>
         <span class="text-body-small text-medium-emphasis text-no-wrap">

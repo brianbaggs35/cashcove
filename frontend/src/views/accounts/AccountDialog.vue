@@ -236,7 +236,8 @@ const formError = computed(() =>
               data-test="account-mask"
             />
           </v-col>
-          <v-col cols="12" sm="8">
+          <!-- On phones the currency comes next, so its label needs room below this hint. -->
+          <v-col cols="12" sm="8" class="mb-2 mb-sm-0">
             <MoneyField
               v-model="form.balance"
               :label="liability ? 'Amount owed' : 'Current balance'"

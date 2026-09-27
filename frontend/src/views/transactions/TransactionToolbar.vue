@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ArrowDownUp, CalendarRange, ListFilter, Search } from '@lucide/vue'
+import { ArrowDownUp, CalendarRange, ListFilter, Search, type LucideIcon } from '@lucide/vue'
 import { onScopeDispose, ref, watch } from 'vue'
+import { useDisplay } from 'vuetify'
 
 import type { TransactionSort } from '@/api/transactions'
 import { periods, type PeriodKey } from '@/utils/dates'
@@ -31,6 +32,14 @@ const sorts: { value: TransactionSort; title: string }[] = [
 ]
 
 const periodItems = [...periods, { value: 'custom' as const, title: 'Custom dates…' }]
+
+// Below the table's width the search takes a row of its own, with the period, the filters and
+// the order under it. On phones those two buttons show just their icons, so the row fits.
+const { xs, smAndDown } = useDisplay()
+
+function button(icon: LucideIcon, text: string) {
+  return xs.value ? { icon, width: 48 } : { prependIcon: icon, text }
+}
 
 // Searching waits for a pause in typing, so each keystroke doesn't reload the list.
 const text = ref(props.filters.q)
@@ -66,11 +75,14 @@ function choosePeriod(value: PeriodKey | 'custom') {
 </script>
 
 <template>
-  <div class="transaction-toolbar d-flex flex-wrap align-center ga-3 mb-4">
+  <div
+    class="transaction-toolbar d-flex flex-wrap align-center ga-3 mb-4"
+    :class="{ 'transaction-toolbar--stacked': smAndDown }"
+  >
     <v-text-field
       :model-value="text"
       :prepend-inner-icon="Search"
-      label="Search payees, notes, categories or amounts"
+      :label="xs ? 'Search transactions' : 'Search payees, notes, categories or amounts'"
       type="search"
       density="comfortable"
       hide-details
@@ -99,27 +111,24 @@ function choosePeriod(value: PeriodKey | 'custom') {
       offset-y="4"
     >
       <v-btn
+        v-bind="button(ListFilter, 'Filters')"
         variant="outlined"
         height="48"
-        :prepend-icon="ListFilter"
+        aria-label="Filters"
         data-test="transaction-filters"
         @click="emit('filters')"
-      >
-        Filters
-      </v-btn>
+      />
     </v-badge>
     <v-menu location="bottom end">
       <template #activator="{ props: activator }">
         <v-btn
-          v-bind="activator"
+          v-bind="{ ...activator, ...button(ArrowDownUp, 'Sort') }"
           variant="outlined"
           height="48"
           class="d-md-none"
-          :prepend-icon="ArrowDownUp"
+          aria-label="Sort"
           data-test="transaction-sort"
-        >
-          Sort
-        </v-btn>
+        />
       </template>
       <v-list density="compact" nav :selected="[sort]" color="primary">
         <v-list-item
@@ -143,5 +152,13 @@ function choosePeriod(value: PeriodKey | 'custom') {
 .transaction-toolbar__period {
   flex: 0 1 220px;
   min-width: 180px;
+}
+
+.transaction-toolbar--stacked .transaction-toolbar__search {
+  flex-basis: 100%;
+}
+
+.transaction-toolbar--stacked .transaction-toolbar__period {
+  flex-grow: 1;
 }
 </style>

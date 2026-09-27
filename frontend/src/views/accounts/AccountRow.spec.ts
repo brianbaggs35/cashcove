@@ -12,9 +12,9 @@ import { makeSessionState, makeUser } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
 import AccountRow from '@/views/accounts/AccountRow.vue'
 
-async function render(account: api.Account, role: 'admin' | 'viewer' = 'admin') {
+async function render(account: api.Account, role: 'admin' | 'viewer' = 'admin', width = 1280) {
   const mounted = await mountWithPlugins(AccountRow, {
-    width: 1280,
+    width,
     props: { account },
     session: makeSessionState({ user: makeUser({ role }) }),
     beforeMount: () => seedFinance(),
@@ -75,6 +75,31 @@ describe('AccountRow', () => {
     const { find } = await render({ ...checking, available_balance: '2400.00', currency: 'EUR' })
     expect(find('balance').text()).toBe('€2,450.18')
     expect(find('link').text()).toContain('€2,400.00 available')
+  })
+
+  it('says when nothing is owed on a card', async () => {
+    const { find } = await render({ ...visa, balance: '0.00' })
+    expect(find('balance').text()).toBe('$0.00')
+    expect(find('note').text()).toBe('paid off')
+    expect(find('utilization').exists()).toBe(false)
+  })
+
+  it('keeps the note beside the balance on computers', async () => {
+    const { find } = await render(checking)
+    expect(find('note').element.parentElement?.contains(find('balance').element)).toBe(true)
+  })
+
+  it('moves the note under the details on phones, leaving the name room', async () => {
+    const { find } = await render({ ...checking, available_balance: '2400.00' }, 'admin', 400)
+    expect(find('note').text()).toBe('$2,400.00 available')
+    expect(find('note').element.parentElement?.contains(find('details').element)).toBe(true)
+    expect(find('name').classes()).not.toContain('text-truncate')
+  })
+
+  it('keeps what is owed beside the balance on phones', async () => {
+    const { find } = await render(visa, 'admin', 400)
+    expect(find('note').text()).toBe('owed')
+    expect(find('note').element.parentElement?.contains(find('balance').element)).toBe(true)
   })
 
   it('asks the dialog to edit it', async () => {
