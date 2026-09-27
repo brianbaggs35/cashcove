@@ -40,8 +40,8 @@ onMounted(async () => {
   if (!token) return
   try {
     reset.value = await previewPasswordReset(token)
-  } catch (caught) {
-    problem.value = errorMessage(caught)
+  } catch (previewError) {
+    problem.value = errorMessage(previewError)
   }
 })
 </script>

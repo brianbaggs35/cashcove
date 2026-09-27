@@ -61,7 +61,7 @@ LINK_EXPIRED = "link_expired"
 # ---- Session and first-run setup ------------------------------------------------------
 
 
-@router.get("/session", response_model=SessionState)
+@router.get("/session")
 def read_session(
     request: Request, response: Response, db: Db, settings: AppSettings
 ) -> SessionState:
@@ -99,7 +99,7 @@ def check_setup_code(body: SetupCodeRequest, request: Request, db: Db) -> None:
         raise ApiError(status.HTTP_403_FORBIDDEN, "invalid_setup_code", INVALID_SETUP_CODE)
 
 
-@router.post("/setup", response_model=SessionState, status_code=status.HTTP_201_CREATED)
+@router.post("/setup", status_code=status.HTTP_201_CREATED)
 def complete_setup(
     body: SetupRequest, request: Request, response: Response, db: Db, settings: AppSettings
 ) -> SessionState:
@@ -135,7 +135,7 @@ def complete_setup(
 # ---- Password sign-in and the second step ---------------------------------------------
 
 
-@router.post("/sign-in", response_model=SignInResult)
+@router.post("/sign-in")
 def sign_in(
     body: SignInRequest, request: Request, response: Response, db: Db, settings: AppSettings
 ) -> SignInResult:
@@ -237,7 +237,7 @@ def _finish_second_step(
     )
 
 
-@router.post("/sign-in/totp", response_model=SignInResult)
+@router.post("/sign-in/totp")
 def sign_in_with_totp(
     body: CodeRequest, request: Request, response: Response, db: Db, settings: AppSettings
 ) -> SignInResult:
@@ -254,7 +254,7 @@ def sign_in_with_totp(
     return _finish_second_step(db, request, response, settings, challenge, user, method="totp")
 
 
-@router.post("/sign-in/recovery-code", response_model=SignInResult)
+@router.post("/sign-in/recovery-code")
 def sign_in_with_recovery_code(
     body: CodeRequest, request: Request, response: Response, db: Db, settings: AppSettings
 ) -> SignInResult:
@@ -279,7 +279,7 @@ def sign_in_with_recovery_code(
     )
 
 
-@router.post("/sign-in/passkey/options", response_model=PasskeyOptions)
+@router.post("/sign-in/passkey/options")
 def second_step_passkey_options(request: Request, db: Db, settings: AppSettings) -> PasskeyOptions:
     _, user = _pending_sign_in(request, db)
     allowed = db.scalars(select(Passkey).where(Passkey.user_id == user.id)).all()
@@ -300,7 +300,7 @@ def second_step_passkey_options(request: Request, db: Db, settings: AppSettings)
     return PasskeyOptions(challenge_id=challenge_id, options=options)
 
 
-@router.post("/sign-in/passkey", response_model=SignInResult)
+@router.post("/sign-in/passkey")
 def sign_in_second_step_with_passkey(
     body: PasskeyAnswer, request: Request, response: Response, db: Db, settings: AppSettings
 ) -> SignInResult:
@@ -322,7 +322,7 @@ def sign_in_second_step_with_passkey(
 # ---- Passkey sign-in, without a password ----------------------------------------------
 
 
-@router.post("/passkey/options", response_model=PasskeyOptions)
+@router.post("/passkey/options")
 def passkey_sign_in_options(db: Db, settings: AppSettings) -> PasskeyOptions:
     """A challenge any of this site's passkeys can answer, including through autofill."""
     if not settings.passkeys_supported:
@@ -349,7 +349,7 @@ def _passkey_known(db: Db, credential_id: bytes) -> bool:
     return bool(db.scalar(select(exists().where(Passkey.credential_id == credential_id))))
 
 
-@router.post("/passkey", response_model=SignInResult)
+@router.post("/passkey")
 def sign_in_with_passkey(
     body: PasskeySignInRequest,
     request: Request,
@@ -427,7 +427,7 @@ def _invitation(db: Db, token: str) -> Invitation:
     return invitation
 
 
-@router.post("/invitations/preview", response_model=InvitationPreview)
+@router.post("/invitations/preview")
 def preview_invitation(body: TokenRequest, db: Db) -> InvitationPreview:
     invitation = _invitation(db, body.token)
     return InvitationPreview(
@@ -440,9 +440,7 @@ def preview_invitation(body: TokenRequest, db: Db) -> InvitationPreview:
     )
 
 
-@router.post(
-    "/invitations/accept", response_model=SessionState, status_code=status.HTTP_201_CREATED
-)
+@router.post("/invitations/accept", status_code=status.HTTP_201_CREATED)
 def accept_invitation(
     body: AcceptInvitationRequest,
     request: Request,
@@ -514,7 +512,7 @@ def _password_reset(db: Db, token: str) -> PasswordReset:
     return reset
 
 
-@router.post("/password-resets/preview", response_model=PasswordResetPreview)
+@router.post("/password-resets/preview")
 def preview_password_reset(body: TokenRequest, db: Db) -> PasswordResetPreview:
     reset = _password_reset(db, body.token)
     return PasswordResetPreview(

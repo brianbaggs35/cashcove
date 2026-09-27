@@ -5,9 +5,10 @@
 # packages are rebuilt as soon as CVE fixes land, and the build stages keep Node, uv and
 # compilers out of the final image.
 
-# Chainguard's free tier only publishes wolfi-base as :latest, so it's pinned by digest to
-# keep builds reproducible; `apk upgrade` below still pulls the newest package fixes.
-ARG WOLFI_BASE=cgr.dev/chainguard/wolfi-base:latest@sha256:fac38d12efdb4bf43ac9e599a31db10a27ad5dd71e5f1618790962eda8d66180
+# Chainguard's free tier only publishes wolfi-base as :latest, so builds pin the digest that
+# :latest had when this line was last updated, to stay reproducible. `apk upgrade` below still
+# pulls the newest package fixes.
+ARG WOLFI_BASE=cgr.dev/chainguard/wolfi-base@sha256:fac38d12efdb4bf43ac9e599a31db10a27ad5dd71e5f1618790962eda8d66180
 ARG PYTHON_VERSION=3.14
 ARG NODE_VERSION=24
 ARG POSTGRES_VERSION=18

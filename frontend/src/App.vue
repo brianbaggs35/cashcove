@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CloudOff, RefreshCw } from '@lucide/vue'
-import { ref, watch } from 'vue'
+import { onBeforeMount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from 'vuetify'
 
@@ -22,7 +22,10 @@ const ready = ref(false)
 const retrying = ref(false)
 
 connectApi()
-void router.isReady().then(() => (ready.value = true))
+onBeforeMount(async () => {
+  await router.isReady()
+  ready.value = true
+})
 
 watch(
   () => themeStore.preference,

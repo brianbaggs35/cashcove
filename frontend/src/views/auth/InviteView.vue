@@ -52,8 +52,8 @@ onMounted(async () => {
   try {
     invitation.value = await previewInvitation(token)
     name.value = invitation.value.name
-  } catch (caught) {
-    problem.value = errorMessage(caught)
+  } catch (previewError) {
+    problem.value = errorMessage(previewError)
   }
 })
 </script>

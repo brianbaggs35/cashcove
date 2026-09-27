@@ -141,7 +141,7 @@ def _own_passkeys(db: Db, user: User) -> list[Passkey]:
     )
 
 
-@router.post("/verify/passkey/options", response_model=PasskeyOptions)
+@router.post("/verify/passkey/options")
 def verify_with_passkey_options(auth: CurrentAuth, db: Db, settings: AppSettings) -> PasskeyOptions:
     allowed = _own_passkeys(db, auth.user)
     if not allowed or not settings.passkeys_supported:
@@ -183,12 +183,12 @@ def verify_with_passkey(
 # ---- Profile and password -------------------------------------------------------------
 
 
-@router.get("", response_model=UserOut)
+@router.get("")
 def read_account(auth: CurrentAuth, db: Db) -> UserOut:
     return user_out(db, auth.user)
 
 
-@router.put("/profile", response_model=UserOut)
+@router.put("/profile")
 def update_profile(body: ProfileUpdate, auth: CurrentAuth, request: Request, db: Db) -> UserOut:
     user = auth.user
     changed: list[str] = []
@@ -256,7 +256,7 @@ def change_password(
 # ---- Two-step verification ------------------------------------------------------------
 
 
-@router.post("/totp", response_model=TotpSetup)
+@router.post("/totp")
 def start_totp_setup(auth: VerifiedAuth, db: Db, settings: AppSettings) -> TotpSetup:
     """A new authenticator key. It's only turned on once a code from it is confirmed."""
     user = auth.user
@@ -287,7 +287,7 @@ def _setup_expired(message: str) -> NoReturn:
     raise ApiError(status.HTTP_409_CONFLICT, SETUP_EXPIRED, message)
 
 
-@router.post("/totp/confirm", response_model=RecoveryCodes)
+@router.post("/totp/confirm")
 def confirm_totp_setup(
     body: CodeRequest, auth: VerifiedAuth, request: Request, db: Db, settings: AppSettings
 ) -> RecoveryCodes:
@@ -339,7 +339,7 @@ def turn_off_totp(auth: VerifiedAuth, request: Request, db: Db) -> None:
     db.commit()
 
 
-@router.post("/recovery-codes", response_model=RecoveryCodes)
+@router.post("/recovery-codes")
 def create_recovery_codes(auth: VerifiedAuth, request: Request, db: Db) -> RecoveryCodes:
     """Replaces every recovery code with a new set."""
     if not auth.user.totp_enabled:
@@ -369,12 +369,12 @@ def _passkey_out(passkey: Passkey) -> PasskeyOut:
     )
 
 
-@router.get("/passkeys", response_model=list[PasskeyOut])
+@router.get("/passkeys")
 def list_passkeys(auth: CurrentAuth, db: Db) -> list[PasskeyOut]:
     return [_passkey_out(passkey) for passkey in _own_passkeys(db, auth.user)]
 
 
-@router.post("/passkeys/options", response_model=PasskeyOptions)
+@router.post("/passkeys/options")
 def passkey_registration_options(
     auth: VerifiedAuth, db: Db, settings: AppSettings
 ) -> PasskeyOptions:
@@ -410,7 +410,7 @@ def _default_passkey_name(aaguid: str, request: Request) -> str:
     return passkeys.provider_name(aaguid) or (device.label if known else "Passkey")
 
 
-@router.post("/passkeys", response_model=PasskeyOut, status_code=status.HTTP_201_CREATED)
+@router.post("/passkeys", status_code=status.HTTP_201_CREATED)
 def add_passkey(
     body: PasskeyRegistration,
     auth: VerifiedAuth,
@@ -469,7 +469,7 @@ def _own_passkey(db: Db, user: User, passkey_id: uuid.UUID) -> Passkey:
     return passkey
 
 
-@router.patch("/passkeys/{passkey_id}", response_model=PasskeyOut)
+@router.patch("/passkeys/{passkey_id}")
 def rename_passkey(
     passkey_id: uuid.UUID, body: PasskeyRename, auth: CurrentAuth, db: Db
 ) -> PasskeyOut:
@@ -506,7 +506,7 @@ def _session_out(session: UserSession, current: UserSession) -> SessionOut:
     )
 
 
-@router.get("/sessions", response_model=list[SessionOut])
+@router.get("/sessions")
 def list_sessions(auth: CurrentAuth, db: Db) -> list[SessionOut]:
     """Browsers signed in to this account, the current one first."""
     now = utcnow()
@@ -538,7 +538,7 @@ def end_session(session_id: uuid.UUID, auth: CurrentAuth, request: Request, db: 
     db.commit()
 
 
-@router.post("/sessions/sign-out-others", response_model=SessionsEnded)
+@router.post("/sessions/sign-out-others")
 def end_other_sessions(auth: CurrentAuth, request: Request, db: Db) -> SessionsEnded:
     ended = sessions.end_all(db, auth.user, keep=auth.session)
     if ended:
@@ -547,7 +547,7 @@ def end_other_sessions(auth: CurrentAuth, request: Request, db: Db) -> SessionsE
     return SessionsEnded(ended=ended)
 
 
-@router.get("/activity", response_model=list[ActivityOut])
+@router.get("/activity")
 def account_activity(
     auth: CurrentAuth, db: Db, limit: Annotated[int, Query(ge=1, le=200)] = 50
 ) -> list[ActivityOut]:

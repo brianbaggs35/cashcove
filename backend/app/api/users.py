@@ -91,13 +91,13 @@ def _ensure_an_admin_remains(db: Session) -> None:
         )
 
 
-@router.get("", response_model=list[MemberOut])
+@router.get("")
 def list_members(auth: CurrentAuth, db: Db) -> list[MemberOut]:
     users = db.scalars(select(User).order_by(User.created_at, User.name)).all()
     return [_member(db, user, details=auth.user.is_admin) for user in users]
 
 
-@router.get("/activity", response_model=list[ActivityOut])
+@router.get("/activity")
 def household_activity(
     auth: AdminAuth, db: Db, limit: Annotated[int, Query(ge=1, le=200)] = 100
 ) -> list[ActivityOut]:
@@ -105,7 +105,7 @@ def household_activity(
     return list_activity(db, user_id=None, limit=limit)
 
 
-@router.patch("/{user_id}", response_model=MemberOut)
+@router.patch("/{user_id}")
 def update_member(
     user_id: uuid.UUID, body: UserUpdate, auth: VerifiedAdmin, request: Request, db: Db
 ) -> MemberOut:
@@ -158,9 +158,7 @@ def remove_member(user_id: uuid.UUID, auth: VerifiedAdmin, request: Request, db:
     db.commit()
 
 
-@router.post(
-    "/{user_id}/password-reset", response_model=ResetLink, status_code=status.HTTP_201_CREATED
-)
+@router.post("/{user_id}/password-reset", status_code=status.HTTP_201_CREATED)
 def create_password_reset(
     user_id: uuid.UUID, auth: VerifiedAdmin, request: Request, db: Db, settings: AppSettings
 ) -> ResetLink:
@@ -214,14 +212,14 @@ def _invitation(db: Session, invitation_id: uuid.UUID) -> Invitation:
     return invitation
 
 
-@router.get("/invitations", response_model=list[InvitationOut])
+@router.get("/invitations")
 def list_invitations(auth: AdminAuth, db: Db) -> list[InvitationOut]:
     """Invitations nobody has accepted yet, including expired ones that can be renewed."""
     rows = db.scalars(select(Invitation).order_by(Invitation.created_at.desc())).all()
     return [_invitation_out(row) for row in rows]
 
 
-@router.post("/invitations", response_model=InvitationLink, status_code=status.HTTP_201_CREATED)
+@router.post("/invitations", status_code=status.HTTP_201_CREATED)
 def invite_member(
     body: InvitationCreate,
     auth: VerifiedAdmin,
@@ -265,7 +263,7 @@ def invite_member(
     )
 
 
-@router.post("/invitations/{invitation_id}/link", response_model=InvitationLink)
+@router.post("/invitations/{invitation_id}/link")
 def renew_invitation(
     invitation_id: uuid.UUID,
     auth: VerifiedAdmin,
