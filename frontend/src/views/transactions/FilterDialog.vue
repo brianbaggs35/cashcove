@@ -171,7 +171,8 @@ function clearAll() {
         </template>
       </v-autocomplete>
 
-      <v-row dense class="mt-2">
+      <!-- On phones the status sits under the direction, so the row leaves more room between. -->
+      <v-row dense :gap="[8, 20]" class="mt-2">
         <v-col cols="12" sm="6">
           <div id="filter-direction-label" class="text-label-large mb-2">Direction</div>
           <v-btn-toggle
@@ -217,7 +218,7 @@ function clearAll() {
           v-for="source in sources"
           :key="source.value"
           :value="source.value"
-          variant="outlined"
+          variant="tonal"
           filter
         >
           {{ source.title }}

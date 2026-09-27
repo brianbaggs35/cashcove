@@ -8,8 +8,9 @@ import {
   Pencil,
   Trash2,
 } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, h } from 'vue'
 import { useRouter } from 'vue-router'
+import { useDisplay } from 'vuetify'
 
 import type { Account } from '@/api/accounts'
 import AccountAvatar from '@/components/finance/AccountAvatar.vue'
@@ -28,6 +29,7 @@ const emit = defineEmits<{ edit: [account: Account] }>()
 const auth = useAuthStore()
 const router = useRouter()
 const { money } = useHousehold()
+const { xs } = useDisplay()
 
 const info = computed(() => accountType(props.account.type))
 const linked = computed(() => props.account.source === 'plaid')
@@ -46,7 +48,9 @@ const details = computed(() =>
 const shown = computed(() => {
   const { balance } = props.account
   if (!info.value.liability) return { amount: balance, caption: null }
-  if (toCents(balance) > 0) return { amount: balance, caption: 'in credit' }
+  const cents = toCents(balance)
+  if (cents > 0) return { amount: balance, caption: 'in credit' }
+  if (cents === 0) return { amount: balance, caption: 'paid off' }
   return { amount: negate(balance), caption: 'owed' }
 })
 
@@ -54,6 +58,15 @@ const available = computed(() => {
   const { available_balance: amount, currency } = props.account
   return amount === null ? null : `${money(amount, currency)} available`
 })
+
+/** What's available, or else how fresh the balance is. */
+function BalanceNote() {
+  if (available.value) return available.value
+  return ['Updated ', h(RelativeTime, { value: props.account.balance_updated_at })]
+}
+
+/** On phones the note goes under the details instead, leaving the account's name room. */
+const noteBelow = computed(() => xs.value && !shown.value.caption)
 
 /** How much of a card's limit is in use, when it has one and something is owed. */
 const utilization = computed(() => {
@@ -78,7 +91,7 @@ const utilization = computed(() => {
       <AccountAvatar :type="account.type" size="44" />
       <div class="flex-grow-1" style="min-width: 0">
         <div class="d-flex align-center flex-wrap ga-2">
-          <span class="text-title-small font-weight-bold text-truncate" data-test="account-name">
+          <span class="text-title-small font-weight-bold text-break" data-test="account-name">
             {{ account.name }}
           </span>
           <v-chip
@@ -117,6 +130,13 @@ const utilization = computed(() => {
             {{ utilization.percent }}% of {{ money(utilization.limit, account.currency) }}
           </span>
         </div>
+        <div
+          v-if="noteBelow"
+          class="text-label-small text-medium-emphasis"
+          data-test="account-note"
+        >
+          <BalanceNote />
+        </div>
       </div>
       <div class="text-end flex-shrink-0">
         <MoneyAmount
@@ -125,10 +145,13 @@ const utilization = computed(() => {
           class="text-title-small font-weight-bold"
           data-test="account-balance"
         />
-        <div class="text-label-small text-medium-emphasis text-no-wrap">
+        <div
+          v-if="!noteBelow"
+          class="text-label-small text-medium-emphasis text-no-wrap"
+          data-test="account-note"
+        >
           <template v-if="shown.caption">{{ shown.caption }}</template>
-          <template v-else-if="available">{{ available }}</template>
-          <template v-else> Updated <RelativeTime :value="account.balance_updated_at" /> </template>
+          <BalanceNote v-else />
         </div>
       </div>
     </router-link>

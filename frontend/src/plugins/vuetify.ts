@@ -57,10 +57,14 @@ export function buildVuetify() {
       VCard: { rounded: 'xl', elevation: 0, border: true },
       VBtn: { rounded: 'lg', style: 'text-transform: none; letter-spacing: normal' },
       VTextField: { variant: 'outlined', density: 'comfortable' },
+      VTextarea: { variant: 'outlined', density: 'comfortable' },
       VSelect: { variant: 'outlined', density: 'comfortable' },
       VAutocomplete: { variant: 'outlined', density: 'comfortable' },
+      VCombobox: { variant: 'outlined', density: 'comfortable' },
       VNumberInput: { variant: 'outlined', density: 'comfortable' },
       VChip: { rounded: 'lg' },
+      // A group rounds its own outer corners, so its buttons drop theirs and read as one control.
+      VBtnGroup: { rounded: 'lg', VBtn: { rounded: undefined } },
     },
   })
 }
