@@ -42,6 +42,8 @@ export default defineConfigWithVueTs(
         'error',
         { assertFunctionNames: ['expectAccessible'], assertFunctionPatterns: ['^expect'] },
       ],
+      // Skipping on one screen size, as the e2e README describes, is fine; skipping outright isn't.
+      'playwright/no-skipped-test': ['warn', { allowConditional: true }],
     },
   },
   prettier,

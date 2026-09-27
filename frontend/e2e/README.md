@@ -53,6 +53,42 @@ Tests run one at a time, because they share the one database.
   gives the current code. Each recovery code in `recovery_codes` works once per reset.
 - Riley's invitation link is `baseline.invitations.pending.link`.
 
+The household keeps four accounts, all in US dollars:
+
+| Account           | In `baseline`       | Kind        | Kept up to date by | Balance                       |
+| ----------------- | ------------------- | ----------- | ------------------ | ----------------------------- |
+| Everyday checking | `accounts.checking` | Checking    | Hand               | $2,450.18                     |
+| Rainy day fund    | `accounts.savings`  | Savings     | Hand               | $12,500.00                    |
+| Rewards Visa      | `accounts.card`     | Credit card | Plaid (linked)     | $612.40 owed, $5,000.00 limit |
+| Old store card    | `accounts.closed`   | Credit card | Hand, now closed   | $0.00                         |
+
+Closed accounts don't count, so the net worth is **$14,337.78**. The categories are the 37
+suggested ones every new household starts with, in 11 groups, by name:
+`baseline.categories['Groceries']`, `baseline.category_groups['Food & drink']`.
+
+And eleven transactions, each on its own day, so every sort order is stable:
+
+| Payee                  | In `baseline.transactions` | Account           | Amount    | Category             | Days ago |
+| ---------------------- | -------------------------- | ----------------- | --------- | -------------------- | -------- |
+| Blue Bottle Coffee     | `coffee`                   | Rewards Visa      | −4.50     | Coffee               | 0        |
+| Venmo                  | `venmo`                    | Everyday checking | −40.00    | None                 | 1        |
+| Whole Foods            | `groceries`                | Everyday checking | −84.12    | Groceries            | 3        |
+| Target                 | `refund`                   | Rewards Visa      | +18.20    | Shopping             | 4        |
+| Harbor Credit Union    | `interest`                 | Rainy day fund    | +10.42    | Interest & dividends | 5        |
+| Netflix                | `netflix`                  | Rewards Visa      | −15.49    | Subscriptions        | 6        |
+| Tartan Bank            | `card_payment`             | Everyday checking | −300.00   | Credit card payments | 7        |
+| City Power & Light     | `power`                    | Everyday checking | −96.40    | Utilities            | 9        |
+| Parkside Apartments    | `rent`                     | Everyday checking | −1,850.00 | Rent & mortgage      | 11       |
+| Acme Corp              | `paycheck`                 | Everyday checking | +2,400.00 | Paycheck             | 13       |
+| Maple Department Store | `store`                    | Old store card    | −35.00    | Clothing             | 45       |
+
+- Together they're $2,428.62 in and $2,425.51 out.
+- The Rewards Visa's transactions came from its bank, so they have what the bank called them
+  (`original_description`) and can't have their date or amount changed. The coffee is still
+  pending.
+- Whole Foods has a note ("Weekly shop"), and Venmo is the only one without a category.
+- Dates are relative to the reset: `dateOf(baseline.transactions.rent)` gives one's date.
+
 Read values from `baseline` rather than copying them into specs, so the baseline can change
 without breaking them. It's defined in `backend/e2e/baseline.py`.
 
@@ -86,17 +122,22 @@ test.describe('Household settings', () => {
 
 ### Fixtures
 
-| Fixture                       | What it gives you                                                                                                                                                              |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `baseline`                    | The baseline data above, plus `reset()` and `freshInstall()`, which empties the database as on a first start and returns the setup wizard's code.                              |
-| `signInAs(who, { remember })` | Signs the test's browser in as a baseline person (`'admin'`, `'viewer'`, …) or anyone by `{ email }`, skipping the form, two-step and rate limits. Call it before `page.goto`. |
-| `apiAs(who)`                  | An API client signed in as someone, to set up data or check results without clicking: `get`, `post`, `put`, `patch`, `delete`, with paths like `'/settings'`.                  |
-| `shell`                       | The signed-in app's frame: `open('budget')` from the side menu or the phone's bottom bar, `chooseTheme('dark')`, `signOut()`.                                                  |
-| `signInPage`                  | The sign-in page: `goto()`, `signIn(user)`, `enterCode(code)`, `useRecoveryCode(code)`, and its `error` and `notice` messages.                                                 |
+| Fixture                       | What it gives you                                                                                                                                                                                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `baseline`                    | The baseline data above, plus `reset()` and `freshInstall()`, which empties the database as on a first start and returns the setup wizard's code.                                                                                                                        |
+| `signInAs(who, { remember })` | Signs the test's browser in as a baseline person (`'admin'`, `'viewer'`, …) or anyone by `{ email }`, skipping the form, two-step and rate limits. Call it before `page.goto`.                                                                                           |
+| `apiAs(who)`                  | An API client signed in as someone, to set up data or check results without clicking: `get`, `post`, `put`, `patch`, `delete`, with paths like `'/settings'`.                                                                                                            |
+| `shell`                       | The signed-in app's frame: `open('budget')` from the side menu or the phone's bottom bar, `chooseTheme('dark')`, `signOut()`.                                                                                                                                            |
+| `signInPage`                  | The sign-in page: `goto()`, `signIn(user)`, `enterCode(code)`, `useRecoveryCode(code)`, and its `error` and `notice` messages.                                                                                                                                           |
+| `accountsPage`                | The Accounts tab: `goto()`, `row(name)`, `balance(name)`, `act(name, 'edit')` from an account's menu, `showClosed()`, and the dialog's `fill({ … })` and `save()`.                                                                                                       |
+| `transactionsPage`            | The Transactions tab: `goto(query)`, `row(payee)`, `open(payee)`, `searchFor(text)`, `choosePeriod(title)`, `openFilters()`, `select(...payees)` then `categorizeSelected(category)` or `deleteSelected()`, and the dialog's `fill({ … })`, `save()` and `deleteOpen()`. |
+| `categoriesPage`              | Settings > Categories: `goto()`, `group(name)`, `category(name)`, `actOnGroup` and `actOnCategory`, `addCategory(group)`, the dialogs' `fillGroup`, `fillCategory` and saves, and `deleteCategory(name, { moveTo })`.                                                    |
 
 And helpers: `expectAccessible(page)` fails on WCAG 2.2 AA problems that axe finds (pass
-`{ include: '.v-overlay--active' }` to check just an open dialog or menu), and
-`totpCode(secret)` makes authenticator codes.
+`{ include: '.v-overlay--active' }` to check just an open dialog or menu),
+`totpCode(secret)` makes authenticator codes, `dateOf(transaction)` gives a baseline
+transaction's date, `choose(field, option)` picks from a select or autocomplete, and
+`typeDate(field, '2026-09-20')` fills in a date field.
 
 ### Conventions
 
@@ -112,8 +153,8 @@ And helpers: `expectAccessible(page)` fails on WCAG 2.2 AA problems that axe fin
 
 ## Adding to the baseline
 
-When a feature adds data (accounts, transactions, budgets), give the baseline a small,
-realistic set of it:
+When a feature adds data (budgets, subscriptions), give the baseline a small, realistic set
+of it:
 
 1. Add the rows to `seed()` in `backend/e2e/baseline.py`, with fixed IDs and dates relative
    to now, and describe them in `describe()` and the `Baseline` model.

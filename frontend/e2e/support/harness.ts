@@ -39,6 +39,117 @@ export interface BaselineInvitation {
   link: string
 }
 
+export type AccountType =
+  'checking' | 'savings' | 'cash' | 'credit_card' | 'investment' | 'loan' | 'mortgage' | 'other'
+
+/** An account in the baseline household. */
+export interface BaselineAccount {
+  id: string
+  name: string
+  type: AccountType
+  /** `'plaid'` when its bank keeps it up to date, `'manual'` when the household does. */
+  source: 'manual' | 'plaid'
+  institution: string
+  mask: string
+  currency: string
+  /** Amounts are strings, as the API sends them: `'-612.40'` is 612.40 owed. */
+  balance: string
+  available_balance: string | null
+  credit_limit: string | null
+  notes: string | null
+  closed: boolean
+}
+
+/** The suggested category groups, which a new household starts with. */
+export type BaselineCategoryGroupName =
+  | 'Income'
+  | 'Housing'
+  | 'Bills & utilities'
+  | 'Food & drink'
+  | 'Transportation'
+  | 'Shopping'
+  | 'Health & wellness'
+  | 'Lifestyle'
+  | 'Family & education'
+  | 'Financial'
+  | 'Transfers'
+
+/** The suggested categories, which a new household starts with. */
+export type BaselineCategoryName =
+  | 'Paycheck'
+  | 'Interest & dividends'
+  | 'Other income'
+  | 'Rent & mortgage'
+  | 'Home maintenance'
+  | 'Home goods'
+  | 'Utilities'
+  | 'Phone & internet'
+  | 'Insurance'
+  | 'Subscriptions'
+  | 'Groceries'
+  | 'Restaurants'
+  | 'Coffee'
+  | 'Gas & fuel'
+  | 'Car maintenance'
+  | 'Parking & tolls'
+  | 'Public transit'
+  | 'Rideshare & taxis'
+  | 'Shopping'
+  | 'Clothing'
+  | 'Electronics'
+  | 'Medical'
+  | 'Pharmacy'
+  | 'Fitness'
+  | 'Entertainment'
+  | 'Travel'
+  | 'Pets'
+  | 'Personal care'
+  | 'Gifts & donations'
+  | 'Kids'
+  | 'Education'
+  | 'Bank fees'
+  | 'Taxes'
+  | 'Loan payments'
+  | 'Cash & ATM'
+  | 'Transfers'
+  | 'Credit card payments'
+
+export interface BaselineCategoryGroup {
+  id: string
+  name: BaselineCategoryGroupName
+  /** Whether its transactions count as spending, as income, or as neither. */
+  kind: 'expense' | 'income' | 'transfer'
+}
+
+export interface BaselineCategory {
+  id: string
+  name: BaselineCategoryName
+  emoji: string
+  group: BaselineCategoryGroupName
+  group_id: string
+}
+
+/** A transaction in the baseline. `dateOf(transaction)` gives its date. */
+export interface BaselineTransaction {
+  id: string
+  /** Its account's key in `baseline.accounts`. */
+  account: BaselineAccountKey
+  account_id: string
+  /** How many days before the reset it happened, in UTC. */
+  days_ago: number
+  /** Positive when money came in, negative when it went out. */
+  amount: string
+  payee: string
+  category: BaselineCategoryName | null
+  category_id: string | null
+  notes: string | null
+  /** Authorized but not yet posted by the bank. */
+  pending: boolean
+  source: 'manual' | 'plaid' | 'file'
+  /** What the bank called it, for a linked account's transactions. */
+  original_description: string | null
+}
+
 /** What the database holds after a reset. It mirrors backend/e2e/baseline.py. */
 export interface BaselineData {
   household_name: string
@@ -56,6 +167,54 @@ export interface BaselineData {
     /** Riley Chen, invited by Alex as a viewer two days ago. */
     pending: BaselineInvitation
   }
+  accounts: {
+    /** Everyday checking at Harbor Credit Union, kept by hand. */
+    checking: BaselineAccount
+    /** Rainy day fund, a savings account at Harbor Credit Union, kept by hand. */
+    savings: BaselineAccount
+    /** Rewards Visa at Tartan Bank, linked through Plaid, with 612.40 owed. */
+    card: BaselineAccount
+    /** Old store card, a closed card kept by hand. */
+    closed: BaselineAccount
+  }
+  /** Every suggested category group, by name. */
+  category_groups: Record<BaselineCategoryGroupName, BaselineCategoryGroup>
+  /** Every suggested category, by name. */
+  categories: Record<BaselineCategoryName, BaselineCategory>
+  transactions: {
+    /** Blue Bottle Coffee, 4.50 on the card today, still pending. */
+    coffee: BaselineTransaction
+    /** Venmo, 40.00 from checking yesterday, with no category. */
+    venmo: BaselineTransaction
+    /** Whole Foods, 84.12 from checking, with a note. */
+    groceries: BaselineTransaction
+    /** Target, a refund of 18.20 on the card. */
+    refund: BaselineTransaction
+    /** Harbor Credit Union, 10.42 of interest into savings. */
+    interest: BaselineTransaction
+    /** Netflix, 15.49 on the card. */
+    netflix: BaselineTransaction
+    /** Tartan Bank, 300.00 from checking to pay the card, a transfer. */
+    card_payment: BaselineTransaction
+    /** City Power & Light, 96.40 from checking. */
+    power: BaselineTransaction
+    /** Parkside Apartments, 1,850.00 of rent from checking. */
+    rent: BaselineTransaction
+    /** Acme Corp, a 2,400.00 paycheck into checking. */
+    paycheck: BaselineTransaction
+    /** Maple Department Store, 35.00 on the closed card 45 days ago. */
+    store: BaselineTransaction
+  }
+}
+
+export type BaselineAccountKey = keyof BaselineData['accounts']
+export type BaselineTransactionKey = keyof BaselineData['transactions']
+
+/** A baseline transaction's date (YYYY-MM-DD), as the last reset gave it. */
+export function dateOf(transaction: Pick<BaselineTransaction, 'days_ago'>): string {
+  const day = new Date()
+  day.setUTCDate(day.getUTCDate() - transaction.days_ago)
+  return day.toISOString().slice(0, 10)
 }
 
 /** A baseline person by their role in the household, e.g. `'admin'` or `'viewer'`. */
