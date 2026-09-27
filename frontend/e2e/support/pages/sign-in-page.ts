@@ -6,6 +6,8 @@ export class SignInPage {
   readonly password: Locator
   readonly remember: Locator
   readonly submit: Locator
+  /** Sign in with a passkey, shown where the browser supports passkeys. */
+  readonly passkey: Locator
   readonly codeInput: Locator
   readonly recoveryCode: Locator
   /** The message shown when something didn't work. */
@@ -18,6 +20,7 @@ export class SignInPage {
     this.password = page.getByTestId('sign-in-password').locator('input')
     this.remember = page.getByTestId('sign-in-remember').locator('input')
     this.submit = page.getByTestId('sign-in-submit')
+    this.passkey = page.getByTestId('sign-in-passkey')
     // One real text box sits under the six digit boxes people see.
     this.codeInput = page.getByTestId('code-input').getByRole('textbox')
     this.recoveryCode = page.getByTestId('recovery-code').locator('input')
@@ -39,6 +42,11 @@ export class SignInPage {
     await this.password.fill(user.password)
     if (remember) await this.remember.check()
     await this.submit.click()
+  }
+
+  /** Signs in with the browser's passkey, which `addPasskey()` gives it. */
+  async signInWithPasskey(): Promise<void> {
+    await this.passkey.click()
   }
 
   /** Types a 6-digit authenticator code; the last digit submits it. */

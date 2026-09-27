@@ -1,4 +1,4 @@
-import { expect, test, totpCode } from '../support'
+import { addPasskey, expect, test, totpCode } from '../support'
 
 test.describe('Signing in', () => {
   test.beforeEach(async ({ baseline }) => {
@@ -18,6 +18,15 @@ test.describe('Signing in', () => {
     await expect(shell.accountMenu).toHaveAccessibleName(
       `Account menu for ${baseline.users.admin.name}`,
     )
+  })
+
+  test('an admin signs in with a passkey', async ({ page, baseline, signInPage }) => {
+    await addPasskey(page, baseline.users.admin.passkeys[0]!)
+
+    await signInPage.goto()
+    await signInPage.signInWithPasskey()
+
+    await expect(page).toHaveURL(/\/accounts$/)
   })
 
   test('a wrong password is refused', async ({ baseline, signInPage }) => {

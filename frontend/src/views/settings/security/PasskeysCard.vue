@@ -188,12 +188,14 @@ onMounted(() => void loading.run())
           >
             {{ passkey.provider }}
           </v-chip>
+          <!-- Not eager: an eager tooltip leaves an empty, nameless tooltip in the page while hidden. -->
           <v-chip
-            v-tooltip:top="
-              passkey.backed_up
+            v-tooltip:top="{
+              text: passkey.backed_up
                 ? 'Saved in your password manager, so it works on your other devices too.'
-                : 'Only works on the device or security key that holds it.'
-            "
+                : 'Only works on the device or security key that holds it.',
+              eager: false,
+            }"
             :prepend-icon="passkey.backed_up ? Cloud : MonitorSmartphone"
             size="x-small"
             variant="tonal"

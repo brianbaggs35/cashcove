@@ -1,3 +1,6 @@
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
+
 import {
   request as playwrightRequest,
   type APIRequest,
@@ -13,6 +16,39 @@ import {
 
 export type Role = 'admin' | 'viewer'
 
+/** The admin's and the viewer's saved sign-ins, which `signInFiles` holds. */
+export type SavedSignIn = 'admin' | 'viewer'
+
+/** A browser someone is signed in on, as Settings > Security lists it. */
+export interface BaselineDevice {
+  id: string
+  /** What Settings calls it, e.g. `'Safari on iPhone'`. */
+  device: string
+  ip_address: string
+  signed_in_hours_ago: number
+  last_seen_hours_ago: number
+  /** Which saved sign-in it is, for the one behind `signInFiles.admin` or `.viewer`. */
+  saved_sign_in: SavedSignIn | null
+}
+
+/** A passkey, with what `addPasskey()` needs to give it to Chromium's virtual authenticator. */
+export interface BaselinePasskey {
+  id: string
+  name: string
+  /** The password manager holding it, e.g. `'iCloud Keychain'`. */
+  provider: string | null
+  added_days_ago: number
+  last_used_hours_ago: number | null
+  /** The domain it belongs to: the test server's name. */
+  rp_id: string
+  /** Base64url, as the API and browsers write it. */
+  credential_id: string
+  /** The account handle it's saved under, base64url. */
+  user_handle: string
+  /** Its made-up private key: PKCS #8, base64url. */
+  private_key: string
+}
+
 /** Someone in the baseline household. */
 export interface BaselineUser {
   id: string
@@ -26,6 +62,29 @@ export interface BaselineUser {
   totp_secret: string | null
   /** One-time recovery codes; each works once per reset. */
   recovery_codes: string[]
+  /** How many hours before the reset they last signed in. */
+  last_sign_in_hours_ago: number | null
+  /** The browsers they're signed in on, most recently used first. */
+  devices: BaselineDevice[]
+  passkeys: BaselinePasskey[]
+}
+
+/** A sign-in or security change in the activity logs in Settings. */
+export interface BaselineActivity {
+  id: string
+  /** What happened, e.g. `'signed_in'`, `'user_invited'` or `'passkey_added'`. */
+  event: string
+  /** Whose account it was about, by key in `baseline.users`: null for an invitation, or for
+   * a failed sign-in with an email nobody uses. */
+  user: BaselinePerson | null
+  /** Who did it, when an admin acted on someone else's account. */
+  actor: BaselinePerson | null
+  hours_ago: number
+  /** The browser it came from, e.g. `'Firefox on macOS'`. */
+  device: string
+  ip_address: string
+  /** More about it, e.g. `{ method: 'passkey' }` or `{ email, role }`. */
+  details: Record<string, unknown>
 }
 
 /** An invitation that hasn't been accepted yet. */
@@ -145,8 +204,9 @@ export interface BaselineTransaction {
   notes: string | null
   /** Authorized but not yet posted by the bank. */
   pending: boolean
+  /** Entered by hand, from the bank through Plaid, or imported from the bank's CSV export. */
   source: 'manual' | 'plaid' | 'file'
-  /** What the bank called it, for a linked account's transactions. */
+  /** What the bank called it, for linked accounts' and imported transactions. */
   original_description: string | null
 }
 
@@ -167,6 +227,8 @@ export interface BaselineData {
     /** Riley Chen, invited by Alex as a viewer two days ago. */
     pending: BaselineInvitation
   }
+  /** Every sign-in and security change on record, newest first. */
+  activity: BaselineActivity[]
   accounts: {
     /** Everyday checking at Harbor Credit Union, kept by hand. */
     checking: BaselineAccount
@@ -174,6 +236,10 @@ export interface BaselineData {
     savings: BaselineAccount
     /** Rewards Visa at Tartan Bank, linked through Plaid, with 612.40 owed. */
     card: BaselineAccount
+    /** Car loan at Harbor Credit Union, kept by hand, with 9,120.00 owed and no transactions. */
+    loan: BaselineAccount
+    /** Retirement 401(k) at Fidelity, linked through Plaid, with no transactions. */
+    retirement: BaselineAccount
     /** Old store card, a closed card kept by hand. */
     closed: BaselineAccount
   }
@@ -205,6 +271,11 @@ export interface BaselineData {
     /** Maple Department Store, 35.00 on the closed card 45 days ago. */
     store: BaselineTransaction
   }
+  /**
+   * The rest of the year's transactions, newest first: bills, paychecks and shopping, 15 to
+   * 398 days old. Their payees repeat, but never one of the named transactions' payees.
+   */
+  history: BaselineTransaction[]
 }
 
 export type BaselineAccountKey = keyof BaselineData['accounts']
@@ -215,6 +286,13 @@ export function dateOf(transaction: Pick<BaselineTransaction, 'days_ago'>): stri
   const day = new Date()
   day.setUTCDate(day.getUTCDate() - transaction.days_ago)
   return day.toISOString().slice(0, 10)
+}
+
+/** Every baseline transaction, the named ones and the history, newest first. */
+export function allTransactions(baseline: BaselineData): BaselineTransaction[] {
+  return [...Object.values(baseline.transactions), ...baseline.history].sort(
+    (a, b) => a.days_ago - b.days_ago,
+  )
 }
 
 /** A baseline person by their role in the household, e.g. `'admin'` or `'viewer'`. */
@@ -239,6 +317,11 @@ interface CoverageFile {
 export interface ApiCoverage {
   percent_covered: number
   files: CoverageFile[]
+}
+
+function newContext(requests: APIRequest, baseURL: string): Promise<APIRequestContext> {
+  // The test server's certificate is self-signed.
+  return requests.newContext({ baseURL, ignoreHTTPSErrors: true })
 }
 
 /** Reads a response's JSON, or fails with what the server said. */
@@ -267,14 +350,17 @@ export async function startSession(
 }
 
 export class Harness {
-  private constructor(private readonly api: APIRequestContext) {}
+  private constructor(
+    private readonly api: APIRequestContext,
+    private readonly baseURL: string,
+    private readonly requests: APIRequest,
+  ) {}
 
   static async connect(
     baseURL: string,
     requests: APIRequest = playwrightRequest,
   ): Promise<Harness> {
-    // The test server's certificate is self-signed.
-    return new Harness(await requests.newContext({ baseURL, ignoreHTTPSErrors: true }))
+    return new Harness(await newContext(requests, baseURL), baseURL, requests)
   }
 
   /** Waits for the test server to answer, and checks it's the e2e image. */
@@ -317,6 +403,24 @@ export class Harness {
   async freshInstall(): Promise<string> {
     const response = await this.api.post('/api/e2e/fresh-install')
     return (await readJson<{ setup_code: string }>(response, 'Emptying the database')).setup_code
+  }
+
+  /**
+   * Saves the admin's or the viewer's saved sign-in to a file for
+   * `test.use({ storageState })`. The session is part of the baseline, so every reset brings
+   * it back and the file keeps working.
+   */
+  async saveSignIn(who: SavedSignIn, file: string): Promise<void> {
+    // A cookie jar of its own, holding just this sign-in.
+    const request = await newContext(this.requests, this.baseURL)
+    try {
+      const response = await request.post(`/api/e2e/saved-sign-ins/${who}`)
+      await readJson<SessionState>(response, `Signing in as the baseline's ${who}`)
+      await mkdir(path.dirname(file), { recursive: true })
+      await request.storageState({ path: file })
+    } finally {
+      await request.dispose()
+    }
   }
 
   /** The API's coverage so far, or null when the API isn't measuring it. */

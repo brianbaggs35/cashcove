@@ -148,10 +148,12 @@ so edits reload instantly at `https://localhost`. API docs are at `/api/docs` in
 ### End-to-end tests
 
 The Playwright tests start every spec from the same baseline data (a household with two
-admins, a viewer, a turned-off account and a pending invitation, plus four accounts, the
-suggested categories and eleven transactions), which a before block resets. Fixtures sign
-the browser in as anyone, call the API as anyone, and collect coverage of both the web app
-and the API; every page is also checked for accessibility problems.
+admins, a viewer, a turned-off account and a pending invitation, their devices, passkey and
+activity, plus six accounts, the suggested categories and a year of transactions), which a
+before block resets. Saved sign-in files start a spec signed in as the admin or the viewer
+with `test.use`, fixtures sign the browser in as anyone and call the API as anyone, and
+coverage of both the web app and the API is collected; every page is also checked for
+accessibility problems.
 [frontend/e2e/README.md](frontend/e2e/README.md) covers running them, the baseline and
 writing specs.
 

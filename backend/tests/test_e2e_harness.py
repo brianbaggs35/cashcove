@@ -6,17 +6,23 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import coverage
 import pytest
 from coverage.data import CoverageData
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from webauthn.helpers import base64url_to_bytes
 
 from app.auth import tokens
 from app.auth.service import load_preferences, totp_box
+from app.auth.sessions import SESSION_COOKIE
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.finance.categories import SUGGESTED
@@ -26,15 +32,18 @@ from app.models import (
     Category,
     CategoryGroup,
     Invitation,
+    LoginThrottle,
+    Passkey,
     RecoveryCode,
     Transaction,
-    TransactionSource,
     User,
     UserSession,
 )
 from e2e.api import current_coverage
+from e2e.baseline import SAVED_SIGN_INS
 from e2e.main import create_e2e_app
-from tests.helpers import ORIGIN, add_user, error, sign_in, totp_code
+from tests.authenticator import Authenticator
+from tests.helpers import ORIGIN, add_user, error, sign_in, totp_code, use_session
 
 BASELINE_EMAILS = {"alex@example.com", "jordan@example.com", "sam@example.com", "casey@example.com"}
 RESET_AT = datetime(2026, 9, 20, 15, 30, tzinfo=UTC)
@@ -88,15 +97,21 @@ def test_reset_replaces_everything_with_the_baseline(
     stranger = add_user(session, settings, email="stranger@example.com", name="Pat Stranger")
     sign_in(e2e, stranger.email)
     assert count(session, UserSession) == 1
+    e2e.post("/api/auth/sign-in", json={"email": stranger.email, "password": "wrong-password"})
+    assert count(session, LoginThrottle) > 0
 
     response = e2e.post("/api/e2e/reset")
 
     assert response.status_code == 200
     assert set(session.scalars(select(User.email))) == BASELINE_EMAILS
-    # Sessions, sign-in history and lockouts from earlier tests are gone.
-    assert count(session, UserSession) == 0
-    assert count(session, AuditEvent) == 0
-    assert response.json() == e2e.get("/api/e2e/baseline").json()
+    # Sessions, sign-in history and lockouts from earlier tests are gone, leaving the
+    # baseline's own.
+    baseline = response.json()
+    devices = {device["id"] for user in baseline["users"].values() for device in user["devices"]}
+    assert {str(id) for id in session.scalars(select(UserSession.id))} == devices
+    assert count(session, AuditEvent) == len(baseline["activity"])
+    assert count(session, LoginThrottle) == 0
+    assert baseline == e2e.get("/api/e2e/baseline").json()
 
 
 def test_the_baseline_is_a_household_with_admins_a_viewer_and_a_turned_off_account(
@@ -186,7 +201,7 @@ def test_the_pending_invitation_opens_from_its_link(e2e: TestClient, session: Se
     assert (stored.expires_at - stored.created_at).days == 7
 
 
-def test_the_baseline_has_accounts_kept_by_hand_a_linked_card_and_a_closed_one(
+def test_the_baseline_has_accounts_kept_by_hand_linked_ones_and_a_closed_one(
     e2e: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("e2e.api.utcnow", lambda: RESET_AT)
@@ -197,6 +212,8 @@ def test_the_baseline_has_accounts_kept_by_hand_a_linked_card_and_a_closed_one(
         "checking": ("Everyday checking", "checking", "manual", "2450.18", False),
         "savings": ("Rainy day fund", "savings", "manual", "12500.00", False),
         "card": ("Rewards Visa", "credit_card", "plaid", "-612.40", False),
+        "loan": ("Car loan", "loan", "manual", "-9120.00", False),
+        "retirement": ("Retirement 401(k)", "investment", "plaid", "48210.55", False),
         "closed": ("Old store card", "credit_card", "manual", "0.00", True),
     }
     assert set(accounts) == set(expected)
@@ -231,7 +248,9 @@ def test_the_baseline_has_accounts_kept_by_hand_a_linked_card_and_a_closed_one(
     )
     assert card.balance_updated_at == RESET_AT - timedelta(hours=3)
     assert stored["checking"].external_id is None
+    assert stored["retirement"].external_id == "e2e-retirement"
     assert stored["savings"].notes == accounts["savings"]["notes"] == "Three months of expenses"
+    assert stored["loan"].notes == accounts["loan"]["notes"] == "5.9% APR, paid off in 2029"
     assert stored["closed"].closed_at == RESET_AT - timedelta(days=20)
 
 
@@ -265,8 +284,10 @@ def test_the_baseline_transactions_are_dated_back_from_the_reset(
     baseline = e2e.post("/api/e2e/reset").json()
 
     transactions = baseline["transactions"]
-    assert len(transactions) == count(session, Transaction) == 11
-    for key, described in transactions.items():
+    history = baseline["history"]
+    assert len(transactions) == 11
+    assert len(transactions) + len(history) == count(session, Transaction) == 210
+    for described in [*transactions.values(), *history]:
         stored = session.get(Transaction, uuid.UUID(described["id"]))
         assert stored is not None
         assert stored.date == (RESET_AT - timedelta(days=described["days_ago"])).date()
@@ -290,16 +311,62 @@ def test_the_baseline_transactions_are_dated_back_from_the_reset(
         category_id = None if category is None else baseline["categories"][category]["id"]
         assert described["category_id"] == category_id
         assert (None if stored.category_id is None else str(stored.category_id)) == category_id
-        # Only the linked card's transactions came from its bank.
+        # Linked accounts' transactions came from the bank, and older ones in the accounts kept
+        # by hand from its CSV exports; both keep what the bank called them.
         from_bank = account["source"] == "plaid"
-        assert (stored.source == TransactionSource.PLAID) == from_bank
-        assert stored.external_id == (f"e2e-{key}" if from_bank else None)
+        imported = not from_bank and described["days_ago"] > 120
+        source = "plaid" if from_bank else "file" if imported else "manual"
+        assert stored.source.value == source
+        assert (stored.external_id is None) == (source == "manual")
+        if source != "manual":
+            assert stored.original_description
+    for key in ("coffee", "refund", "netflix"):
+        stored = session.get(Transaction, uuid.UUID(transactions[key]["id"]))
+        assert stored is not None
+        assert stored.external_id == f"e2e-{key}"
     assert [key for key, item in transactions.items() if item["pending"]] == ["coffee"]
+    assert not [item for item in history if item["pending"]]
     assert [key for key, item in transactions.items() if item["category"] is None] == ["venmo"]
+    assert [item["payee"] for item in history if item["category"] is None] == ["Zelle payment"] * 3
+
+
+def test_the_named_transactions_are_the_newest_and_the_only_ones_with_their_payees(
+    e2e: TestClient,
+) -> None:
+    baseline = e2e.post("/api/e2e/reset").json()
+
+    named = baseline["transactions"].values()
+    history = baseline["history"]
+    # History is newest first, and older than all of the named transactions but the store's.
+    ages = [item["days_ago"] for item in history]
+    assert ages == sorted(ages)
+    assert min(ages) > max(item["days_ago"] for item in named if item["account"] != "closed")
+    # Each named transaction is on a day of its own.
+    assert len({item["days_ago"] for item in named}) == len(named)
+    for item in named:
+        payee = item["payee"].lower()
+        others = [other for other in [*named, *history] if other["id"] != item["id"]]
+        for other in others:
+            text = " ".join(filter(None, (other["payee"], other["original_description"])))
+            assert payee not in text.lower(), (item["payee"], other["payee"])
+
+
+def test_the_history_spans_more_than_a_year_and_more_than_the_biggest_page(
+    e2e: TestClient,
+) -> None:
+    history = e2e.post("/api/e2e/reset").json()["history"]
+
+    # Every period, "Last year" included, has transactions whatever the date, and even
+    # 200 to a page leaves a second page.
+    assert max(item["days_ago"] for item in history) > 366
+    assert len(history) + 11 > 200
+    by_month = {item["days_ago"] // 30 for item in history}
+    assert by_month == set(range(14))
 
 
 def test_people_see_the_baseline_money_through_the_api(e2e: TestClient) -> None:
-    viewer = e2e.post("/api/e2e/reset").json()["users"]["viewer"]
+    baseline = e2e.post("/api/e2e/reset").json()
+    viewer = baseline["users"]["viewer"]
     sign_in(e2e, viewer["email"], viewer["password"])
 
     accounts = e2e.get("/api/accounts").json()
@@ -308,15 +375,29 @@ def test_people_see_the_baseline_money_through_the_api(e2e: TestClient) -> None:
 
     # Open accounts first.
     assert [account["name"] for account in accounts] == [
+        "Car loan",
         "Everyday checking",
         "Rainy day fund",
+        "Retirement 401(k)",
         "Rewards Visa",
         "Old store card",
     ]
-    assert transactions["total"] == 11
-    assert [item["payee"] for item in transactions["items"][:2]] == ["Blue Bottle Coffee", "Venmo"]
+    assert {account["name"]: account["transaction_count"] for account in accounts} == {
+        "Car loan": 0,
+        "Everyday checking": 111,
+        "Rainy day fund": 27,
+        "Retirement 401(k)": 0,
+        "Rewards Visa": 71,
+        "Old store card": 1,
+    }
+    assert transactions["total"] == 210
+    # The named transactions come first, newest first.
+    named = baseline["transactions"]
+    assert [item["payee"] for item in transactions["items"][:10]] == [
+        item["payee"] for item in named.values() if item["account"] != "closed"
+    ]
     assert transactions["totals"] == [
-        {"currency": "USD", "count": 11, "money_in": "2428.62", "money_out": "-2425.51"}
+        {"currency": "USD", "count": 210, "money_in": "59592.43", "money_out": "-18655.66"}
     ]
     assert len(groups) == len(SUGGESTED)
     assert sum(len(group["categories"]) for group in groups) == 37
@@ -376,6 +457,180 @@ def test_sessions_need_an_account_that_is_on(e2e: TestClient) -> None:
     assert error(e2e.post("/api/e2e/sessions", json={"email": "casey@example.com"})) == (
         "account_disabled"
     )
+
+
+def use_saved_sign_in(e2e: TestClient, name: str) -> dict[str, Any]:
+    response = e2e.post(f"/api/e2e/saved-sign-ins/{name}")
+    assert response.status_code == 200, response.text
+    return use_session(e2e, response.json())
+
+
+def test_saved_sign_ins_sign_a_browser_in_as_the_admin_or_the_viewer(e2e: TestClient) -> None:
+    baseline = e2e.post("/api/e2e/reset").json()
+
+    for name in ("admin", "viewer"):
+        e2e.cookies.clear()
+        state = use_saved_sign_in(e2e, name)
+
+        assert state["user"]["email"] == baseline["users"][name]["email"]
+        assert state["session"]["remember"] is True
+        cookie = e2e.cookies.get(SESSION_COOKIE)
+        assert cookie
+        sessions = e2e.get("/api/account/sessions").json()
+        assert sessions[0]["current"] is True
+        saved = next(d for d in baseline["users"][name]["devices"] if d["saved_sign_in"])
+        assert sessions[0]["id"] == saved["id"]
+        assert saved["saved_sign_in"] == name
+
+
+def test_saved_sign_ins_keep_working_after_a_reset(e2e: TestClient) -> None:
+    e2e.post("/api/e2e/reset")
+    state = use_saved_sign_in(e2e, "admin")
+    cookie = e2e.cookies.get(SESSION_COOKIE)
+    # A change made through the saved sign-in, which the reset undoes.
+    renamed = e2e.put("/api/account/profile", json={"name": "Alex R.", "email": "alex@example.com"})
+    assert renamed.status_code == 200
+
+    e2e.post("/api/e2e/reset")
+
+    # The same cookie and CSRF token still work, as if nothing had happened.
+    assert e2e.cookies.get(SESSION_COOKIE) == cookie
+    session = e2e.get("/api/auth/session").json()["session"]
+    assert session["csrf_token"] == state["session"]["csrf_token"]
+    restored = e2e.put(
+        "/api/account/profile", json={"name": "Alex Rivera", "email": "alex@example.com"}
+    )
+    assert restored.status_code == 200
+    assert e2e.get("/api/account").json()["name"] == "Alex Rivera"
+
+
+def test_a_saved_sign_in_ends_like_any_other_until_the_next_reset(e2e: TestClient) -> None:
+    e2e.post("/api/e2e/reset")
+    use_saved_sign_in(e2e, "viewer")
+
+    assert e2e.post("/api/auth/sign-out").status_code == 204
+
+    assert error(e2e.post("/api/e2e/saved-sign-ins/viewer")) == "signed_out"
+    e2e.post("/api/e2e/reset")
+    assert use_saved_sign_in(e2e, "viewer")["user"]["email"] == "sam@example.com"
+
+
+def test_saved_sign_ins_come_from_the_app_secret(settings: Settings) -> None:
+    device = SAVED_SIGN_INS["admin"]
+    token = device.token(settings)
+    other = settings.model_copy(
+        update={"secret_key": SecretStr("another-secret-key-at-least-32-long")}
+    )
+
+    # The same at every reset, so the files global setup saves keep working.
+    assert device.token(settings.model_copy()) == token
+    assert device.token(other) != token
+    assert SAVED_SIGN_INS["viewer"].token(settings) != token
+    assert device.csrf_token(settings) != token
+
+
+def test_only_the_admin_and_the_viewer_have_saved_sign_ins(e2e: TestClient) -> None:
+    e2e.post("/api/e2e/reset")
+
+    assert e2e.post("/api/e2e/saved-sign-ins/two_step").status_code == 422
+
+
+def test_people_are_signed_in_on_the_baseline_devices(e2e: TestClient, session: Session) -> None:
+    users = e2e.post("/api/e2e/reset").json()["users"]
+
+    assert {key: [d["device"] for d in user["devices"]] for key, user in users.items()} == {
+        "admin": ["Chrome on Windows", "Safari on iPhone", "Firefox on macOS"],
+        "two_step": ["Safari on iPad"],
+        "viewer": ["Chrome on Windows", "Chrome on Android"],
+        "deactivated": [],
+    }
+    use_saved_sign_in(e2e, "admin")
+    listed = e2e.get("/api/account/sessions").json()
+    assert [(item["device"], item["current"]) for item in listed] == [
+        ("Chrome on Windows", True),
+        ("Safari on iPhone", False),
+        ("Firefox on macOS", False),
+    ]
+    assert [item["id"] for item in listed] == [d["id"] for d in users["admin"]["devices"]]
+    assert [item["ip_address"] for item in listed] == [
+        d["ip_address"] for d in users["admin"]["devices"]
+    ]
+    stored = session.get(UserSession, uuid.UUID(users["admin"]["devices"][1]["id"]))
+    assert stored is not None
+    assert stored.remember is True
+    ended = e2e.post("/api/account/sessions/sign-out-others").json()
+    assert ended == {"ended": 2}
+
+
+def test_members_show_when_each_person_last_signed_in(e2e: TestClient) -> None:
+    users = e2e.post("/api/e2e/reset").json()["users"]
+    use_saved_sign_in(e2e, "admin")
+
+    members = e2e.get("/api/users").json()
+
+    last = {item["email"]: item["details"]["last_sign_in_at"] for item in members}
+    now = datetime.now(UTC)
+    for user in users.values():
+        ago = now - datetime.fromisoformat(last[user["email"]])
+        assert abs(ago - timedelta(hours=user["last_sign_in_hours_ago"])) < timedelta(minutes=5)
+
+
+def test_the_admin_signs_in_with_the_baseline_passkey(
+    e2e: TestClient, session: Session, settings: Settings
+) -> None:
+    alex = e2e.post("/api/e2e/reset").json()["users"]["admin"]
+    [passkey] = alex["passkeys"]
+    key = serialization.load_der_private_key(base64url_to_bytes(passkey["private_key"]), None)
+    assert isinstance(key, ec.EllipticCurvePrivateKey)
+    phone = Authenticator(
+        credential_id=base64url_to_bytes(passkey["credential_id"]),
+        key=key,
+        user_handle=base64url_to_bytes(passkey["user_handle"]),
+    )
+
+    options = e2e.post("/api/auth/passkey/options").json()
+    response = e2e.post(
+        "/api/auth/passkey",
+        json={"challenge_id": options["challenge_id"], "credential": phone.get(options["options"])},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["state"]["user"]["email"] == alex["email"]
+    assert passkey["rp_id"] == settings.server_name
+    assert (passkey["name"], passkey["provider"]) == ("Alex's iPhone", "iCloud Keychain")
+    use_session(e2e, response.json())
+    listed = e2e.get("/api/account/passkeys").json()
+    assert [(item["id"], item["credential_id"]) for item in listed] == [
+        (passkey["id"], passkey["credential_id"])
+    ]
+    assert listed[0]["backed_up"] is True
+    stored = session.get(Passkey, uuid.UUID(passkey["id"]))
+    assert stored is not None
+    assert stored.sign_count == 1
+
+
+def test_the_activity_log_tells_the_households_story(e2e: TestClient) -> None:
+    baseline = e2e.post("/api/e2e/reset").json()
+    activity = baseline["activity"]
+
+    use_saved_sign_in(e2e, "admin")
+    household = e2e.get("/api/users/activity").json()
+    own = e2e.get("/api/account/activity").json()
+
+    assert [entry["id"] for entry in household] == [entry["id"] for entry in activity]
+    assert [(entry["event"], entry["device"], entry["ip_address"]) for entry in household] == [
+        (entry["event"], entry["device"], entry["ip_address"]) for entry in activity
+    ]
+    names = {key: user["name"] for key, user in baseline["users"].items()}
+    for listed, described in zip(household, activity, strict=True):
+        assert listed["user_name"] == names.get(described["user"])
+        assert listed["actor_name"] == names.get(described["actor"])
+        assert listed["details"] == described["details"]
+    # More than the eight Settings shows before "Show all".
+    assert len(own) == len([entry for entry in activity if entry["user"] == "admin"]) == 9
+    riley = baseline["invitations"]["pending"]
+    assert household[2]["details"] == {"email": riley["email"], "role": "viewer"}
+    assert household[2]["actor_name"] == "Alex Rivera"
 
 
 def test_coverage_is_the_measurement_the_api_runs_under() -> None:
