@@ -73,10 +73,10 @@ RUN set -eux; \
     adduser -S -D -H -u 10002 -G postgres -h /var/lib/postgresql -s /sbin/nologin postgres; \
     addgroup -S -g 10003 nginx; \
     adduser -S -D -H -u 10003 -G nginx -h /var/lib/nginx -s /sbin/nologin nginx; \
-    apk add --no-cache ca-certificates-bundle tzdata openssl setpriv \
-        "python-${PYTHON_VERSION}" \
-        "postgresql-${POSTGRES_VERSION}" "postgresql-${POSTGRES_VERSION}-client" \
-        nginx-mainline nginx-mainline-config; \
+    apk add --no-cache ca-certificates-bundle nginx-mainline nginx-mainline-config openssl \
+        setpriv tzdata; \
+    apk add --no-cache "postgresql-${POSTGRES_VERSION}" "postgresql-${POSTGRES_VERSION}-client" \
+        "python-${PYTHON_VERSION}"; \
     rm -f /etc/nginx/conf.d/default.conf
 ENV PATH=/opt/venv/bin:/opt/supervisor/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONDONTWRITEBYTECODE=1 \
