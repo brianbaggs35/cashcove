@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
 import type { AccountType } from '../harness'
-import { choose, exactly, startingWith } from './fields'
+import { choose, exactly, openOverlays, startingWith } from './fields'
 
 /** What the account dialog asks for. Leave out whatever shouldn't change. */
 export interface AccountFields {
@@ -63,7 +63,7 @@ export class AccountsPage {
 
   async act(name: string, action: AccountAction): Promise<void> {
     await this.row(name).getByTestId('account-actions').click()
-    await this.page.getByTestId(`account-${action}`).click()
+    await openOverlays(this.page).getByTestId(`account-${action}`).click()
   }
 
   async fill(fields: AccountFields): Promise<void> {

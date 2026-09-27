@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
 import type { BaselineCategoryGroup } from '../harness'
-import { choose, startingWith } from './fields'
+import { choose, openOverlays, startingWith } from './fields'
 
 /**
  * Settings > Categories: the category groups, each with its categories and how many
@@ -44,12 +44,12 @@ export class CategoriesPage {
 
   async actOnGroup(name: string, action: 'edit' | 'delete'): Promise<void> {
     await this.group(name).getByTestId('category-group-actions').click()
-    await this.page.getByTestId(`category-group-${action}`).click()
+    await openOverlays(this.page).getByTestId(`category-group-${action}`).click()
   }
 
   async actOnCategory(name: string, action: 'edit' | 'delete'): Promise<void> {
     await this.category(name).getByTestId('category-actions').click()
-    await this.page.getByTestId(`category-${action}`).click()
+    await openOverlays(this.page).getByTestId(`category-${action}`).click()
   }
 
   /** Fills in the add or edit group dialog. */
