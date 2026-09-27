@@ -10,9 +10,22 @@ function base64(value: string): string {
 /**
  * Gives the page's browser a virtual authenticator holding a baseline passkey, so "Sign in
  * with a passkey" and passkey checks work without a real device. It confirms each use as if
- * someone touched the fingerprint reader. Chromium only; call it before using the passkey.
+ * someone touched the fingerprint reader. Chromium only; call it before opening the page.
+ *
+ * A person picks a passkey from the email field's autofill menu, but the virtual authenticator
+ * answers the sign-in page's autofill request at once, signing in as the page opens. So the
+ * page is told the browser has no passkey autofill, unless `autofill` is true.
  */
-export async function addPasskey(page: Page, passkey: BaselinePasskey): Promise<void> {
+export async function addPasskey(
+  page: Page,
+  passkey: BaselinePasskey,
+  { autofill = false }: { autofill?: boolean } = {},
+): Promise<void> {
+  if (!autofill) {
+    await page.addInitScript(() => {
+      PublicKeyCredential.isConditionalMediationAvailable = () => Promise.resolve(false)
+    })
+  }
   const devtools = await page.context().newCDPSession(page)
   await devtools.send('WebAuthn.enable')
   const { authenticatorId } = await devtools.send('WebAuthn.addVirtualAuthenticator', {

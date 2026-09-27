@@ -29,6 +29,18 @@ test.describe('Signing in', () => {
     await expect(page).toHaveURL(/\/accounts$/)
   })
 
+  test("an admin signs in with the passkey the email field's autofill offers", async ({
+    page,
+    baseline,
+  }) => {
+    await addPasskey(page, baseline.users.admin.passkeys[0]!, { autofill: true })
+
+    // The virtual authenticator picks the passkey from the autofill menu as the page opens.
+    await page.goto('/sign-in')
+
+    await expect(page).toHaveURL(/\/accounts$/)
+  })
+
   test('a wrong password is refused', async ({ baseline, signInPage }) => {
     await signInPage.goto()
     await signInPage.signIn({ email: baseline.users.admin.email, password: 'not-my-password' })

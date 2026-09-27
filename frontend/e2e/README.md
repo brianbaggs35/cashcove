@@ -53,6 +53,8 @@ Tests run one at a time, because they share the one database.
   gives the current code. Each recovery code in `recovery_codes` works once per reset.
 - Alex's passkey ("Alex's iPhone", in iCloud Keychain) is `baseline.users.admin.passkeys[0]`.
   `addPasskey(page, passkey)` puts it in the test's browser, so "Sign in with a passkey" works.
+  Chromium would use it from the email field's autofill as soon as the sign-in page opens, so
+  `addPasskey` turns that autofill off; pass `{ autofill: true }` to test it.
 - Riley's invitation link is `baseline.invitations.pending.link`.
 
 Everyone but Riley has signed in before, so Settings > Users shows when, and they're still
