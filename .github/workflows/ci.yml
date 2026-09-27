@@ -346,10 +346,12 @@ jobs:
         with:
           args: -Dsonar.qualitygate.wait=true
 
-      # Only when the quality gate fails: why, and the new code's open issues and security
-      # hotspots, so they can be fixed without opening SonarQube Cloud. Empty lists aren't shown.
+      # Whenever the analysis ran: why the quality gate failed, if it did, and the new code's open
+      # issues and security hotspots, so they can be fixed without opening SonarQube Cloud. Empty
+      # lists aren't shown. The quality gate lets code smells through, so a pull request with any
+      # open issue fails here instead, and none reach master.
       - name: What SonarQube found
-        if: ${{ failure() && steps.scan.outcome == 'failure' }}
+        if: ${{ !cancelled() && (steps.scan.outcome == 'success' || steps.scan.outcome == 'failure') }}
         env:
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           BRANCH: ${{ github.ref_name }}
@@ -382,11 +384,18 @@ jobs:
               then "  \(.metricKey) is \(.actualValue | grade), needs \(.errorThreshold | grade)"
               else "  \(.metricKey) is \(.actualValue), needs \(if .comparator == "GT" then "at most" else "at least" end) \(.errorThreshold)"
               end)' | section "Quality gate conditions not met:"
-          sonar "issues/search?componentKeys=$project&issueStatuses=OPEN,CONFIRMED$new_code&ps=500" | jq -r '
+          issues="$(sonar "issues/search?componentKeys=$project&issueStatuses=OPEN,CONFIRMED$new_code&ps=500")"
+          jq -r '
             (.errors[]? | "  \(.msg)"),
-            (.issues[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.rule)  \(.message)")' |
-            section "Open issues in new code:"
+            (.issues[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.rule)  \(.message)")' \
+            <<<"$issues" | section "Open issues in new code:"
           sonar "hotspots/search?projectKey=$project&status=TO_REVIEW$new_code&ps=500" | jq -r '
             (.errors[]? | "  \(.msg)"),
             (.hotspots[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.ruleKey)  \(.message)")' |
             section "Security hotspots to review:"
+          # Marking an issue accepted or a false positive in SonarQube Cloud takes it off the list.
+          open_issues="$(jq '.paging.total // .total // 0' <<<"$issues")"
+          if [[ -n "$PULL_REQUEST" && "$open_issues" -gt 0 ]]; then
+            echo "::error::SonarQube found $open_issues open issues in this pull request. Fix them, or mark them accepted in SonarQube Cloud, before merging."
+            exit 1
+          fi
