@@ -115,6 +115,23 @@ describe('PayeeField', () => {
     expect(payee.value).toBe('Farmers market')
   })
 
+  it('keeps its label inside the field until there is a payee', async () => {
+    vi.spyOn(api, 'fetchPayees').mockResolvedValue([])
+    const { wrapper, combobox } = await render()
+    expect(wrapper.find('.v-field--dirty').exists()).toBe(false)
+    combobox.vm.$emit('update:modelValue', 'Farmers market')
+    await flushPromises()
+    expect(wrapper.find('.v-field--dirty').exists()).toBe(true)
+  })
+
+  it('asks for a payee when there is none', async () => {
+    vi.spyOn(api, 'fetchPayees').mockResolvedValue([])
+    const { wrapper, combobox } = await render()
+    await combobox.vm.validate()
+    await flushPromises()
+    expect(wrapper.text()).toContain('Enter who it was paid to or received from')
+  })
+
   it('asks for a payee of a sensible length', async () => {
     vi.spyOn(api, 'fetchPayees').mockResolvedValue([])
     const { wrapper, combobox } = await render('x')
