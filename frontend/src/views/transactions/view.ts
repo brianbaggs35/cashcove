@@ -37,7 +37,7 @@ export interface TransactionView {
 
 export const PAGE_SIZES = [25, 50, 100, 200] as const
 const SORTS: TransactionSort[] = ['-date', 'date', '-amount', 'amount', 'payee', '-payee']
-const SOURCES: TransactionSource[] = ['manual', 'plaid', 'file']
+const SOURCES = new Set<TransactionSource>(['manual', 'plaid', 'file'])
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 type QueryValue = LocationQuery[string] | undefined
@@ -120,7 +120,7 @@ export function viewFromQuery(query: LocationQuery): TransactionView {
       direction: pick(query.direction, ['in', 'out'] as const),
       status: pick(query.status, ['pending', 'posted'] as const),
       sources: list(query.source).filter((source): source is TransactionSource =>
-        SOURCES.includes(source as TransactionSource),
+        SOURCES.has(source as TransactionSource),
       ),
       min: amount(query.min),
       max: amount(query.max),

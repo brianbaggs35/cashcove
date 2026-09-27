@@ -39,6 +39,11 @@ const sections = computed<Section[]>(() => {
   return list
 })
 
+/** The category's emoji, or nothing for a transaction that has no category. */
+function emojiOf(transaction: Transaction): string | undefined {
+  return categories.find(transaction.category_id)?.emoji
+}
+
 function describe(transaction: Transaction): string {
   const parts = [
     categories.find(transaction.category_id)?.name ?? 'Uncategorized',
@@ -69,8 +74,8 @@ function describe(transaction: Transaction): string {
         >
           <template #prepend>
             <v-avatar size="40" rounded="lg" class="transaction-list__icon me-3">
-              <span v-if="categories.find(item.category_id)" aria-hidden="true">
-                {{ categories.find(item.category_id)?.emoji }}
+              <span v-if="emojiOf(item)" aria-hidden="true">
+                {{ emojiOf(item) }}
               </span>
               <v-icon v-else :icon="CircleDashed" size="18" />
             </v-avatar>

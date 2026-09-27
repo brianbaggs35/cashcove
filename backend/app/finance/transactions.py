@@ -10,7 +10,8 @@ from app.models import Category, Transaction
 from app.schemas.transactions import Sort, TransactionQuery
 
 # Amounts people search for, like "42", "42.5", "$1,234.56" or "-18.20".
-_AMOUNT = re.compile(r"[-+]?\s*[$€£¥]?\s*(\d{1,3}(?:,\d{3}){1,3}|\d{1,12})(?:\.(\d{1,2}))?")
+# The currency sign brings its own spaces, so no run of spaces can be split two ways.
+_AMOUNT = re.compile(r"[-+]?\s*(?:[$€£¥]\s*)?(\d{1,3}(?:,\d{3}){1,3}|\d{1,12})(?:\.(\d{1,2}))?")
 
 
 def like_pattern(text: str, *, prefix_only: bool = False) -> str:

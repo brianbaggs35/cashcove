@@ -64,7 +64,7 @@ def _writable_account(db: Session, account_id: uuid.UUID) -> Account:
     return account
 
 
-@router.get("", response_model=TransactionPage)
+@router.get("")
 def list_transactions(
     query: Annotated[TransactionQuery, Query()], auth: CurrentAuth, db: Db
 ) -> TransactionPage:
@@ -99,7 +99,7 @@ def list_transactions(
     )
 
 
-@router.get("/payees", response_model=list[PayeeSuggestion])
+@router.get("/payees")
 def suggest_payees(
     auth: CurrentAuth,
     db: Db,
@@ -136,7 +136,7 @@ def suggest_payees(
     ]
 
 
-@router.post("", response_model=TransactionOut, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def create_transaction(body: TransactionCreate, auth: AdminAuth, db: Db) -> TransactionOut:
     """Adds a transaction by hand. A manual account's balance moves with it."""
     account = _writable_account(db, body.account_id)
@@ -156,12 +156,12 @@ def create_transaction(body: TransactionCreate, auth: AdminAuth, db: Db) -> Tran
     return TransactionOut.model_validate(transaction)
 
 
-@router.get("/{transaction_id}", response_model=TransactionOut)
+@router.get("/{transaction_id}")
 def read_transaction(transaction_id: uuid.UUID, auth: CurrentAuth, db: Db) -> TransactionOut:
     return TransactionOut.model_validate(_transaction(db, transaction_id))
 
 
-@router.patch("/{transaction_id}", response_model=TransactionOut)
+@router.patch("/{transaction_id}")
 def update_transaction(
     transaction_id: uuid.UUID, body: TransactionUpdate, auth: AdminAuth, db: Db
 ) -> TransactionOut:
@@ -221,7 +221,7 @@ def delete_transaction(transaction_id: uuid.UUID, auth: AdminAuth, db: Db) -> No
     db.commit()
 
 
-@router.post("/bulk/delete", response_model=BulkResult)
+@router.post("/bulk/delete")
 def delete_transactions(body: TransactionIds, auth: AdminAuth, db: Db) -> BulkResult:
     """Deletes several transactions at once. Ones already gone are skipped."""
     transactions = list(
@@ -232,7 +232,7 @@ def delete_transactions(body: TransactionIds, auth: AdminAuth, db: Db) -> BulkRe
     return BulkResult(count=count)
 
 
-@router.post("/bulk/categorize", response_model=BulkResult)
+@router.post("/bulk/categorize")
 def categorize_transactions(body: BulkCategorize, auth: AdminAuth, db: Db) -> BulkResult:
     """Gives several transactions the same category, or takes theirs away."""
     find_category(db, body.category_id)

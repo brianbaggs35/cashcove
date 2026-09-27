@@ -78,12 +78,12 @@ def _count(db: Session, category_id: uuid.UUID) -> int:
     )
 
 
-@router.get("", response_model=list[CategoryGroupOut])
+@router.get("")
 def list_categories(auth: CurrentAuth, db: Db) -> list[CategoryGroupOut]:
     return category_groups_out(db)
 
 
-@router.post("/suggested", response_model=SuggestedCategoriesAdded)
+@router.post("/suggested")
 def add_suggested(auth: AdminAuth, db: Db) -> SuggestedCategoriesAdded:
     """Adds the suggested categories the household doesn't have, e.g. after starting over."""
     added = add_suggested_categories(db)
@@ -98,7 +98,7 @@ def _group_out(db: Session, group: CategoryGroup) -> CategoryGroupOut:
     return next(item for item in category_groups_out(db) if item.id == group.id)
 
 
-@router.post("/groups", response_model=CategoryGroupOut, status_code=status.HTTP_201_CREATED)
+@router.post("/groups", status_code=status.HTTP_201_CREATED)
 def create_group(body: CategoryGroupCreate, auth: AdminAuth, db: Db) -> CategoryGroupOut:
     _ensure_unique(db, CategoryGroup, body.name)
     group = CategoryGroup(name=body.name, kind=body.kind)
@@ -107,7 +107,7 @@ def create_group(body: CategoryGroupCreate, auth: AdminAuth, db: Db) -> Category
     return _group_out(db, group)
 
 
-@router.patch("/groups/{group_id}", response_model=CategoryGroupOut)
+@router.patch("/groups/{group_id}")
 def update_group(
     group_id: uuid.UUID, body: CategoryGroupUpdate, auth: AdminAuth, db: Db
 ) -> CategoryGroupOut:
@@ -132,7 +132,7 @@ def delete_group(group_id: uuid.UUID, auth: AdminAuth, db: Db) -> None:
 # ---- Categories ------------------------------------------------------------------------
 
 
-@router.post("", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def create_category(body: CategoryCreate, auth: AdminAuth, db: Db) -> CategoryOut:
     group = _group(db, body.group_id)
     _ensure_unique(db, Category, body.name)
@@ -142,7 +142,7 @@ def create_category(body: CategoryCreate, auth: AdminAuth, db: Db) -> CategoryOu
     return category_out(category, 0)
 
 
-@router.patch("/{category_id}", response_model=CategoryOut)
+@router.patch("/{category_id}")
 def update_category(
     category_id: uuid.UUID, body: CategoryUpdate, auth: AdminAuth, db: Db
 ) -> CategoryOut:

@@ -35,7 +35,7 @@ describe('EmojiPicker', () => {
 
     await open()
     const options = menu().findAll('[data-test="emoji-option"]')
-    expect(menu().find('[role="group"]').attributes('aria-label')).toBe('Category emoji')
+    expect(menu().find('fieldset').attributes('aria-label')).toBe('Category emoji')
     const current = options.find((option) => option.attributes('aria-pressed') === 'true')!
     expect(current.attributes('aria-label')).toBe('Shopping cart')
     await options.find((option) => option.attributes('aria-label') === 'Coffee')!.trigger('click')

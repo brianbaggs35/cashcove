@@ -17,15 +17,20 @@ const props = withDefaults(
 const { locale } = useHousehold()
 
 /** Typing follows the household's number format, e.g. mm/dd/yyyy in the US. */
+/** What each part of a date looks like in the format shown under the field. */
+const PLACEHOLDERS: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {
+  year: 'yyyy',
+  month: 'mm',
+  day: 'dd',
+}
+
 const inputFormat = computed(() => {
   const parts = new Intl.DateTimeFormat(locale.value, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).formatToParts(new Date(2026, 11, 31))
-  const order = parts
-    .filter((part) => ['year', 'month', 'day'].includes(part.type))
-    .map((part) => (part.type === 'year' ? 'yyyy' : part.type === 'month' ? 'mm' : 'dd'))
+  const order = parts.flatMap((part) => PLACEHOLDERS[part.type] ?? [])
   const literal = parts.find((part) => part.type === 'literal')?.value ?? '/'
   const separator = ['/', '-', '.'].find((sign) => literal.includes(sign)) ?? '/'
   return order.join(separator)

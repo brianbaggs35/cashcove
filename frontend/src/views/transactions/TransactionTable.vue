@@ -80,12 +80,15 @@ interface Options {
   sortBy: SortItem[]
 }
 
+/** The order the table's headers ask for, newest first when they ask for none. */
+function sortOf([first]: SortItem[]): TransactionSort {
+  if (!first) return '-date'
+  const direction = first.order === 'desc' ? '-' : ''
+  return `${direction}${first.key}` as TransactionSort
+}
+
 function changed(options: Options) {
-  const [first] = options.sortBy
-  const sort = (
-    first ? `${first.order === 'desc' ? '-' : ''}${first.key}` : '-date'
-  ) as TransactionSort
-  const next = { page: options.page, pageSize: options.itemsPerPage, sort }
+  const next = { page: options.page, pageSize: options.itemsPerPage, sort: sortOf(options.sortBy) }
   if (next.page !== props.page || next.pageSize !== props.pageSize || next.sort !== props.sort) {
     emit('options', next)
   }

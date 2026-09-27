@@ -45,14 +45,19 @@ function editGroup(group: CategoryGroup) {
   groupOpen.value = true
 }
 
+/** What deleting a group with this many categories takes with it. */
+function groupDeletion(count: number): string {
+  if (count === 0) return "It has no categories. This can't be undone."
+  const goes = count === 1 ? 'Its category goes' : `Its ${count} categories go`
+  return `${goes} too, and their transactions become uncategorized. This can't be undone.`
+}
+
 async function removeGroup(group: CategoryGroup) {
   const count = group.categories.length
   const done = await confirmAndRun(
     {
       title: `Delete ${group.name}?`,
-      text: count
-        ? `${count === 1 ? 'Its category goes' : `Its ${count} categories go`} too, and their transactions become uncategorized. This can't be undone.`
-        : "It has no categories. This can't be undone.",
+      text: groupDeletion(count),
       confirmText: 'Delete group',
       tone: 'error',
       icon: Trash2,

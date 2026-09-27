@@ -34,8 +34,8 @@ export const useAccountsStore = defineStore('accounts', () => {
       try {
         accounts.value = await fetchAccounts()
         loaded.value = true
-      } catch (caught) {
-        error.value = errorMessage(caught)
+      } catch (loadError) {
+        error.value = errorMessage(loadError)
       } finally {
         loading.value = false
         pending = null

@@ -143,25 +143,17 @@ const saving = useAction(async () => {
   const transaction = props.transaction
   const notes = form.notes.trim() || null
   const common = { payee: form.payee.trim(), category_id: form.categoryId, notes }
-  const amount = withSign(form.amount as string)
-  const saved = !transaction
-    ? await createTransaction({
-        ...common,
-        account_id: form.accountId as string,
-        date: form.date as string,
-        amount,
-      })
-    : await updateTransaction(
-        transaction.id,
-        fromBank.value
-          ? common
-          : {
-              ...common,
-              account_id: form.accountId as string,
-              date: form.date as string,
-              amount,
-            },
-      )
+  const details = {
+    ...common,
+    account_id: form.accountId as string,
+    date: form.date as string,
+    amount: withSign(form.amount as string),
+  }
+  // The bank keeps its own transactions' account, date and amount.
+  const changes = fromBank.value ? common : details
+  const saved = transaction
+    ? await updateTransaction(transaction.id, changes)
+    : await createTransaction(details)
   notify(transaction ? 'Saved the transaction' : `Added ${saved.payee}`)
   emit('saved', saved)
   open.value = false

@@ -61,8 +61,8 @@ const available = computed(() => {
 
 /** What's available, or else how fresh the balance is. */
 function BalanceNote() {
-  if (available.value) return available.value
-  return ['Updated ', h(RelativeTime, { value: props.account.balance_updated_at })]
+  if (available.value) return h('span', available.value)
+  return h('span', ['Updated ', h(RelativeTime, { value: props.account.balance_updated_at })])
 }
 
 /** On phones the note goes under the details instead, leaving the account's name room. */

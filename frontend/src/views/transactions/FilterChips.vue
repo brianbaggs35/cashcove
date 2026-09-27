@@ -26,78 +26,97 @@ interface Chip {
 
 const SOURCES = { manual: 'Added by hand', plaid: 'From the bank', file: 'Imported from a file' }
 
-const chips = computed<Chip[]>(() => {
-  const { filters } = props
-  const list: Chip[] = []
-  for (const id of filters.accounts) {
-    list.push({
-      key: `account-${id}`,
-      label: accounts.find(id)?.name ?? 'Deleted account',
-      icon: Landmark,
-      remove: { accounts: filters.accounts.filter((item) => item !== id) },
-    })
-  }
-  if (filters.uncategorized) {
-    list.push({
+function accountChips({ accounts: ids }: TransactionFilters): Chip[] {
+  return ids.map((id) => ({
+    key: `account-${id}`,
+    label: accounts.find(id)?.name ?? 'Deleted account',
+    icon: Landmark,
+    remove: { accounts: ids.filter((item) => item !== id) },
+  }))
+}
+
+function categoryChips({ uncategorized, categories: ids }: TransactionFilters): Chip[] {
+  const list: Chip[] = ids.map((id) => {
+    const category = categories.find(id)
+    return {
+      key: `category-${id}`,
+      label: category?.name ?? 'Deleted category',
+      emoji: category?.emoji,
+      remove: { categories: ids.filter((item) => item !== id) },
+    }
+  })
+  if (uncategorized) {
+    list.unshift({
       key: 'uncategorized',
       label: 'Uncategorized',
       icon: CircleDashed,
       remove: { uncategorized: false },
     })
   }
-  for (const id of filters.categories) {
-    const category = categories.find(id)
-    list.push({
-      key: `category-${id}`,
-      label: category?.name ?? 'Deleted category',
-      emoji: category?.emoji,
-      remove: { categories: filters.categories.filter((item) => item !== id) },
-    })
-  }
-  if (filters.period === 'custom') {
-    list.push({
+  return list
+}
+
+function dateChips({ period, start, end }: TransactionFilters): Chip[] {
+  if (period !== 'custom') return []
+  return [
+    {
       key: 'dates',
-      label: formatDateRange(
-        { start: filters.start ?? undefined, end: filters.end ?? undefined },
-        locale.value,
-      ),
+      label: formatDateRange({ start: start ?? undefined, end: end ?? undefined }, locale.value),
       icon: CalendarRange,
       remove: { period: 'all', start: null, end: null },
-    })
-  }
-  if (filters.direction) {
+    },
+  ]
+}
+
+function choiceChips({ direction, status }: TransactionFilters): Chip[] {
+  const list: Chip[] = []
+  if (direction) {
     list.push({
       key: 'direction',
-      label: filters.direction === 'in' ? 'Money in' : 'Money out',
+      label: direction === 'in' ? 'Money in' : 'Money out',
       remove: { direction: null },
     })
   }
-  if (filters.status) {
+  if (status) {
     list.push({
       key: 'status',
-      label: filters.status === 'pending' ? 'Pending' : 'Posted',
+      label: status === 'pending' ? 'Pending' : 'Posted',
       remove: { status: null },
     })
   }
-  for (const source of filters.sources) {
-    list.push({
-      key: `source-${source}`,
-      label: SOURCES[source],
-      remove: { sources: filters.sources.filter((item) => item !== source) },
-    })
-  }
-  if (filters.min || filters.max) {
-    const min = filters.min && money(filters.min)
-    const max = filters.max && money(filters.max)
-    list.push({
-      key: 'amount',
-      label: min && max ? `${min} to ${max}` : min ? `At least ${min}` : `At most ${max}`,
-      icon: Scale,
-      remove: { min: null, max: null },
-    })
-  }
   return list
-})
+}
+
+function sourceChips({ sources }: TransactionFilters): Chip[] {
+  return sources.map((source) => ({
+    key: `source-${source}`,
+    label: SOURCES[source],
+    remove: { sources: sources.filter((item) => item !== source) },
+  }))
+}
+
+/** The amount range, from whichever ends are set. */
+function amountLabel(min: string | null, max: string | null): string {
+  if (min && max) return `${money(min)} to ${money(max)}`
+  if (min) return `At least ${money(min)}`
+  return `At most ${money(max as string)}`
+}
+
+function amountChips({ min, max }: TransactionFilters): Chip[] {
+  if (!min && !max) return []
+  return [
+    { key: 'amount', label: amountLabel(min, max), icon: Scale, remove: { min: null, max: null } },
+  ]
+}
+
+const chips = computed<Chip[]>(() => [
+  ...accountChips(props.filters),
+  ...categoryChips(props.filters),
+  ...dateChips(props.filters),
+  ...choiceChips(props.filters),
+  ...sourceChips(props.filters),
+  ...amountChips(props.filters),
+])
 </script>
 
 <template>

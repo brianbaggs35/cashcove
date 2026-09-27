@@ -61,8 +61,8 @@ async function load() {
       return
     }
     result.value = page
-  } catch (caught) {
-    if (request === latest) error.value = errorMessage(caught)
+  } catch (loadError) {
+    if (request === latest) error.value = errorMessage(loadError)
   } finally {
     if (request === latest) loading.value = false
   }
