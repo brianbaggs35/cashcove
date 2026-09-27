@@ -3,6 +3,8 @@
 import base64
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import coverage
@@ -17,12 +19,25 @@ from app.auth import tokens
 from app.auth.service import load_preferences, totp_box
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.models import AuditEvent, Invitation, RecoveryCode, User, UserSession
+from app.finance.categories import SUGGESTED
+from app.models import (
+    Account,
+    AuditEvent,
+    Category,
+    CategoryGroup,
+    Invitation,
+    RecoveryCode,
+    Transaction,
+    TransactionSource,
+    User,
+    UserSession,
+)
 from e2e.api import current_coverage
 from e2e.main import create_e2e_app
 from tests.helpers import ORIGIN, add_user, error, sign_in, totp_code
 
 BASELINE_EMAILS = {"alex@example.com", "jordan@example.com", "sam@example.com", "casey@example.com"}
+RESET_AT = datetime(2026, 9, 20, 15, 30, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -169,6 +184,142 @@ def test_the_pending_invitation_opens_from_its_link(e2e: TestClient, session: Se
     stored = session.get(Invitation, uuid.UUID(invitation["id"]))
     assert stored is not None
     assert (stored.expires_at - stored.created_at).days == 7
+
+
+def test_the_baseline_has_accounts_kept_by_hand_a_linked_card_and_a_closed_one(
+    e2e: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("e2e.api.utcnow", lambda: RESET_AT)
+
+    accounts = e2e.post("/api/e2e/reset").json()["accounts"]
+
+    expected = {
+        "checking": ("Everyday checking", "checking", "manual", "2450.18", False),
+        "savings": ("Rainy day fund", "savings", "manual", "12500.00", False),
+        "card": ("Rewards Visa", "credit_card", "plaid", "-612.40", False),
+        "closed": ("Old store card", "credit_card", "manual", "0.00", True),
+    }
+    assert set(accounts) == set(expected)
+    stored: dict[str, Account] = {}
+    for key, (name, kind, source, balance, closed) in expected.items():
+        described = accounts[key]
+        account = session.get(Account, uuid.UUID(described["id"]))
+        assert account is not None
+        stored[key] = account
+        assert (
+            described["name"],
+            described["type"],
+            described["source"],
+            described["balance"],
+            described["closed"],
+        ) == (name, kind, source, balance, closed)
+        assert (
+            account.name,
+            account.type.value,
+            account.source.value,
+            account.balance,
+            account.is_closed,
+        ) == (name, kind, source, Decimal(balance), closed)
+        assert account.currency == described["currency"] == "USD"
+        assert (account.institution, account.mask) == (described["institution"], described["mask"])
+    card = stored["card"]
+    assert card.external_id == "e2e-card"
+    assert (card.credit_limit, card.available_balance) == (Decimal("5000.00"), Decimal("4387.60"))
+    assert (accounts["card"]["credit_limit"], accounts["card"]["available_balance"]) == (
+        "5000.00",
+        "4387.60",
+    )
+    assert card.balance_updated_at == RESET_AT - timedelta(hours=3)
+    assert stored["checking"].external_id is None
+    assert stored["savings"].notes == accounts["savings"]["notes"] == "Three months of expenses"
+    assert stored["closed"].closed_at == RESET_AT - timedelta(days=20)
+
+
+def test_the_baseline_has_the_suggested_categories_with_the_same_ids_every_time(
+    e2e: TestClient, session: Session
+) -> None:
+    baseline = e2e.post("/api/e2e/reset").json()
+
+    suggested = {name for group in SUGGESTED for _, name in group.categories}
+    assert set(baseline["categories"]) == suggested
+    stored = {category.name: category for category in session.scalars(select(Category))}
+    assert set(stored) == suggested
+    for name, described in baseline["categories"].items():
+        category = stored[name]
+        group = baseline["category_groups"][described["group"]]
+        assert str(category.id) == described["id"]
+        assert str(category.group_id) == described["group_id"] == group["id"]
+        assert category.emoji == described["emoji"]
+    groups = {group.name: group for group in session.scalars(select(CategoryGroup))}
+    assert {name: (str(group.id), group.kind.value) for name, group in groups.items()} == {
+        name: (group["id"], group["kind"]) for name, group in baseline["category_groups"].items()
+    }
+    assert e2e.post("/api/e2e/reset").json()["categories"] == baseline["categories"]
+
+
+def test_the_baseline_transactions_are_dated_back_from_the_reset(
+    e2e: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("e2e.api.utcnow", lambda: RESET_AT)
+
+    baseline = e2e.post("/api/e2e/reset").json()
+
+    transactions = baseline["transactions"]
+    assert len(transactions) == count(session, Transaction) == 11
+    for key, described in transactions.items():
+        stored = session.get(Transaction, uuid.UUID(described["id"]))
+        assert stored is not None
+        assert stored.date == (RESET_AT - timedelta(days=described["days_ago"])).date()
+        account = baseline["accounts"][described["account"]]
+        assert str(stored.account_id) == described["account_id"] == account["id"]
+        assert stored.amount == Decimal(described["amount"])
+        assert (
+            stored.payee,
+            stored.notes,
+            stored.pending,
+            stored.source.value,
+            stored.original_description,
+        ) == (
+            described["payee"],
+            described["notes"],
+            described["pending"],
+            described["source"],
+            described["original_description"],
+        )
+        category = described["category"]
+        category_id = None if category is None else baseline["categories"][category]["id"]
+        assert described["category_id"] == category_id
+        assert (None if stored.category_id is None else str(stored.category_id)) == category_id
+        # Only the linked card's transactions came from its bank.
+        from_bank = account["source"] == "plaid"
+        assert (stored.source == TransactionSource.PLAID) == from_bank
+        assert stored.external_id == (f"e2e-{key}" if from_bank else None)
+    assert [key for key, item in transactions.items() if item["pending"]] == ["coffee"]
+    assert [key for key, item in transactions.items() if item["category"] is None] == ["venmo"]
+
+
+def test_people_see_the_baseline_money_through_the_api(e2e: TestClient) -> None:
+    viewer = e2e.post("/api/e2e/reset").json()["users"]["viewer"]
+    sign_in(e2e, viewer["email"], viewer["password"])
+
+    accounts = e2e.get("/api/accounts").json()
+    transactions = e2e.get("/api/transactions").json()
+    groups = e2e.get("/api/categories").json()
+
+    # Open accounts first.
+    assert [account["name"] for account in accounts] == [
+        "Everyday checking",
+        "Rainy day fund",
+        "Rewards Visa",
+        "Old store card",
+    ]
+    assert transactions["total"] == 11
+    assert [item["payee"] for item in transactions["items"][:2]] == ["Blue Bottle Coffee", "Venmo"]
+    assert transactions["totals"] == [
+        {"currency": "USD", "count": 11, "money_in": "2428.62", "money_out": "-2425.51"}
+    ]
+    assert len(groups) == len(SUGGESTED)
+    assert sum(len(group["categories"]) for group in groups) == 37
 
 
 def test_resets_reuse_the_hashed_password(e2e: TestClient, session: Session) -> None:

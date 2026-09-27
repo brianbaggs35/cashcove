@@ -10,8 +10,11 @@ import {
   type SessionState,
   type Who,
 } from './harness'
+import { AccountsPage } from './pages/accounts-page'
 import { AppShell } from './pages/app-shell'
+import { CategoriesPage } from './pages/categories-page'
 import { SignInPage } from './pages/sign-in-page'
+import { TransactionsPage } from './pages/transactions-page'
 
 /** The baseline data, and ways to put the database back to it. */
 export interface Baseline extends BaselineData {
@@ -32,6 +35,10 @@ export interface CashcoveFixtures {
   /** The signed-in app's navigation, account menu and theme switcher. */
   shell: AppShell
   signInPage: SignInPage
+  accountsPage: AccountsPage
+  transactionsPage: TransactionsPage
+  /** Settings > Categories. */
+  categoriesPage: CategoriesPage
   /** Collects the web app's coverage in Chromium, for every test. */
   webCoverage: undefined
 }
@@ -89,6 +96,18 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
 
   signInPage: async ({ page }, use) => {
     await use(new SignInPage(page))
+  },
+
+  accountsPage: async ({ page }, use) => {
+    await use(new AccountsPage(page))
+  },
+
+  transactionsPage: async ({ page }, use) => {
+    await use(new TransactionsPage(page))
+  },
+
+  categoriesPage: async ({ page }, use) => {
+    await use(new CategoriesPage(page))
   },
 
   webCoverage: [

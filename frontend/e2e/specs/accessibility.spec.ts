@@ -1,7 +1,10 @@
+import type { Page } from '@playwright/test'
+
 import { expect, expectAccessible, TABS, test } from '../support'
 
 const SETTINGS = [
   'general',
+  'categories',
   'users',
   'alerts',
   'sync',
@@ -18,6 +21,41 @@ const PAGES = [
     .map((tab) => `/${tab}`),
   ...SETTINGS.map((section) => `/settings/${section}`),
 ]
+
+/** What pages that load data show once they have, so axe checks the finished page. */
+const LOADED: Record<string, string> = {
+  '/accounts': 'net-worth',
+  '/transactions': 'transaction-totals',
+  '/settings/categories': 'category-row',
+}
+
+/** An open dialog or menu. */
+const OVERLAY = '.v-overlay--active'
+
+async function closeOverlay(page: Page): Promise<void> {
+  await page.keyboard.press('Escape')
+  await expect(page.locator(OVERLAY)).toHaveCount(0)
+}
+
+/** Opens each dialog or menu in turn, checks it with axe, and closes it again. */
+async function expectAccessibleOverlays(
+  page: Page,
+  overlays: Record<string, () => Promise<void>>,
+): Promise<void> {
+  for (const [name, open] of Object.entries(overlays)) {
+    await test.step(name, async () => {
+      await open()
+      await expectAccessible(page, { include: OVERLAY })
+      await closeOverlay(page)
+    })
+  }
+}
+
+async function expectLoaded(page: Page, path: string): Promise<void> {
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  const loaded = LOADED[path]
+  if (loaded) await expect(page.getByTestId(loaded).first()).toBeVisible()
+}
 
 test.describe('Accessibility', () => {
   test.beforeEach(async ({ baseline }) => {
@@ -59,20 +97,27 @@ test.describe('Accessibility', () => {
         for (const path of PAGES) {
           await test.step(path, async () => {
             await page.goto(path)
-            await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+            await expectLoaded(page, path)
 
             await expectAccessible(page)
           })
         }
       })
 
-      test('the settings a viewer sees', async ({ page, signInAs }) => {
+      test('the pages a viewer sees', async ({ page, signInAs }) => {
         await signInAs('viewer')
 
-        for (const section of ['general', 'users']) {
-          await test.step(section, async () => {
-            await page.goto(`/settings/${section}`)
+        for (const path of [
+          '/accounts',
+          '/transactions',
+          '/settings/general',
+          '/settings/categories',
+          '/settings/users',
+        ]) {
+          await test.step(path, async () => {
+            await page.goto(path)
             await expect(page.getByTestId('read-only-notice')).toBeVisible()
+            await expectLoaded(page, path)
 
             await expectAccessible(page)
           })
@@ -84,11 +129,59 @@ test.describe('Accessibility', () => {
         await page.goto('/settings/users')
 
         await page.getByTestId('invite-open').click()
-        await expectAccessible(page, { include: '.v-overlay--active' })
-        await page.keyboard.press('Escape')
+        await expectAccessible(page, { include: OVERLAY })
+        await closeOverlay(page)
 
         await shell.accountMenu.click()
-        await expectAccessible(page, { include: '.v-overlay--active' })
+        await expectAccessible(page, { include: OVERLAY })
+      })
+
+      test('the account dialogs and menu', async ({ page, signInAs, accountsPage }) => {
+        await signInAs('admin')
+        await accountsPage.goto()
+
+        await expectAccessibleOverlays(page, {
+          'adding an account': () => accountsPage.addButton.click(),
+          "an account's menu": () =>
+            accountsPage.row('Everyday checking').getByTestId('account-actions').click(),
+          'editing a linked account': () => accountsPage.act('Rewards Visa', 'edit'),
+          'confirming a closing': () => accountsPage.act('Everyday checking', 'close'),
+        })
+      })
+
+      test('the transaction dialogs', async ({ page, signInAs, transactionsPage }) => {
+        await signInAs('admin')
+        await transactionsPage.goto()
+
+        await expectAccessibleOverlays(page, {
+          'adding a transaction': () => transactionsPage.addButton.click(),
+          'editing one': () => transactionsPage.open('Whole Foods'),
+          'one from a bank': () => transactionsPage.open('Blue Bottle Coffee'),
+          'the filters': () => transactionsPage.openFilters(),
+        })
+      })
+
+      test('categorizing a selection', async ({ page, signInAs, transactionsPage }) => {
+        test.skip(test.info().project.name === 'mobile', 'Only computers select several at once')
+        await signInAs('admin')
+        await transactionsPage.goto()
+        await transactionsPage.select('Venmo', 'Whole Foods')
+
+        await expectAccessible(page)
+        await transactionsPage.bulkBar.getByTestId('bulk-categorize').click()
+        await expectAccessible(page, { include: OVERLAY })
+      })
+
+      test('the category dialogs', async ({ page, signInAs, categoriesPage }) => {
+        await signInAs('admin')
+        await categoriesPage.goto()
+
+        await expectAccessibleOverlays(page, {
+          'adding a group': () => categoriesPage.addGroupButton.click(),
+          'adding a category': () => categoriesPage.addCategory('Food & drink'),
+          'deleting a category transactions use': () =>
+            categoriesPage.actOnCategory('Groceries', 'delete'),
+        })
       })
     })
   }
