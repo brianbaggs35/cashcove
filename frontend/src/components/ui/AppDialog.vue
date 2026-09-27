@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { X, type LucideIcon } from '@lucide/vue'
+import { useId } from 'vue'
 import { useDisplay } from 'vuetify'
 
 /**
@@ -32,6 +33,8 @@ withDefaults(
 
 const open = defineModel<boolean>({ required: true })
 const { xs } = useDisplay()
+// Screen readers announce the dialog by its title.
+const titleId = useId()
 </script>
 
 <template>
@@ -40,6 +43,7 @@ const { xs } = useDisplay()
     :max-width="maxWidth"
     :fullscreen="fullscreenOnMobile && xs"
     :persistent="persistent"
+    :aria-labelledby="titleId"
     scrollable
   >
     <v-card class="app-dialog" :rounded="fullscreenOnMobile && xs ? 0 : 'xl'">
@@ -48,7 +52,7 @@ const { xs } = useDisplay()
           <v-icon :icon="icon" size="22" />
         </v-avatar>
         <div class="flex-grow-1" style="min-width: 0">
-          <h2 class="text-title-large font-weight-bold ma-0">{{ title }}</h2>
+          <h2 :id="titleId" class="text-title-large font-weight-bold ma-0">{{ title }}</h2>
           <p v-if="subtitle" class="text-body-medium text-medium-emphasis mt-1 mb-0">
             {{ subtitle }}
           </p>

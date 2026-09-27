@@ -34,6 +34,14 @@ async function render(
 const shown = (input: { element: Element }) => (input.element as HTMLInputElement).value
 
 describe('DateField', () => {
+  it("keeps the calendar menu's ARIA attributes off the field's frame", async () => {
+    const { wrapper } = await render('2026-09-20')
+    const frame = wrapper.find('.v-field')
+    for (const name of ['aria-haspopup', 'aria-expanded', 'aria-controls', 'aria-owns']) {
+      expect(frame.attributes(name)).toBeUndefined()
+    }
+  })
+
   it.each([
     ['en-US', '09/20/2026'],
     ['en-GB', '20/09/2026'],

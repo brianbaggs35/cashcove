@@ -38,6 +38,17 @@ const date = computed({
   },
 })
 
+// The calendar opens from the field's frame, which has no role of its own, so it can't carry
+// the menu's ARIA attributes. The date is typed into the text box, which screen readers use.
+const menuProps = {
+  activatorProps: {
+    'aria-haspopup': undefined,
+    'aria-expanded': undefined,
+    'aria-controls': undefined,
+    'aria-owns': undefined,
+  },
+}
+
 const rules = [
   (value: unknown) => !props.required || !!value || `Choose the ${props.label.toLowerCase()}`,
 ]
@@ -56,5 +67,6 @@ const rules = [
     variant="outlined"
     density="comfortable"
     autocomplete="off"
+    :menu-props="menuProps"
   />
 </template>

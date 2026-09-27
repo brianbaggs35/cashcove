@@ -49,6 +49,9 @@ describe('AccountDialog', () => {
     const { open } = await render()
     expect(dialog().find('h2').text()).toBe('Add an account')
     expect(field('type-checking').attributes('aria-checked')).toBe('true')
+    // Real buttons, so the keyboard reaches and presses them.
+    expect(field('type-savings').element.tagName).toBe('BUTTON')
+    expect(field('type-savings').attributes('type')).toBe('button')
     expect(field('credit-limit').exists()).toBe(false)
     expect(save().attributes('disabled')).toBeDefined()
 

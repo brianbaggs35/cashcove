@@ -178,12 +178,21 @@ describe('AccountRow', () => {
   })
 
   it('lists the transactions from its menu too', async () => {
+    const { choose, router } = await render(checking)
+    await choose('transactions')
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.fullPath).toBe('/transactions?account=account-checking')
+    })
+  })
+
+  it('keeps its menu a list of actions, with the divider out of the way', async () => {
     const { find } = await render(checking)
     await menuSettled()
     await find('actions').trigger('click')
     await flushPromises()
-    expect(
-      page().find('.v-overlay--active [data-test="account-transactions"]').attributes('href'),
-    ).toBe('/transactions?account=account-checking')
+    const menu = page().find('.v-overlay--active .v-list')
+    expect(menu.attributes('role')).toBe('list')
+    expect(menu.findAll('[role="link"]')).toHaveLength(0)
+    expect(menu.find('.v-divider').attributes('aria-hidden')).toBe('true')
   })
 })

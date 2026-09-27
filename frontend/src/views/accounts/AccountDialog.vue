@@ -169,9 +169,11 @@ const formError = computed(() =>
             :value="option.value"
           >
             <v-card
+              tag="button"
+              type="button"
               :color="isSelected ? 'primary' : undefined"
               :variant="isSelected ? 'tonal' : 'outlined'"
-              class="account-type d-flex align-center ga-2 px-3 py-2"
+              class="account-type d-flex align-center ga-2 px-3 py-2 text-start"
               role="radio"
               :aria-checked="isSelected"
               :data-test="`account-type-${option.value}`"
