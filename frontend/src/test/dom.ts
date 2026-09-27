@@ -20,3 +20,18 @@ export function stubClipboard(writeText = vi.fn().mockResolvedValue(undefined)) 
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
   return writeText
 }
+
+/**
+ * Types into a date field the way a browser does, which Vuetify's date input needs: it reads
+ * what changed between `beforeinput` and `input`. An empty text clears the field.
+ */
+export async function typeDate(input: DOMWrapper<Element>, text: string) {
+  const element = input.element as HTMLInputElement
+  element.focus()
+  element.setSelectionRange(0, element.value.length)
+  const inputType = text ? 'insertText' : 'deleteContentBackward'
+  element.dispatchEvent(new InputEvent('beforeinput', { inputType, data: text, bubbles: true }))
+  element.value = text
+  element.dispatchEvent(new InputEvent('input', { inputType, data: text, bubbles: true }))
+  await input.trigger('keydown', { key: 'Enter' })
+}

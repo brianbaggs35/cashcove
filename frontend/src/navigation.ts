@@ -18,7 +18,8 @@ export interface NavItem {
   path: string
   icon: LucideIcon
   summary: string
-  planned: string[]
+  /** What's coming, which a tab shows until it's built. */
+  planned?: string[]
 }
 
 // The single source for the nav menu, routes and each tab's header.
@@ -29,11 +30,6 @@ export const navItems: NavItem[] = [
     path: '/accounts',
     icon: Landmark,
     summary: 'Every bank, card, loan and cash account in one place.',
-    planned: [
-      'Accounts imported from Plaid, kept in sync',
-      'Manual accounts you create, edit and close yourself',
-      'Balances, account types and institutions at a glance',
-    ],
   },
   {
     name: 'budget',
@@ -65,11 +61,6 @@ export const navItems: NavItem[] = [
     path: '/transactions',
     icon: ArrowLeftRight,
     summary: 'Search, filter and edit everything that moved money.',
-    planned: [
-      'Paginated list with full search and filters',
-      'Create, edit, split and delete transactions',
-      'Imported from Plaid or files, or entered by hand',
-    ],
   },
   {
     name: 'import',
@@ -101,7 +92,6 @@ export const navItems: NavItem[] = [
     path: '/settings',
     icon: Settings,
     summary: 'Your household, your account and Cashcove itself.',
-    planned: ['Users and roles', 'Alert preferences', 'Security and sessions'],
   },
 ]
 

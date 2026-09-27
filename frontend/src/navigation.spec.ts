@@ -13,12 +13,17 @@ describe('navigation', () => {
     ])
   })
 
-  it('gives every tab a path, summary and planned features', () => {
+  it('gives every tab a path and summary', () => {
     for (const item of navItems) {
       expect(item.path).toBe(`/${item.name}`)
       expect(item.summary).not.toBe('')
-      expect(item.planned.length).toBeGreaterThan(0)
     }
+  })
+
+  it('lists what is planned only for tabs still to come', () => {
+    const planned = navItems.filter((item) => item.planned).map((item) => item.name)
+    expect(planned).toEqual(['budget', 'subscriptions', 'import', 'connect'])
+    for (const name of planned) expect(findNavItem(name).planned?.length).toBeGreaterThan(0)
   })
 
   it('finds a tab by name', () => {
