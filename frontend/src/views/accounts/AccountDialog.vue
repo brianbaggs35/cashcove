@@ -211,7 +211,7 @@ const formError = computed(() =>
       />
 
       <template v-if="!linked">
-        <v-row dense class="mt-1">
+        <v-row density="compact" class="mt-1">
           <v-col cols="12" sm="8">
             <v-text-field
               v-model="form.institution"

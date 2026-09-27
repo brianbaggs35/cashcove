@@ -37,6 +37,11 @@ Invite everyone else from **Settings > Users**. Each invitation is a one-time li
 however you like (Cashcove doesn't send email), and each person is either an **admin**, who
 can change anything, or a **viewer**, who sees everything and changes nothing.
 
+Setup also adds 37 suggested categories, such as Groceries and Rent & mortgage, in groups
+like Food & drink. Rename, regroup or delete them in **Settings > Categories**. Until you
+connect a bank through Plaid, add accounts by hand on the **Accounts** tab and record their
+transactions on **Transactions**; an account kept by hand moves its balance with them.
+
 ### Using your own domain
 
 1. Point a DNS record (for example `cashcove.example.com`) at the private IP of the machine
@@ -132,7 +137,10 @@ the **Backend** and **Frontend** jobs run the linters, type checkers, dependency
 tests with 100% coverage; the **Container** job scans with Trivy, builds the image, starts
 it with `docker compose` and smoke-tests TLS, the API, first-run setup, the redirect and the
 security headers; the **End-to-end** job runs the Playwright tests; and the **SonarQube**
-job holds the code to SonarQube's quality gate.
+job holds the code to SonarQube's quality gate and fails a pull request with any open issue.
+
+A web app test fails if anything it runs prints a warning or error, whether Vue, Vuetify or
+jsdom, so vitest's output stays clean. The message says what was printed.
 
 `make dev` mounts `backend/app`, `backend/migrations` and `frontend/` into the container,
 so edits reload instantly at `https://localhost`. API docs are at `/api/docs` in dev.
@@ -140,9 +148,10 @@ so edits reload instantly at `https://localhost`. API docs are at `/api/docs` in
 ### End-to-end tests
 
 The Playwright tests start every spec from the same baseline data (a household with two
-admins, a viewer, a turned-off account and a pending invitation), which a before block
-resets. Fixtures sign the browser in as anyone, call the API as anyone, and collect coverage
-of both the web app and the API; every page is also checked for accessibility problems.
+admins, a viewer, a turned-off account and a pending invitation, plus four accounts, the
+suggested categories and eleven transactions), which a before block resets. Fixtures sign
+the browser in as anyone, call the API as anyone, and collect coverage of both the web app
+and the API; every page is also checked for accessibility problems.
 [frontend/e2e/README.md](frontend/e2e/README.md) covers running them, the baseline and
 writing specs.
 
@@ -150,12 +159,15 @@ writing specs.
 
 The **SonarQube** job sends every pull request and every push to master to
 [SonarQube Cloud](https://sonarcloud.io), free for public repositories, with both test
-suites' coverage, and fails when the code misses its quality gate. The job's log then lists
-why, with the new code's issues and security hotspots. `sonar-project.properties` sets what's
-checked: the API, migrations, web app, container files and workflows as code, and the unit
-tests, Playwright tests and end-to-end harness as tests. Coverage counts everything except
-the migrations and scripts, which have no unit tests. The free plan analyzes master and
-pull requests into master. To turn it on:
+suites' coverage, and fails when the code misses its quality gate. After every analysis,
+the job's log lists the new code's open issues and security hotspots, and a pull request
+with any open issue fails too, even one the gate lets through, such as a code smell.
+Marking an issue accepted or a false positive in SonarQube Cloud takes it off the list.
+
+`sonar-project.properties` sets what's checked: the API, migrations, web app, container
+files and workflows as code, and the unit tests, Playwright tests and end-to-end harness as
+tests. Coverage counts everything except the migrations and scripts, which have no unit
+tests. The free plan analyzes master and pull requests into master. To turn it on:
 
 1. Sign in to SonarQube Cloud with GitHub, import your GitHub account as an organization,
    and analyze this repository.

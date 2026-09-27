@@ -260,7 +260,7 @@ const formError = computed(() =>
         </v-chip>
       </div>
 
-      <v-row dense>
+      <v-row density="compact">
         <v-col cols="12" sm="6">
           <MoneyField
             v-model="form.amount"

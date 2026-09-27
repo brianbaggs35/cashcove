@@ -26,9 +26,16 @@ async function render(user = makeUser()) {
 
 type View = Awaited<ReturnType<typeof render>>
 
-async function saveProfile(view: View) {
-  view.find('profile-save').element.closest('form')!.dispatchEvent(new Event('submit'))
+/** Submits the form holding `button` the way pressing Enter in one of its fields does. */
+async function submitFormOf(view: View, button: string) {
+  const form = view.find(button).element.closest('form')!
+  // A browser's submit event can be cancelled; the form cancels it, so the page never reloads.
+  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   await flushPromises()
+}
+
+async function saveProfile(view: View) {
+  await submitFormOf(view, 'profile-save')
 }
 
 async function changePasswordForm(view: View, current: string, next: string) {
@@ -38,8 +45,7 @@ async function changePasswordForm(view: View, current: string, next: string) {
 }
 
 async function submitPassword(view: View) {
-  view.find('password-save').element.closest('form')!.dispatchEvent(new Event('submit'))
-  await flushPromises()
+  await submitFormOf(view, 'password-save')
 }
 
 describe('AccountSection', () => {
