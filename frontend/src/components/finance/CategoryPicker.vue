@@ -7,10 +7,15 @@ import { useCategoriesStore, type GroupedCategory } from '@/stores/categories'
 
 /** Picks a transaction's category, grouped the way Settings lists them. Clearing leaves it uncategorized. */
 const model = defineModel<string | null>({ required: true })
-withDefaults(defineProps<{ label?: string; hideDetails?: boolean }>(), {
-  label: 'Category',
-  hideDetails: false,
-})
+const props = withDefaults(
+  defineProps<{
+    label?: string
+    hideDetails?: boolean
+    /** A category to leave out, e.g. the one being deleted. */
+    exclude?: string | null
+  }>(),
+  { label: 'Category', hideDetails: false, exclude: null },
+)
 
 const auth = useAuthStore()
 const categories = useCategoriesStore()
@@ -25,18 +30,20 @@ interface Option {
 }
 
 const items = computed<Option[]>(() =>
-  categories.groups
-    .filter((group) => group.categories.length > 0)
-    .flatMap((group): Option[] => [
+  categories.groups.flatMap((group): Option[] => {
+    const choices = group.categories.filter((category) => category.id !== props.exclude)
+    if (!choices.length) return []
+    return [
       { type: 'subheader', title: group.name, group: group.name },
-      ...group.categories.map((category): Option => ({
+      ...choices.map((category): Option => ({
         type: 'item',
         title: category.name,
         group: group.name,
         value: category.id,
         emoji: category.emoji,
       })),
-    ]),
+    ]
+  }),
 )
 
 const selected = computed<GroupedCategory | undefined>(() => categories.find(model.value))

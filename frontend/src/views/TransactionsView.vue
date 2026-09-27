@@ -100,9 +100,6 @@ const emptyText = computed(() => {
   if (!canAdd.value) return 'Transactions from your linked accounts show up here once they sync.'
   return 'Add them by hand, import them from a file, or connect a bank to bring them in.'
 })
-const pageCount = computed(() =>
-  result.value ? Math.max(1, Math.ceil(result.value.total / view.value.pageSize)) : 1,
-)
 
 // Adding and editing a transaction.
 const dialog = ref(false)
@@ -292,9 +289,9 @@ async function removeSelected() {
           @open="openTransaction"
         />
         <v-pagination
-          v-if="pageCount > 1"
+          v-if="result.total > view.pageSize"
           :model-value="view.page"
-          :length="pageCount"
+          :length="Math.ceil(result.total / view.pageSize)"
           :total-visible="5"
           density="comfortable"
           class="py-2"

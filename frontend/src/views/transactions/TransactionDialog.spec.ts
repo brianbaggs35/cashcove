@@ -7,7 +7,7 @@ import * as api from '@/api/transactions'
 import { confirmRequest } from '@/composables/confirm'
 import { notices } from '@/composables/notify'
 import { answer } from '@/test/confirm'
-import { page } from '@/test/dom'
+import { page, typeDate } from '@/test/dom'
 import {
   checking,
   coffee,
@@ -143,6 +143,40 @@ describe('TransactionDialog', () => {
       category_id: null,
       notes: null,
     })
+  })
+
+  it('changes the day it happened', async () => {
+    const update = vi.spyOn(api, 'updateTransaction').mockResolvedValue(wholeFoods)
+    await render({ transaction: wholeFoods })
+    await typeDate(input('date'), '09/12/2026')
+    await flushPromises()
+    await save()
+    expect(update.mock.calls[0]![1]).toMatchObject({ date: '2026-09-12' })
+  })
+
+  it('keeps notes to a sensible length', async () => {
+    await render({ transaction: wholeFoods })
+    await type('notes', 'x'.repeat(1001))
+    expect(field('notes').text()).toContain('Keep notes under 1,000 characters')
+    expect(field('save').attributes('disabled')).toBeDefined()
+  })
+
+  it('closes without saving, from Cancel or its close button', async () => {
+    const create = vi.spyOn(api, 'createTransaction')
+    const { open } = await render()
+    await dialog()
+      .findAll('.v-card-actions button')
+      .find((button) => button.text() === 'Cancel')!
+      .trigger('click')
+    await flushPromises()
+    expect(open.value).toBe(false)
+
+    open.value = true
+    await flushPromises()
+    await dialog().find('[data-test="dialog-close"]').trigger('click')
+    await flushPromises()
+    expect(open.value).toBe(false)
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('submits with Enter once everything needed is there', async () => {
@@ -335,6 +369,12 @@ describe('TransactionDialog', () => {
     await save()
     expect(field('payee').text()).toContain('Enter a shorter payee')
     expect(field('error').exists()).toBe(false)
+    expect(field('save').attributes('disabled')).toBeDefined()
+
+    // Changing it lets it be sent again.
+    await type('payee', 'Whole Foods Market')
+    expect(field('payee').text()).not.toContain('Enter a shorter payee')
+    expect(field('save').attributes('disabled')).toBeUndefined()
   })
 
   it('says what went wrong otherwise', async () => {

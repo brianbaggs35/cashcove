@@ -141,6 +141,21 @@ describe('AccountDialog', () => {
     expect(update).toHaveBeenCalledWith(visa.id, { name: 'Rewards Visa', notes: 'Travel only' })
   })
 
+  it('keeps an account in another currency', async () => {
+    const create = vi.spyOn(api, 'createAccount').mockResolvedValue(makeAccount())
+    await render()
+    await fill({ 'name-field': 'Euro savings', 'balance-field': '300' })
+    await field('currency').find('.v-field').trigger('mousedown')
+    await flushPromises()
+    const euro = page()
+      .findAll('.v-menu.v-overlay--active .v-list-item')
+      .find((item) => item.text().includes('EUR'))!
+    await euro.trigger('click')
+    await flushPromises()
+    await submit()
+    expect(create.mock.calls[0]![0]).toMatchObject({ currency: 'EUR', balance: '300.00' })
+  })
+
   it('names a linked account by its own name when the bank gives none', async () => {
     await render({ ...visa, official_name: null, institution: null })
     expect(field('linked-notice').text()).toBe('Rewards Visa')
@@ -177,6 +192,24 @@ describe('AccountDialog', () => {
     expect(field(where).text()).toContain(error.fields.mask ?? error.message)
     expect(field('error').exists()).toBe(where === 'error')
     expect(open.value).toBe(true)
+  })
+
+  it('lets a rejected account be fixed and sent again', async () => {
+    const create = vi
+      .spyOn(api, 'createAccount')
+      .mockRejectedValueOnce(
+        new ApiError(422, 'Check the fields.', { fields: { mask: 'That looks wrong.' } }),
+      )
+      .mockResolvedValue(makeAccount({ name: 'Wallet' }))
+    await render()
+    await fill({ 'name-field': 'Wallet', 'balance-field': '20', mask: '12' })
+    await submit()
+    expect(save().attributes('disabled')).toBeDefined()
+
+    await fill({ mask: '1234' })
+    expect(field('mask').text()).not.toContain('That looks wrong.')
+    await submit()
+    expect(create).toHaveBeenCalledTimes(2)
   })
 
   it('cancels, and starts afresh the next time it opens', async () => {

@@ -108,6 +108,11 @@ const saving = useAction(async () => {
   open.value = false
 })
 
+// What the API rejected no longer applies once the form changes, so it can be sent again.
+watch(form, () => {
+  saving.clear()
+})
+
 function submit() {
   if (valid.value) void saving.run()
 }

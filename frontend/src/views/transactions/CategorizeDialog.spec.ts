@@ -53,6 +53,15 @@ describe('CategorizeDialog', () => {
     expect(open.value).toBe(false)
   })
 
+  it('closes without changing anything', async () => {
+    const categorize = vi.spyOn(api, 'categorizeTransactions')
+    const { open } = await render(['a'])
+    await dialog().find('[data-test="dialog-close"]').trigger('click')
+    await flushPromises()
+    expect(open.value).toBe(false)
+    expect(categorize).not.toHaveBeenCalled()
+  })
+
   it('takes the category away when none is chosen', async () => {
     vi.spyOn(api, 'categorizeTransactions').mockResolvedValue({ count: 1 })
     await render(['a'])
