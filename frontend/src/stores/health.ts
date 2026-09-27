@@ -15,10 +15,10 @@ export const useHealthStore = defineStore('health', () => {
     error.value = null
     try {
       ;[health.value, system.value] = await Promise.all([fetchHealth(), fetchSystemInfo()])
-    } catch (caught) {
+    } catch (refreshError) {
       health.value = null
       system.value = null
-      error.value = caught instanceof Error ? caught.message : String(caught)
+      error.value = refreshError instanceof Error ? refreshError.message : String(refreshError)
     } finally {
       loading.value = false
     }

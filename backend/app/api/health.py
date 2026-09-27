@@ -21,7 +21,7 @@ class HealthResponse(BaseModel):
     database: Literal["ok", "unavailable"]
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get("/health")
 def health(response: Response, session: Annotated[Session, Depends(get_session)]) -> HealthResponse:
     try:
         session.execute(text("SELECT 1"))

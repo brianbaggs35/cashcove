@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, toRaw } from 'vue'
 
 import { fetchPreferences, savePreferences, type Preferences } from '@/api/preferences'
 
-// A JSON round trip also unwraps Vue's reactive proxies, which structuredClone rejects.
-const clone = (value: Preferences): Preferences => JSON.parse(JSON.stringify(value)) as Preferences
+// structuredClone rejects Vue's reactive proxies, so it copies the plain object underneath.
+const clone = (value: Preferences): Preferences => structuredClone(toRaw(value))
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -26,8 +26,8 @@ export const usePreferencesStore = defineStore('preferences', () => {
     try {
       saved.value = await fetchPreferences()
       draft.value = clone(saved.value)
-    } catch (caught) {
-      error.value = messageOf(caught)
+    } catch (loadError) {
+      error.value = messageOf(loadError)
     } finally {
       loading.value = false
     }
@@ -41,8 +41,8 @@ export const usePreferencesStore = defineStore('preferences', () => {
       saved.value = await savePreferences(draft.value)
       draft.value = clone(saved.value)
       return true
-    } catch (caught) {
-      error.value = messageOf(caught)
+    } catch (saveError) {
+      error.value = messageOf(saveError)
       return false
     } finally {
       saving.value = false

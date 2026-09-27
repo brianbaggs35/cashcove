@@ -61,10 +61,12 @@ def test_secret_box_refuses_tampered_values(change: str) -> None:
 
 def test_secret_box_keys_are_separate_per_purpose() -> None:
     sealed = SecretBox(KEY, purpose="totp").encrypt("secret")
+    other_purpose = SecretBox(KEY, purpose="other")
+    other_key = SecretBox(b"x" * 32, purpose="totp")
     with pytest.raises(DecryptionError):
-        SecretBox(KEY, purpose="other").decrypt(sealed)
+        other_purpose.decrypt(sealed)
     with pytest.raises(DecryptionError):
-        SecretBox(b"x" * 32, purpose="totp").decrypt(sealed)
+        other_key.decrypt(sealed)
 
 
 @pytest.mark.parametrize(
@@ -245,8 +247,9 @@ def test_the_secret_key_comes_from_the_environment_or_the_key_file(tmp_path: Pat
     assert Settings(secret_key_file=key_file).read_secret_key() == b"f" * 44
     from_env = Settings(secret_key=SecretStr("e" * 32), secret_key_file=key_file)
     assert from_env.read_secret_key() == b"e" * 32
+    too_short = Settings(secret_key=SecretStr("too short"))
     with pytest.raises(ValueError, match="at least 32 characters"):
-        Settings(secret_key=SecretStr("too short")).read_secret_key()
+        too_short.read_secret_key()
 
 
 def test_timestamps_are_always_utc() -> None:
@@ -259,8 +262,9 @@ def test_timestamps_are_always_utc() -> None:
     assert stored == utc
     assert stored is not None
     assert stored.tzinfo is UTC
+    naive = datetime(2026, 9, 25, 8, 0)
     with pytest.raises(ValueError, match="timezone-aware"):
-        column.process_bind_param(datetime(2026, 9, 25, 8, 0), dialect)
+        column.process_bind_param(naive, dialect)
     assert column.process_result_value(None, dialect) is None
     # SQLite drops the offset, and values read back without one are UTC.
     assert column.process_result_value(datetime(2026, 9, 25, 8, 0), dialect) == utc

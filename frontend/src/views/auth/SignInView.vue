@@ -86,8 +86,8 @@ async function attempt(kind: 'password' | 'passkey' | 'code', run: () => Promise
   error.value = null
   try {
     await run()
-  } catch (caught) {
-    show(caught)
+  } catch (signInError) {
+    show(signInError)
   } finally {
     busy.value = null
   }
@@ -148,8 +148,8 @@ async function signInWithPasskeyPrompt(autofill: boolean) {
   const result = await answerWithPasskey(
     passkeySignInOptions,
     (challengeId, credential) =>
-      signInWithPasskey(challengeId, credential, remember.value).catch((caught: unknown) =>
-        passkeyFailed(caught, credential.id),
+      signInWithPasskey(challengeId, credential, remember.value).catch((passkeyError: unknown) =>
+        passkeyFailed(passkeyError, credential.id),
       ),
     { autofill },
   )
@@ -166,9 +166,9 @@ async function startAutofill() {
   if (!(await browserHasPasskeyAutofill())) return
   try {
     await signInWithPasskeyPrompt(true)
-  } catch (caught) {
+  } catch (autofillError) {
     // Autofill runs quietly in the background; only a real answer from Cashcove is shown.
-    if (caught instanceof ApiError) show(caught)
+    if (autofillError instanceof ApiError) show(autofillError)
   }
 }
 

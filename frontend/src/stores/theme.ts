@@ -4,10 +4,10 @@ import { ref } from 'vue'
 export type ThemePreference = 'light' | 'dark' | 'system'
 
 export const THEME_STORAGE_KEY = 'cashcove.theme'
-const PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'system']
+const PREFERENCES: ReadonlySet<unknown> = new Set<ThemePreference>(['light', 'dark', 'system'])
 
 function isPreference(value: unknown): value is ThemePreference {
-  return PREFERENCES.includes(value as ThemePreference)
+  return PREFERENCES.has(value)
 }
 
 function readStored(): ThemePreference {

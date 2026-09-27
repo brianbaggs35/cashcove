@@ -1,7 +1,6 @@
 """Encryption for secrets Cashcove must keep but never reveal, such as authenticator keys."""
 
 import base64
-import binascii
 import os
 
 from cryptography.exceptions import InvalidTag
@@ -42,5 +41,5 @@ class SecretBox:
         try:
             raw = base64.urlsafe_b64decode(payload)
             return self._aead.decrypt(raw[:12], raw[12:], self._purpose).decode()
-        except (InvalidTag, ValueError, binascii.Error) as error:
+        except (InvalidTag, ValueError) as error:
             raise DecryptionError("Can't decrypt this value") from error

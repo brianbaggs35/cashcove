@@ -21,7 +21,7 @@ class SystemInfo(BaseModel):
     plaid: PlaidStatus
 
 
-@router.get("/system", response_model=SystemInfo)
+@router.get("/system")
 def system_info(auth: CurrentAuth, settings: AppSettings) -> SystemInfo:
     return SystemInfo(
         version=settings.version,

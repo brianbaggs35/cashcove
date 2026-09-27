@@ -19,6 +19,8 @@ depends_on: str | Sequence[str] | None = None
 # Stored as text; each table's CHECK constraint limits it to these values.
 ROLE = sa.Enum("admin", "viewer", name="role", native_enum=False, length=16)
 JSON = sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql")
+USERS_ID = "users.id"
+SET_NULL = "SET NULL"
 
 
 def upgrade() -> None:
@@ -66,15 +68,15 @@ def upgrade() -> None:
         sa.Column("details", JSON, nullable=False),
         sa.ForeignKeyConstraint(
             ["actor_id"],
-            ["users.id"],
+            [USERS_ID],
             name=op.f("fk_audit_events_actor_id_users"),
-            ondelete="SET NULL",
+            ondelete=SET_NULL,
         ),
         sa.ForeignKeyConstraint(
             ["user_id"],
-            ["users.id"],
+            [USERS_ID],
             name=op.f("fk_audit_events_user_id_users"),
-            ondelete="SET NULL",
+            ondelete=SET_NULL,
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_events")),
     )
@@ -99,7 +101,7 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["user_id"],
-            ["users.id"],
+            [USERS_ID],
             name=op.f("fk_auth_challenges_user_id_users"),
             ondelete="CASCADE",
         ),
@@ -122,9 +124,9 @@ def upgrade() -> None:
         sa.CheckConstraint("role IN ('admin', 'viewer')", name=op.f("ck_invitations_role")),
         sa.ForeignKeyConstraint(
             ["invited_by_id"],
-            ["users.id"],
+            [USERS_ID],
             name=op.f("fk_invitations_invited_by_id_users"),
-            ondelete="SET NULL",
+            ondelete=SET_NULL,
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_invitations")),
         sa.UniqueConstraint("email", name=op.f("uq_invitations_email")),
@@ -144,7 +146,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(
-            ["user_id"], ["users.id"], name=op.f("fk_passkeys_user_id_users"), ondelete="CASCADE"
+            ["user_id"], [USERS_ID], name=op.f("fk_passkeys_user_id_users"), ondelete="CASCADE"
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_passkeys")),
         sa.UniqueConstraint("credential_id", name=op.f("uq_passkeys_credential_id")),
@@ -160,13 +162,13 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["created_by_id"],
-            ["users.id"],
+            [USERS_ID],
             name=op.f("fk_password_resets_created_by_id_users"),
-            ondelete="SET NULL",
+            ondelete=SET_NULL,
         ),
         sa.ForeignKeyConstraint(
             ["user_id"],
-            ["users.id"],
+            [USERS_ID],
             name=op.f("fk_password_resets_user_id_users"),
             ondelete="CASCADE",
         ),
@@ -184,7 +186,7 @@ def upgrade() -> None:
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(
             ["user_id"],
-            ["users.id"],
+            [USERS_ID],
             name=op.f("fk_recovery_codes_user_id_users"),
             ondelete="CASCADE",
         ),
@@ -207,7 +209,7 @@ def upgrade() -> None:
         sa.Column("user_agent", sa.String(length=255), nullable=True),
         sa.ForeignKeyConstraint(
             ["user_id"],
-            ["users.id"],
+            [USERS_ID],
             name=op.f("fk_user_sessions_user_id_users"),
             ondelete="CASCADE",
         ),

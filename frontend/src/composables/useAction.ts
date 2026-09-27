@@ -27,11 +27,11 @@ export function useAction<Args extends unknown[], Result>(
     clear()
     try {
       return await action(...args)
-    } catch (caught) {
-      if (!isCancelled(caught)) {
-        error.value = errorMessage(caught)
-        code.value = caught instanceof ApiError ? caught.code : null
-        fields.value = caught instanceof ApiError ? caught.fields : {}
+    } catch (actionError) {
+      if (!isCancelled(actionError)) {
+        error.value = errorMessage(actionError)
+        code.value = actionError instanceof ApiError ? actionError.code : null
+        fields.value = actionError instanceof ApiError ? actionError.fields : {}
       }
       return undefined
     } finally {

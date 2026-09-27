@@ -10,8 +10,10 @@ import SettingsCard from '@/views/settings/SettingsCard.vue'
 const healthStore = useHealthStore()
 const plaid = computed(() => healthStore.system?.plaid)
 
-const intervalLabel = (hours: number) =>
-  hours === 24 ? 'Daily' : hours === 1 ? 'Every hour' : `Every ${hours} hours`
+function intervalLabel(hours: number): string {
+  if (hours === 24) return 'Daily'
+  return hours === 1 ? 'Every hour' : `Every ${hours} hours`
+}
 const intervals = SYNC_INTERVALS.map((hours) => ({ value: hours, title: intervalLabel(hours) }))
 
 const historyLabels: Record<(typeof HISTORY_DAYS)[number], string> = {

@@ -10,12 +10,12 @@ from app.schemas.preferences import Preferences
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
-@router.get("", response_model=Preferences)
+@router.get("")
 def read_settings(auth: CurrentAuth, db: Db) -> Preferences:
     return load_preferences(db)
 
 
-@router.put("", response_model=Preferences)
+@router.put("")
 def update_settings(preferences: Preferences, auth: AdminAuth, db: Db) -> Preferences:
     row = db.get(AppSettings, SINGLETON_ID) or AppSettings(id=SINGLETON_ID)
     row.data = preferences.model_dump(mode="json")

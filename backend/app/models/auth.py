@@ -12,10 +12,11 @@ from app.models.base import Base, UTCDateTime, utcnow
 from app.models.user import ROLE_TYPE, Role, User
 
 JSON_TYPE = JSON().with_variant(JSONB(), "postgresql")
+USERS_ID = "users.id"
 
 
 def _user_fk(*, index: bool = True) -> Mapped[uuid.UUID]:
-    return mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=index)
+    return mapped_column(ForeignKey(USERS_ID, ondelete="CASCADE"), index=index)
 
 
 class UserSession(Base):
@@ -78,7 +79,7 @@ class AuthChallenge(Base):
     token_hash: Mapped[bytes] = mapped_column(LargeBinary(32), unique=True)
     purpose: Mapped[str] = mapped_column(String(32))
     user_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
+        ForeignKey(USERS_ID, ondelete="CASCADE"), index=True
     )
     data: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     attempts: Mapped[int] = mapped_column(default=0)
@@ -97,7 +98,7 @@ class Invitation(Base):
     name: Mapped[str] = mapped_column(String(80))
     role: Mapped[Role] = mapped_column(ROLE_TYPE)
     invited_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
+        ForeignKey(USERS_ID, ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
@@ -114,7 +115,7 @@ class PasswordReset(Base):
     token_hash: Mapped[bytes] = mapped_column(LargeBinary(32), unique=True)
     user_id: Mapped[uuid.UUID] = _user_fk()
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
+        ForeignKey(USERS_ID, ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime())

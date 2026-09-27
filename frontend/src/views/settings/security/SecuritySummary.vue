@@ -28,6 +28,11 @@ interface Check {
   to: string
 }
 
+function passkeyStatus(count: number): string {
+  if (count === 0) return 'Add one'
+  return count === 1 ? '1 saved' : `${count} saved`
+}
+
 const checks = computed<Check[]>(() => {
   const passkeys = props.user.passkey_count
   const app = props.user.totp_enabled
@@ -45,7 +50,7 @@ const checks = computed<Check[]>(() => {
       title: 'Passkeys',
       icon: Fingerprint,
       done: passkeys > 0,
-      status: passkeys === 0 ? 'Add one' : passkeys === 1 ? '1 saved' : `${passkeys} saved`,
+      status: passkeyStatus(passkeys),
       to: '#passkeys',
     },
     {

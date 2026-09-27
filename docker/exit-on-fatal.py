@@ -11,7 +11,8 @@ def main() -> None:
     while True:
         sys.stdout.write("READY\n")
         sys.stdout.flush()
-        header = dict(token.split(":", 1) for token in sys.stdin.readline().split())
+        fields = (token.partition(":") for token in sys.stdin.readline().split())
+        header = {key: value for key, _, value in fields}
         payload = sys.stdin.read(int(header["len"]))
         sys.stderr.write(f"exit-on-fatal: {header['eventname']} {payload}\n")
         sys.stderr.flush()

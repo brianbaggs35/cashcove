@@ -82,12 +82,14 @@ const creating = useAction(async () => {
     auth.apply(state)
     password.value = ''
     step.value = 'secure'
-  } catch (caught) {
-    if (caught instanceof ApiError && caught.code === 'invalid_setup_code') step.value = 'code'
-    if (caught instanceof ApiError && caught.code === 'already_set_up') {
+  } catch (setupError) {
+    if (setupError instanceof ApiError && setupError.code === 'invalid_setup_code') {
+      step.value = 'code'
+    }
+    if (setupError instanceof ApiError && setupError.code === 'already_set_up') {
       await router.replace({ name: 'sign-in' })
     }
-    throw caught
+    throw setupError
   }
 })
 
@@ -98,7 +100,7 @@ const loadingHousehold = useAction(async () => {
 const savingHousehold = useAction(async (changes: Preferences) => {
   const saved = await savePreferences(changes)
   preferencesStore.saved = saved
-  preferencesStore.draft = JSON.parse(JSON.stringify(saved)) as Preferences
+  preferencesStore.draft = structuredClone(saved)
   step.value = 'done'
 })
 
