@@ -161,6 +161,7 @@ jobs:
       CASHCOVE_VERSION: ci
       CASHCOVE_HTTPS_PORT: 8443
       CASHCOVE_HTTP_PORT: 8080
+      CASHCOVE_SMOKE_URL: https://localhost:8443
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -192,6 +193,19 @@ jobs:
       - name: Trivy scan of the image
         run: make scan-image
 
+      # For the browser test below, which uses the image as someone would.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Playwright and Chromium
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run e2e:install -- --with-deps
+
       - name: Password for the smoke test's admin
         run: |
           password="$(openssl rand -hex 24)"
@@ -201,6 +215,20 @@ jobs:
       - name: Start the stack
         run: docker compose up --detach --no-build --wait --wait-timeout 180
 
+      - name: One-time setup code
+        run: |
+          code="$(docker compose exec -T -u cashcove -w /app/backend cashcove \
+            python -m app.cli setup-code --plain)"
+          echo "::add-mask::$code"
+          echo "CASHCOVE_SMOKE_SETUP_CODE=$code" >> "$GITHUB_ENV"
+
+      # e2e/smoke: the setup wizard creates the first admin, who signs in and opens every tab
+      # and settings page, with no errors in the browser.
+      - name: Browser test of setup, sign-in and every tab
+        working-directory: frontend
+        run: npm run smoke
+
+      # Signs in as the admin the browser test created.
       - name: Smoke test
         run: ./.github/scripts/smoke-test.sh
 
@@ -209,6 +237,19 @@ jobs:
           docker compose down
           docker compose up --detach --no-build --wait --wait-timeout 180
           ./.github/scripts/smoke-test.sh
+
+      - name: Browser test after the restart
+        working-directory: frontend
+        run: npm run smoke -- --project=app --no-deps
+
+      - name: Upload the browser test's report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-results
+          path: frontend/e2e-results/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Container logs
         if: ${{ failure() }}
@@ -354,6 +395,7 @@ jobs:
         if: ${{ !cancelled() && (steps.scan.outcome == 'success' || steps.scan.outcome == 'failure') }}
         env:
           PULL_REQUEST: ${{ github.event.pull_request.number }}
+          BASE_BRANCH: ${{ github.base_ref }}
           BRANCH: ${{ github.ref_name }}
         run: |
           project="$(sed -n 's/^sonar\.projectKey=//p' sonar-project.properties)"
@@ -370,11 +412,17 @@ jobs:
           }
           # Prints the heading and the lines piped in, or nothing when there are none.
           section() {
-            local lines
+            local heading="$1" lines
             lines="$(cat)"
             if [[ -n "$lines" ]]; then
-              printf '%s\n%s\n\n' "$1" "$lines"
+              printf '%s\n%s\n\n' "$heading" "$lines"
             fi
+          }
+          # One line per issue: where it is, its rule and what to change.
+          list_issues() {
+            jq -r '
+              (.errors[]? | "  \(.msg)"),
+              (.issues[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.rule)  \(.message)")'
           }
           sonar "qualitygates/project_status?projectKey=$project" | jq -r '
             def grade: ["A", "B", "C", "D", "E"][tonumber - 1];
@@ -385,14 +433,18 @@ jobs:
               else "  \(.metricKey) is \(.actualValue), needs \(if .comparator == "GT" then "at most" else "at least" end) \(.errorThreshold)"
               end)' | section "Quality gate conditions not met:"
           issues="$(sonar "issues/search?componentKeys=$project&issueStatuses=OPEN,CONFIRMED$new_code&ps=500")"
-          jq -r '
-            (.errors[]? | "  \(.msg)"),
-            (.issues[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.rule)  \(.message)")' \
-            <<<"$issues" | section "Open issues in new code:"
+          list_issues <<<"$issues" | section "Open issues in new code:"
           sonar "hotspots/search?projectKey=$project&status=TO_REVIEW$new_code&ps=500" | jq -r '
             (.errors[]? | "  \(.msg)"),
             (.hotspots[]? | "  \(.component | sub("^[^:]*:"; "")):\(.line // "-")  \(.ruleKey)  \(.message)")' |
             section "Security hotspots to review:"
+          # A pull request's analysis only has issues in its own changes, so the ones already on
+          # the branch it merges into are listed too, for fixing along the way.
+          if [[ -n "$PULL_REQUEST" ]]; then
+            curl -sS -H "Authorization: Bearer $SONAR_TOKEN" \
+              "https://sonarcloud.io/api/issues/search?componentKeys=$project&issueStatuses=OPEN,CONFIRMED&ps=500&branch=$BASE_BRANCH" |
+              list_issues | section "Open issues on $BASE_BRANCH:"
+          fi
           # Marking an issue accepted or a false positive in SonarQube Cloud takes it off the list.
           open_issues="$(jq '.paging.total // .total // 0' <<<"$issues")"
           if [[ -n "$PULL_REQUEST" && "$open_issues" -gt 0 ]]; then

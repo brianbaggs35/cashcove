@@ -135,9 +135,11 @@ make scan     # Trivy on the source, dependencies, Dockerfile and built image
 Every pull request runs the same checks in GitHub Actions (`.github/workflows/ci.yml`):
 the **Backend** and **Frontend** jobs run the linters, type checkers, dependency audits and
 tests with 100% coverage; the **Container** job scans with Trivy, builds the image, starts
-it with `docker compose` and smoke-tests TLS, the API, first-run setup, the redirect and the
-security headers; the **End-to-end** job runs the Playwright tests; and the **SonarQube**
-job holds the code to SonarQube's quality gate and fails a pull request with any open issue.
+it with `docker compose`, goes through the setup wizard in a browser, signs in and opens
+every tab, and smoke-tests TLS, the API, sign-in, the redirect and the security headers,
+before and after a restart; the **End-to-end** job runs the Playwright tests; and the
+**SonarQube** job holds the code to SonarQube's quality gate and fails a pull request with
+any open issue.
 
 A web app test fails if anything it runs prints a warning or error, whether Vue, Vuetify or
 jsdom, so vitest's output stays clean. The message says what was printed.
@@ -162,8 +164,9 @@ writing specs.
 The **SonarQube** job sends every pull request and every push to master to
 [SonarQube Cloud](https://sonarcloud.io), free for public repositories, with both test
 suites' coverage, and fails when the code misses its quality gate. After every analysis,
-the job's log lists the new code's open issues and security hotspots, and a pull request
-with any open issue fails too, even one the gate lets through, such as a code smell.
+the job's log lists the new code's open issues and security hotspots, plus, on a pull
+request, any open issues master still has. A pull request with any open issue of its own
+fails too, even one the gate lets through, such as a code smell.
 Marking an issue accepted or a false positive in SonarQube Cloud takes it off the list.
 
 `sonar-project.properties` sets what's checked: the API, migrations, web app, container

@@ -16,6 +16,7 @@
     "e2e:install": "playwright install chromium",
     "e2e:ui": "playwright test --ui",
     "e2e:report": "playwright show-report e2e-results/report",
+    "smoke": "playwright test --config playwright.smoke.config.ts",
     "lint": "eslint .",
     "format": "prettier --write src e2e *.ts",
     "format:check": "prettier --check src e2e *.ts"
