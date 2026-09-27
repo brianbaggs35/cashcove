@@ -21,7 +21,14 @@ export {
 export { AccountsPage, type AccountAction, type AccountFields } from './pages/accounts-page'
 export { AppShell, TABS, type Tab } from './pages/app-shell'
 export { CategoriesPage } from './pages/categories-page'
-export { choose, comboboxInput, exactly, startingWith, typeDate } from './pages/fields'
+export {
+  choose,
+  comboboxInput,
+  exactly,
+  openOverlays,
+  startingWith,
+  typeDate,
+} from './pages/fields'
 export { SignInPage } from './pages/sign-in-page'
 export { TransactionsPage, type TransactionFields } from './pages/transactions-page'
 export { expect, test, type Baseline } from './test'

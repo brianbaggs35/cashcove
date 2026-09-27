@@ -1,5 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
+import { openOverlays } from './fields'
+
 /** The tabs in the navigation, by route name, with the title people see. */
 export const TABS = {
   accounts: 'Accounts',
@@ -56,12 +58,12 @@ export class AppShell {
 
   async chooseTheme(theme: 'light' | 'dark' | 'system'): Promise<void> {
     await this.themeMenu.click()
-    await this.page.getByTestId(`theme-${theme}`).click()
+    await openOverlays(this.page).getByTestId(`theme-${theme}`).click()
   }
 
   async signOut(): Promise<void> {
     await this.accountMenu.click()
-    await this.page.getByTestId('menu-sign-out').click()
+    await openOverlays(this.page).getByTestId('menu-sign-out').click()
     await expect(this.page).toHaveURL(/\/sign-in/)
   }
 }

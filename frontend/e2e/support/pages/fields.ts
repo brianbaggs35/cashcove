@@ -1,4 +1,4 @@
-import type { Locator } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 /** Matches exactly this text, give or take surrounding whitespace. */
 export function exactly(text: string): RegExp {
@@ -12,6 +12,15 @@ export function startingWith(text: string): RegExp {
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * The dialogs and menus that are open. One that just closed stays in the page for a moment
+ * while it fades out, still holding its items, so look for what's in a menu in here rather
+ * than in the whole page, where the one fading out would match too.
+ */
+export function openOverlays(page: Page): Locator {
+  return page.locator('.v-overlay--active')
 }
 
 /** The text box of a select, autocomplete or combobox field. */
@@ -38,7 +47,7 @@ export async function choose(
   const title = page.locator('.v-list-item-title', {
     hasText: typeof option === 'string' ? exactly(option) : option,
   })
-  await page.getByRole('option').filter({ has: title }).click()
+  await openOverlays(page).getByRole('option').filter({ has: title }).click()
 }
 
 /** Types a date (YYYY-MM-DD) into a date field, in the baseline household's US format. */

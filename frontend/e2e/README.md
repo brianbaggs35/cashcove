@@ -136,8 +136,10 @@ test.describe('Household settings', () => {
 And helpers: `expectAccessible(page)` fails on WCAG 2.2 AA problems that axe finds (pass
 `{ include: '.v-overlay--active' }` to check just an open dialog or menu),
 `totpCode(secret)` makes authenticator codes, `dateOf(transaction)` gives a baseline
-transaction's date, `choose(field, option)` picks from a select or autocomplete, and
-`typeDate(field, '2026-09-20')` fills in a date field.
+transaction's date, `choose(field, option)` picks from a select or autocomplete,
+`typeDate(field, '2026-09-20')` fills in a date field, and `openOverlays(page)` finds what's in
+the dialog or menu that's open: a menu that just closed stays in the page while it fades out,
+so `openOverlays(page).getByTestId(…)` won't also match the item in that one.
 
 ### Conventions
 
