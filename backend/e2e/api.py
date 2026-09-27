@@ -22,18 +22,18 @@ from app.models import User
 from app.models.base import utcnow
 from app.schemas.auth import SessionState
 from e2e import baseline
-from e2e.baseline import Baseline
+from e2e.baseline import Baseline, SavedSignInName
 
 router = APIRouter(tags=["e2e"])
 
 
-@router.get("/baseline", response_model=Baseline)
+@router.get("/baseline")
 def describe_baseline(settings: AppSettings) -> Baseline:
     """What the baseline holds, without touching the database."""
     return baseline.describe(settings)
 
 
-@router.post("/reset", response_model=Baseline)
+@router.post("/reset")
 def reset_to_baseline(db: Db, settings: AppSettings) -> Baseline:
     """Replaces everything in the database with the baseline."""
     baseline.clear(db)
@@ -46,7 +46,7 @@ class FreshInstall(BaseModel):
     setup_code: str
 
 
-@router.post("/fresh-install", response_model=FreshInstall)
+@router.post("/fresh-install")
 def reset_to_fresh_install(db: Db) -> FreshInstall:
     """Empties the database, as on the first start, and returns the setup wizard's code."""
     baseline.clear(db)
@@ -60,7 +60,7 @@ class SessionRequest(BaseModel):
     remember: bool = False
 
 
-@router.post("/sessions", response_model=SessionState)
+@router.post("/sessions")
 def start_session(
     body: SessionRequest, request: Request, response: Response, db: Db, settings: AppSettings
 ) -> SessionState:
@@ -74,6 +74,31 @@ def start_session(
         )
     session = sessions.start(db, request, response, user, remember=body.remember, now=utcnow())
     db.commit()
+    return session_state(db, settings, session)
+
+
+@router.post("/saved-sign-ins/{name}")
+def use_saved_sign_in(
+    name: SavedSignInName, response: Response, db: Db, settings: AppSettings
+) -> SessionState:
+    """Signs this browser in on the admin's or the viewer's saved sign-in.
+
+    Global setup saves the cookie to a file, so specs can start signed in with
+    ``test.use({ storageState })``. Every reset brings the session back with the same token,
+    so the file keeps working.
+    """
+    token = baseline.SAVED_SIGN_INS[name].token(settings)
+    session = sessions.load(db, token, utcnow())
+    if session is None:
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "signed_out",
+            f"The {name}'s saved sign-in has ended, e.g. a test signed out. Reset to the "
+            "baseline to bring it back.",
+        )
+    sessions.set_cookie(
+        response, sessions.SESSION_COOKIE, token, max_age=sessions.REMEMBERED.absolute
+    )
     return session_state(db, settings, session)
 
 
@@ -99,7 +124,7 @@ class CoverageReport(BaseModel):
     files: list[CoverageFile]
 
 
-@router.get("/coverage", response_model=CoverageReport)
+@router.get("/coverage")
 def api_coverage(measurement: Measurement) -> CoverageReport:
     """The API's coverage so far, as an HTML report and an LCOV file."""
     if measurement is None:

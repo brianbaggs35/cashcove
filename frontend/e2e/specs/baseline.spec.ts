@@ -1,4 +1,4 @@
-import { expect, test } from '../support'
+import { allTransactions, expect, test } from '../support'
 
 interface Preferences {
   general: { household_name: string }
@@ -22,6 +22,24 @@ test.describe('The baseline', () => {
     const viewer = await apiAs('viewer')
     const restored = await viewer.get<Preferences>('/settings')
     expect(restored.general.household_name).toBe(baseline.household_name)
+  })
+
+  test('a year of history fills several pages of transactions', async ({
+    page,
+    baseline,
+    signInAs,
+    transactionsPage,
+  }) => {
+    await signInAs('viewer')
+    await transactionsPage.goto()
+    await expect(transactionsPage.totals.getByTestId('totals-count')).toHaveText(
+      String(allTransactions(baseline).length),
+    )
+
+    await transactionsPage.nextPage()
+
+    await expect(page).toHaveURL(/[?&]page=2\b/)
+    await expect(transactionsPage.rows).toHaveCount(50)
   })
 
   test('the pending invitation opens from its link', async ({ page, baseline }) => {

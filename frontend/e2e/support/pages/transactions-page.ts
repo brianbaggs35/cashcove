@@ -57,7 +57,10 @@ export class TransactionsPage {
     this.noneMatch = page.getByTestId('transactions-none-match')
   }
 
-  /** Opens the tab, e.g. with `{ q: 'coffee' }` or `{ account: id }` already applied. */
+  /**
+   * Opens the tab, e.g. with `{ q: 'coffee' }`, `{ account: id }` or `{ page: '2', size: '25' }`
+   * already applied.
+   */
   async goto(query: Record<string, string> = {}): Promise<void> {
     const search = new URLSearchParams(query).toString()
     await this.page.goto(`/transactions${search ? `?${search}` : ''}`)
@@ -77,6 +80,15 @@ export class TransactionsPage {
     const button = row.getByTestId('transaction-open')
     await ((await button.count()) ? button : row).click()
     await expect(this.dialog).toBeVisible()
+  }
+
+  /** Goes to the next page of transactions, on computers and phones alike. */
+  async nextPage(): Promise<void> {
+    await this.page.getByRole('button', { name: 'Next page' }).click()
+  }
+
+  async previousPage(): Promise<void> {
+    await this.page.getByRole('button', { name: 'Previous page' }).click()
   }
 
   /** Searches right away, without waiting for a pause in typing. */

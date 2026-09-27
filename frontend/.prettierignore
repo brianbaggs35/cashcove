@@ -1,0 +1,3 @@
+# The sign-in files e2e global setup saves (e2e/support/sign-in-files.ts). Prettier only
+# reads the .gitignore in this folder, not the repository's.
+e2e/.auth/

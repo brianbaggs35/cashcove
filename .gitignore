@@ -15,8 +15,9 @@ dist/
 coverage/
 *.tsbuildinfo
 
-# End-to-end test reports and coverage (make e2e)
+# End-to-end test reports and coverage (make e2e), and the sign-ins global setup saves
 e2e-results/
+frontend/e2e/.auth/
 
 # Local config and runtime data
 .env
