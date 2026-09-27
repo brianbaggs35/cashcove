@@ -74,7 +74,11 @@ describe('MoneyField', () => {
   })
 
   it('explains what it needs', async () => {
-    const { wrapper, type } = await render(null, { required: true, nonZero: true, label: 'Balance' })
+    const { wrapper, type } = await render(null, {
+      required: true,
+      nonZero: true,
+      label: 'Balance',
+    })
     const messages = () => wrapper.find('.v-messages').text()
 
     await type('x')

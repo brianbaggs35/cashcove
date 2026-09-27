@@ -297,13 +297,7 @@ const endpoints: [string, () => Promise<unknown>, string, string, unknown][] = [
   ],
   ['fetchSystemInfo', () => system.fetchSystemInfo(), 'GET', '/system', undefined],
   ['fetchAccounts', () => accounts.fetchAccounts(), 'GET', '/accounts', undefined],
-  [
-    'createAccount',
-    () => accounts.createAccount(accountInput),
-    'POST',
-    '/accounts',
-    accountInput,
-  ],
+  ['createAccount', () => accounts.createAccount(accountInput), 'POST', '/accounts', accountInput],
   [
     'updateAccount',
     () => accounts.updateAccount('a1', { closed: true }),

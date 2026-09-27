@@ -20,7 +20,7 @@ async function render(role: 'admin' | 'viewer' = 'admin') {
   const mounted = await mountWithPlugins(AccountsView, {
     width: 1280,
     session: makeSessionState({ user: makeUser({ role }) }),
-    beforeMount: () => seedFinance({ accounts: [] }).accounts.loaded = false,
+    beforeMount: () => (seedFinance({ accounts: [] }).accounts.loaded = false),
   })
   await flushPromises()
   const find = (name: string) => mounted.wrapper.find(`[data-test="${name}"]`)
@@ -96,7 +96,9 @@ describe('AccountsView', () => {
       .mockResolvedValue([checking])
     const { find } = await render()
 
-    expect(find('accounts-error').text()).toContain("Couldn't load your accounts. Can't reach Cashcove.")
+    expect(find('accounts-error').text()).toContain(
+      "Couldn't load your accounts. Can't reach Cashcove.",
+    )
     await find('accounts-retry').trigger('click')
     await flushPromises()
     expect(fetch).toHaveBeenCalledTimes(2)

@@ -42,7 +42,13 @@ export const accountTypes: AccountTypeInfo[] = [
   { value: 'checking', title: 'Checking', icon: Landmark, group: 'cash', liability: false },
   { value: 'savings', title: 'Savings', icon: PiggyBank, group: 'cash', liability: false },
   { value: 'cash', title: 'Cash', icon: Wallet, group: 'cash', liability: false },
-  { value: 'credit_card', title: 'Credit card', icon: CreditCard, group: 'credit', liability: true },
+  {
+    value: 'credit_card',
+    title: 'Credit card',
+    icon: CreditCard,
+    group: 'credit',
+    liability: true,
+  },
   {
     value: 'investment',
     title: 'Investment',

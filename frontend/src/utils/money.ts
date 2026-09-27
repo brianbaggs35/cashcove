@@ -48,8 +48,7 @@ export function parseAmount(text: string, locale = 'en-US'): string | null {
   let decimalAt = -1
   if (last) {
     const mixed = new Set(marks.map(([mark]) => mark)).size > 1
-    const groupsThousands =
-      body.length - last.index === 4 && last[0] !== separators(locale).decimal
+    const groupsThousands = body.length - last.index === 4 && last[0] !== separators(locale).decimal
     if (mixed || (marks.length === 1 && !groupsThousands)) decimalAt = last.index
   }
   const whole = decimalAt < 0 ? body : body.slice(0, decimalAt)

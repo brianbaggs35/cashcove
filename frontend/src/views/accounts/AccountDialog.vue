@@ -23,14 +23,25 @@ const props = defineProps<{ account: Account | null }>()
 const accounts = useAccountsStore()
 const household = useHousehold()
 
-const form = reactive({
-  type: 'checking' as AccountType,
+interface AccountForm {
+  type: AccountType
+  name: string
+  institution: string
+  mask: string
+  currency: string
+  balance: string | null
+  creditLimit: string | null
+  notes: string
+}
+
+const form = reactive<AccountForm>({
+  type: 'checking',
   name: '',
   institution: '',
   mask: '',
   currency: 'USD',
-  balance: null as string | null,
-  creditLimit: null as string | null,
+  balance: null,
+  creditLimit: null,
   notes: '',
 })
 const valid = ref(false)
@@ -87,7 +98,10 @@ const saving = useAction(async () => {
   const notes = blank(form.notes)
   const account = props.account
   const saved = account
-    ? await updateAccount(account.id, linked.value ? { name, notes } : { name, notes, ...details() })
+    ? await updateAccount(
+        account.id,
+        linked.value ? { name, notes } : { name, notes, ...details() },
+      )
     : await createAccount({ name, notes, ...details() })
   accounts.put(saved)
   notify(account ? `Saved ${saved.name}` : `Added ${saved.name}`)
@@ -102,7 +116,9 @@ const nameRules = [
   (value: string) => value.trim().length > 0 || 'Give the account a name',
   (value: string) => value.trim().length <= 80 || 'Keep it under 80 characters',
 ]
-const institutionRules = [(value: string) => value.trim().length <= 80 || 'Keep it under 80 characters']
+const institutionRules = [
+  (value: string) => value.trim().length <= 80 || 'Keep it under 80 characters',
+]
 const maskRules = [
   (value: string) =>
     !value.trim() || /^[A-Za-z0-9]{2,4}$/.test(value.trim()) || 'Enter 2 to 4 letters or digits',
@@ -157,7 +173,9 @@ const formError = computed(() =>
               @click="toggle"
             >
               <v-icon :icon="option.icon" size="18" />
-              <span class="text-body-medium font-weight-medium flex-grow-1">{{ option.title }}</span>
+              <span class="text-body-medium font-weight-medium flex-grow-1">{{
+                option.title
+              }}</span>
               <v-icon v-if="isSelected" :icon="Check" size="16" />
             </v-card>
           </v-item>

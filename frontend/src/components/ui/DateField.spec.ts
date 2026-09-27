@@ -6,7 +6,11 @@ import { page, typeDate } from '@/test/dom'
 import { seedFinance } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
 
-async function render(initial: string | null, props: Record<string, unknown> = {}, locale = 'en-US') {
+async function render(
+  initial: string | null,
+  props: Record<string, unknown> = {},
+  locale = 'en-US',
+) {
   const day = ref<string | null>(initial)
   const Host = defineComponent({
     render: () =>

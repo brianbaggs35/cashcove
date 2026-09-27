@@ -121,20 +121,34 @@ describe('AccountRow', () => {
     const update = vi
       .spyOn(api, 'updateAccount')
       .mockRejectedValueOnce(new ApiError(500, 'Cashcove ran into a problem.'))
-      .mockRejectedValueOnce(new ApiError(403, 'Confirm it is you.', { code: 'verification_required' }))
+      .mockRejectedValueOnce(
+        new ApiError(403, 'Confirm it is you.', { code: 'verification_required' }),
+      )
     const { choose } = await render(closed)
 
     await choose('reopen')
-    expect(notices.value.at(-1)).toMatchObject({ text: 'Cashcove ran into a problem.', tone: 'error' })
+    expect(notices.value.at(-1)).toMatchObject({
+      text: 'Cashcove ran into a problem.',
+      tone: 'error',
+    })
     await choose('reopen')
     expect(update).toHaveBeenCalledTimes(2)
     expect(notices.value).toHaveLength(1)
   })
 
   it.each([
-    [checking, 'This deletes it and its 12 transactions for good. To keep its history, close it instead.'],
-    [{ ...checking, transaction_count: 1 }, 'This deletes it and its 1 transaction for good. To keep its history, close it instead.'],
-    [{ ...checking, transaction_count: 0 }, 'This deletes it for good. To keep its history, close it instead.'],
+    [
+      checking,
+      'This deletes it and its 12 transactions for good. To keep its history, close it instead.',
+    ],
+    [
+      { ...checking, transaction_count: 1 },
+      'This deletes it and its 1 transaction for good. To keep its history, close it instead.',
+    ],
+    [
+      { ...checking, transaction_count: 0 },
+      'This deletes it for good. To keep its history, close it instead.',
+    ],
   ])('deletes an account after warning about its transactions', async (account, warning) => {
     const remove = vi.spyOn(api, 'deleteAccount').mockResolvedValue(undefined)
     const { choose } = await render(account)

@@ -38,7 +38,9 @@ const date = computed({
   },
 })
 
-const rules = [(value: unknown) => !props.required || !!value || `Choose the ${props.label.toLowerCase()}`]
+const rules = [
+  (value: unknown) => !props.required || !!value || `Choose the ${props.label.toLowerCase()}`,
+]
 </script>
 
 <template>

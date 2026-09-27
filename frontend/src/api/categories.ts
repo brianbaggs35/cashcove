@@ -39,7 +39,8 @@ export const fetchCategories = () => apiGet<CategoryGroup[]>('/categories')
 export const addSuggestedCategories = () =>
   apiPost<SuggestedCategoriesAdded>('/categories/suggested')
 
-export const createGroup = (input: GroupInput) => apiPost<CategoryGroup>('/categories/groups', input)
+export const createGroup = (input: GroupInput) =>
+  apiPost<CategoryGroup>('/categories/groups', input)
 export const updateGroup = (id: string, changes: Partial<GroupInput>) =>
   apiPatch<CategoryGroup>(`/categories/groups/${id}`, changes)
 /** Removes the group and its categories; their transactions become uncategorized. */

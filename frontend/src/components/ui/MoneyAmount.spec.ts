@@ -3,7 +3,10 @@ import { seedFinance } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
 
 async function render(props: Record<string, unknown>) {
-  const { wrapper } = await mountWithPlugins(MoneyAmount, { props, beforeMount: () => seedFinance() })
+  const { wrapper } = await mountWithPlugins(MoneyAmount, {
+    props,
+    beforeMount: () => seedFinance(),
+  })
   return wrapper
 }
 

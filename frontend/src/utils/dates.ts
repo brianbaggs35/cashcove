@@ -24,13 +24,7 @@ export function addDays(value: string, days: number): string {
 }
 
 export type PeriodKey =
-  | 'all'
-  | 'this-month'
-  | 'last-month'
-  | 'last-30-days'
-  | 'last-90-days'
-  | 'this-year'
-  | 'last-year'
+  'all' | 'this-month' | 'last-month' | 'last-30-days' | 'last-90-days' | 'this-year' | 'last-year'
 
 export interface DateRange {
   start?: string
