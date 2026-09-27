@@ -123,7 +123,7 @@ function clearAll() {
             data-test="filter-custom-dates"
           />
         </div>
-        <v-row v-if="customDates" dense>
+        <v-row v-if="customDates" density="compact">
           <v-col cols="12" sm="6">
             <DateField v-model="draft.start" label="From" data-test="filter-start" />
           </v-col>
@@ -172,7 +172,7 @@ function clearAll() {
       </v-autocomplete>
 
       <!-- On phones the status sits under the direction, so the row leaves more room between. -->
-      <v-row dense :gap="[8, 20]" class="mt-2">
+      <v-row density="compact" :gap="[8, 20]" class="mt-2">
         <v-col cols="12" sm="6">
           <div id="filter-direction-label" class="text-label-large mb-2">Direction</div>
           <v-btn-toggle
@@ -226,7 +226,7 @@ function clearAll() {
       </v-chip-group>
 
       <div class="text-label-large mt-5 mb-2">Amount, in or out</div>
-      <v-row dense>
+      <v-row density="compact">
         <v-col cols="6">
           <MoneyField v-model="draft.min" label="At least" data-test="filter-min" />
         </v-col>
