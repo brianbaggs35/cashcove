@@ -267,6 +267,17 @@ Every run measures what the tests exercised, from the browser and the server:
 `CASHCOVE_E2E_COVERAGE=off npm run e2e` skips it. In CI, the **End-to-end** job uploads the
 report, traces and coverage as the `e2e-results` artifact.
 
+## The production image's smoke test
+
+CI's **Container** job also runs `e2e/smoke/` in Chromium against the production image it
+built, which has no test harness. On the fresh install, the setup wizard creates the first
+admin with the one-time setup code; the admin signs in and opens every tab and settings
+page; and the test fails on any error in the browser, Content Security Policy violations
+included. After the container restarts on the same data, the admin signs in and goes round
+again. `npm run smoke` runs it, given `CASHCOVE_SMOKE_URL`, `CASHCOVE_SMOKE_SETUP_CODE` and
+`CASHCOVE_SMOKE_PASSWORD`. It sets up a new install, so point it at a throwaway one, never
+your own.
+
 ## When something fails
 
 `make e2e-report` opens the report: each failure has a screenshot, a video and a trace you

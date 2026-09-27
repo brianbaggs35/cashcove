@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Smoke test for a running Cashcove container: TLS, the API and database, first-run setup
 # and sign-in, the web app, the HTTP redirect and the security headers. The certificate is
-# self-signed in CI. Run it twice against the same data: the first run creates the admin
-# with the one-time setup code, the second signs in as that admin.
+# self-signed in CI. On a fresh install it creates the admin with the one-time setup code;
+# once there is one (made by an earlier run, or by CI's browser test), it signs in as them.
 set -euo pipefail
 
 https_port="${CASHCOVE_HTTPS_PORT:-443}"
@@ -18,7 +18,8 @@ origin="$base"
 csrf=""
 
 fail() {
-    echo "::error::$1" >&2
+    local message="$1"
+    echo "::error::$message" >&2
     exit 1
 }
 
