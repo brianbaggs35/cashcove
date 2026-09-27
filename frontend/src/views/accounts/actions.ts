@@ -13,7 +13,7 @@ export async function closeAccount(account: Account) {
   const done = await confirmAndRun(
     {
       title: `Close ${account.name}?`,
-      text: "It moves to your closed accounts and stops counting toward your net worth. Its transactions stay, and you can reopen it at any time.",
+      text: 'It moves to your closed accounts and stops counting toward your net worth. Its transactions stay, and you can reopen it at any time.',
       confirmText: 'Close account',
       tone: 'warning',
       icon: Archive,

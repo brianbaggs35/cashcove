@@ -29,15 +29,13 @@ const items = computed<Option[]>(() =>
     .filter((group) => group.categories.length > 0)
     .flatMap((group): Option[] => [
       { type: 'subheader', title: group.name, group: group.name },
-      ...group.categories.map(
-        (category): Option => ({
-          type: 'item',
-          title: category.name,
-          group: group.name,
-          value: category.id,
-          emoji: category.emoji,
-        }),
-      ),
+      ...group.categories.map((category): Option => ({
+        type: 'item',
+        title: category.name,
+        group: group.name,
+        value: category.id,
+        emoji: category.emoji,
+      })),
     ]),
 )
 

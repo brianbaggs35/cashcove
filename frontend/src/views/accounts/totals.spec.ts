@@ -17,7 +17,10 @@ describe('account totals', () => {
   it('splits net worth into assets and what is owed', () => {
     const overdrawn = makeAccount({ id: 'overdrawn', balance: '-20.00' })
     const credit = makeAccount({ id: 'credit', type: 'credit_card', balance: '15.00' })
-    const { main, others } = netWorth([checking, savings, visa, overdrawn, credit, pounds, euros], 'USD')
+    const { main, others } = netWorth(
+      [checking, savings, visa, overdrawn, credit, pounds, euros],
+      'USD',
+    )
 
     expect(main).toEqual({
       currency: 'USD',

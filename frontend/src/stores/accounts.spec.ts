@@ -9,8 +9,14 @@ describe('accounts store', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
   it('loads the accounts once and sorts them into open, closed and manual', async () => {
-    const closed = makeAccount({ id: 'account-old', name: 'Old card', closed_at: '2026-01-01T00:00:00Z' })
-    const fetch = vi.spyOn(api, 'fetchAccounts').mockResolvedValue([checking, savings, visa, closed])
+    const closed = makeAccount({
+      id: 'account-old',
+      name: 'Old card',
+      closed_at: '2026-01-01T00:00:00Z',
+    })
+    const fetch = vi
+      .spyOn(api, 'fetchAccounts')
+      .mockResolvedValue([checking, savings, visa, closed])
     const store = useAccountsStore()
 
     const first = store.ensureLoaded()
@@ -57,7 +63,11 @@ describe('accounts store', () => {
   })
 
   it('sorts open accounts first, then by name', () => {
-    const closed = makeAccount({ id: 'closed', name: 'Aardvark', closed_at: '2026-01-01T00:00:00Z' })
+    const closed = makeAccount({
+      id: 'closed',
+      name: 'Aardvark',
+      closed_at: '2026-01-01T00:00:00Z',
+    })
     const account2 = makeAccount({ id: 'two', name: 'account 2' })
     const account10 = makeAccount({ id: 'ten', name: 'Account 10' })
     expect(sortAccounts([closed, account10, account2]).map((account) => account.id)).toEqual([

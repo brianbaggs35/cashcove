@@ -18,7 +18,7 @@ import RelativeTime from '@/components/ui/RelativeTime.vue'
 import { useHousehold } from '@/composables/useHousehold'
 import { useAuthStore } from '@/stores/auth'
 import { closeAccount, removeAccount, reopenAccount } from '@/views/accounts/actions'
-import { negate, toCents } from '@/utils/money'
+import { fromCents, negate, toCents } from '@/utils/money'
 
 /** One account: what it is, what's in it or owed on it, and, for admins, what to do with it. */
 const props = defineProps<{ account: Account }>()
@@ -35,11 +35,7 @@ const transactionsLink = computed(() => ({
 }))
 
 const details = computed(() =>
-  [
-    props.account.institution,
-    props.account.mask && `•••• ${props.account.mask}`,
-    info.value.title,
-  ]
+  [props.account.institution, props.account.mask && `•••• ${props.account.mask}`, info.value.title]
     .filter(Boolean)
     .join(' · '),
 )
@@ -62,7 +58,7 @@ const utilization = computed(() => {
   const limit = toCents(props.account.credit_limit ?? 0)
   const owed = -toCents(props.account.balance)
   if (limit <= 0 || owed <= 0) return null
-  return Math.min(100, Math.round((owed / limit) * 100))
+  return { percent: Math.min(100, Math.round((owed / limit) * 100)), limit: fromCents(limit) }
 })
 </script>
 
@@ -98,19 +94,25 @@ const utilization = computed(() => {
           {{ details }}
         </div>
         <div
-          v-if="utilization !== null"
+          v-if="utilization"
           class="account-row__utilization d-flex align-center ga-2 mt-1"
           data-test="account-utilization"
         >
           <v-progress-linear
-            :model-value="utilization"
-            :color="utilization >= 90 ? 'error' : utilization >= 30 ? 'warning' : 'success'"
+            :model-value="utilization.percent"
+            :color="
+              utilization.percent >= 90
+                ? 'error'
+                : utilization.percent >= 30
+                  ? 'warning'
+                  : 'success'
+            "
             height="6"
             rounded
-            :aria-label="`${utilization}% of the credit limit used`"
+            :aria-label="`${utilization.percent}% of the credit limit used`"
           />
           <span class="text-label-small text-medium-emphasis text-no-wrap">
-            {{ utilization }}% of {{ money(account.credit_limit ?? '0', account.currency) }}
+            {{ utilization.percent }}% of {{ money(utilization.limit, account.currency) }}
           </span>
         </div>
       </div>
@@ -124,9 +126,7 @@ const utilization = computed(() => {
         <div class="text-label-small text-medium-emphasis text-no-wrap">
           <template v-if="shown.caption">{{ shown.caption }}</template>
           <template v-else-if="available">{{ available }}</template>
-          <template v-else>
-            Updated <RelativeTime :value="account.balance_updated_at" />
-          </template>
+          <template v-else> Updated <RelativeTime :value="account.balance_updated_at" /> </template>
         </div>
       </div>
     </router-link>

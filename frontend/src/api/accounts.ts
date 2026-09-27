@@ -1,14 +1,7 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client'
 
 export type AccountType =
-  | 'checking'
-  | 'savings'
-  | 'cash'
-  | 'credit_card'
-  | 'investment'
-  | 'loan'
-  | 'mortgage'
-  | 'other'
+  'checking' | 'savings' | 'cash' | 'credit_card' | 'investment' | 'loan' | 'mortgage' | 'other'
 
 /** `manual` accounts are kept by hand; `plaid` ones are linked to a bank, which updates them. */
 export type AccountSource = 'manual' | 'plaid'

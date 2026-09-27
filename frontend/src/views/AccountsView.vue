@@ -46,7 +46,13 @@ function edit(account: Account) {
 <template>
   <TabPage name="accounts">
     <template v-if="auth.isAdmin && store.accounts.length" #actions>
-      <v-btn color="primary" variant="flat" :prepend-icon="Plus" data-test="account-add" @click="add">
+      <v-btn
+        color="primary"
+        variant="flat"
+        :prepend-icon="Plus"
+        data-test="account-add"
+        @click="add"
+      >
         Add account
       </v-btn>
     </template>

@@ -101,7 +101,9 @@ describe('AccountDialog', () => {
       notes: 'Joint',
       currency: 'EUR',
     })
-    const update = vi.spyOn(api, 'updateAccount').mockResolvedValue({ ...card, name: 'Shared card' })
+    const update = vi
+      .spyOn(api, 'updateAccount')
+      .mockResolvedValue({ ...card, name: 'Shared card' })
     await render(card)
     expect(dialog().find('h2').text()).toBe('Edit Everyday checking')
     expect(value('balance-field')).toBe('100.00')
@@ -147,7 +149,12 @@ describe('AccountDialog', () => {
   it('checks the details before saving', async () => {
     const create = vi.spyOn(api, 'createAccount')
     await render()
-    await fill({ 'name-field': ' ', mask: '1', institution: 'x'.repeat(81), notes: 'x'.repeat(501) })
+    await fill({
+      'name-field': ' ',
+      mask: '1',
+      institution: 'x'.repeat(81),
+      notes: 'x'.repeat(501),
+    })
     expect(field('name-field').text()).toContain('Give the account a name')
     expect(field('mask').text()).toContain('Enter 2 to 4 letters or digits')
     expect(field('institution').text()).toContain('Keep it under 80 characters')
