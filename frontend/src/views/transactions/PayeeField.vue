@@ -40,15 +40,20 @@ function changed(value: string | null) {
   if (match) emit('picked', match)
 }
 
+/** The combobox checks an empty field as null, since it gets one (below). */
+const trimmed = (value: string | null) => (value ?? '').trim()
+
 const rules = [
-  (value: string) => !!value.trim() || 'Enter who it was paid to or received from',
-  (value: string) => value.trim().length <= 160 || 'Keep it under 160 characters',
+  (value: string | null) => !!trimmed(value) || 'Enter who it was paid to or received from',
+  (value: string | null) => trimmed(value).length <= 160 || 'Keep it under 160 characters',
 ]
 </script>
 
 <template>
+  <!-- An empty payee goes in as null: the combobox counts '' as a value, and would float its
+       label over an empty field. -->
   <v-combobox
-    :model-value="model"
+    :model-value="model || null"
     :items="names"
     :rules="rules"
     label="Payee"
