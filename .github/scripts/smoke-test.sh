@@ -18,8 +18,7 @@ origin="$base"
 csrf=""
 
 fail() {
-    local message="$1"
-    echo "::error::$message" >&2
+    echo "::error::$1" >&2
     exit 1
 }
 
