@@ -52,6 +52,7 @@ describe('TransactionTable', () => {
   it('shows each transaction with its category, account and signed amount', async () => {
     const { wrapper, rows } = await render()
 
+    expect(wrapper.findAll('[data-test="transaction-row"]')).toHaveLength(4)
     expect(wrapper.findAll('thead th').map((cell) => cell.text())).toEqual([
       '',
       'Date',
@@ -99,6 +100,26 @@ describe('TransactionTable', () => {
     await rows()[0]!.find('input[type="checkbox"]').trigger('click')
     expect(wrapper.emitted('update:selected')).toEqual([[[latte.id]]])
     expect(wrapper.emitted('open')).toBeUndefined()
+  })
+
+  it('marks the page as partly selected, and selects or clears all of it', async () => {
+    const { wrapper } = await render({ selected: [latte.id] })
+    const all = () => wrapper.find('[data-test="transaction-select-page"] input')
+    const box = () => all().element as HTMLInputElement
+    expect(all().attributes('aria-label')).toBe('Select all on this page')
+    expect(all().attributes('aria-checked')).toBe('mixed')
+    expect(box().indeterminate).toBe(true)
+
+    await all().trigger('click')
+    expect(wrapper.emitted('update:selected')?.at(-1)).toEqual([
+      [latte.id, wholeFoods.id, salary.id, noted.id],
+    ])
+
+    await wrapper.setProps({ selected: [latte.id, wholeFoods.id, salary.id, noted.id] })
+    expect(box().indeterminate).toBe(false)
+    expect(box().checked).toBe(true)
+    await all().trigger('click')
+    expect(wrapper.emitted('update:selected')?.at(-1)).toEqual([[]])
   })
 
   it('shows viewers the details without ways to select', async () => {

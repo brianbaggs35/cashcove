@@ -39,6 +39,15 @@ describe('AppDialog', () => {
     expect(card.find('.dialog-action').exists()).toBe(true)
   })
 
+  it('is named by its title', async () => {
+    await render()
+    const title = page().find('.app-dialog h2')
+    expect(title.attributes('id')).toBeTruthy()
+    expect(page().find('[role="dialog"]').attributes('aria-labelledby')).toBe(
+      title.attributes('id'),
+    )
+  })
+
   it('closes from its close button', async () => {
     const { open } = await render()
     await page().find('[data-test="dialog-close"]').trigger('click')

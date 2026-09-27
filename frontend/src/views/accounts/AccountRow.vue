@@ -9,6 +9,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 
 import type { Account } from '@/api/accounts'
 import AccountAvatar from '@/components/finance/AccountAvatar.vue'
@@ -25,6 +26,7 @@ const props = defineProps<{ account: Account }>()
 const emit = defineEmits<{ edit: [account: Account] }>()
 
 const auth = useAuthStore()
+const router = useRouter()
 const { money } = useHousehold()
 
 const info = computed(() => accountType(props.account.type))
@@ -150,13 +152,14 @@ const utilization = computed(() => {
           data-test="account-edit"
           @click="emit('edit', account)"
         />
+        <!-- Items in a menu's list are buttons, not links, so the list stays a valid list. -->
         <v-list-item
           :prepend-icon="ArrowLeftRight"
           title="See transactions"
-          :to="transactionsLink"
           data-test="account-transactions"
+          @click="router.push(transactionsLink)"
         />
-        <v-divider class="my-1" />
+        <v-divider class="my-1" aria-hidden="true" />
         <v-list-item
           v-if="account.closed_at"
           :prepend-icon="ArchiveRestore"

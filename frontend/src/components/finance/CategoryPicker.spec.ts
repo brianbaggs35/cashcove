@@ -91,15 +91,7 @@ describe('CategoryPicker', () => {
     expect(wrapper.find('.category-picker__emoji').exists()).toBe(false)
   })
 
-  it('links admins to where categories are managed', async () => {
-    const { open } = await render(null)
-    await open()
-    expect(page().find('[data-test="category-manage"]').attributes('href')).toBe(
-      '/settings/categories',
-    )
-  })
-
-  it('leaves the link out for viewers, and loads categories when needed', async () => {
+  it('loads the categories when they are needed', async () => {
     const fetch = vi.spyOn(api, 'fetchCategories').mockResolvedValue(makeGroups())
     const { open } = await render(null, {
       session: makeSessionState({ user: makeUser({ role: 'viewer' }) }),
@@ -108,6 +100,5 @@ describe('CategoryPicker', () => {
     await open()
     expect(fetch).toHaveBeenCalled()
     expect(options()).toHaveLength(4)
-    expect(page().find('[data-test="category-manage"]').exists()).toBe(false)
   })
 })

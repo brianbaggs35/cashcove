@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { Settings2 } from '@lucide/vue'
 import { computed } from 'vue'
 
-import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore, type GroupedCategory } from '@/stores/categories'
 
 /** Picks a transaction's category, grouped the way Settings lists them. Clearing leaves it uncategorized. */
@@ -17,7 +15,6 @@ const props = withDefaults(
   { label: 'Category', hideDetails: false, exclude: null },
 )
 
-const auth = useAuthStore()
 const categories = useCategoriesStore()
 void categories.ensureLoaded()
 
@@ -79,17 +76,6 @@ function filter(title: string, query: string, item?: { raw: Option }): boolean {
           <span class="category-picker__emoji me-3" aria-hidden="true">{{ item.emoji }}</span>
         </template>
       </v-list-item>
-    </template>
-    <template v-if="auth.isAdmin" #append-item>
-      <v-divider class="mt-1" />
-      <v-list-item
-        to="/settings/categories"
-        :prepend-icon="Settings2"
-        title="Manage categories"
-        density="compact"
-        class="text-medium-emphasis"
-        data-test="category-manage"
-      />
     </template>
   </v-autocomplete>
 </template>
