@@ -102,7 +102,7 @@ function useTyped() {
       </v-btn>
     </template>
     <v-card class="pa-3" max-width="332" data-test="emoji-menu">
-      <div class="emoji-picker__grid" role="group" :aria-label="label ?? 'Emoji'">
+      <fieldset class="emoji-picker__grid" :aria-label="label ?? 'Emoji'">
         <button
           v-for="[emoji, name] in EMOJI"
           :key="emoji"
@@ -116,7 +116,7 @@ function useTyped() {
         >
           {{ emoji }}
         </button>
-      </div>
+      </fieldset>
       <v-text-field
         v-model="typed"
         label="Or type any emoji"
@@ -153,6 +153,10 @@ function useTyped() {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   gap: 2px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .emoji-picker__option {

@@ -19,7 +19,7 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 BANK_FIELDS = frozenset({"type", "institution", "mask", "currency", "balance", "credit_limit"})
 
 
-@router.get("", response_model=list[AccountOut])
+@router.get("")
 def list_accounts(auth: CurrentAuth, db: Db) -> list[AccountOut]:
     """Every account, open ones first, each with how many transactions it has."""
     accounts = db.scalars(
@@ -29,7 +29,7 @@ def list_accounts(auth: CurrentAuth, db: Db) -> list[AccountOut]:
     return [account_out(db, account, counts.get(account.id, 0)) for account in accounts]
 
 
-@router.post("", response_model=AccountOut, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def create_account(body: AccountCreate, auth: AdminAuth, db: Db) -> AccountOut:
     """Adds an account the household keeps up to date itself."""
     account = Account(
@@ -49,12 +49,12 @@ def create_account(body: AccountCreate, auth: AdminAuth, db: Db) -> AccountOut:
     return account_out(db, account, 0)
 
 
-@router.get("/{account_id}", response_model=AccountOut)
+@router.get("/{account_id}")
 def read_account(account_id: uuid.UUID, auth: CurrentAuth, db: Db) -> AccountOut:
     return account_out(db, get_account(db, account_id))
 
 
-@router.patch("/{account_id}", response_model=AccountOut)
+@router.patch("/{account_id}")
 def update_account(
     account_id: uuid.UUID, body: AccountUpdate, auth: AdminAuth, db: Db
 ) -> AccountOut:

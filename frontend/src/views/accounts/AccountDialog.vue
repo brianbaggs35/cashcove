@@ -97,11 +97,10 @@ const saving = useAction(async () => {
   const name = form.name.trim()
   const notes = blank(form.notes)
   const account = props.account
+  // The bank keeps a linked account's details, so only its name and notes change.
+  const changes = linked.value ? { name, notes } : { name, notes, ...details() }
   const saved = account
-    ? await updateAccount(
-        account.id,
-        linked.value ? { name, notes } : { name, notes, ...details() },
-      )
+    ? await updateAccount(account.id, changes)
     : await createAccount({ name, notes, ...details() })
   accounts.put(saved)
   notify(account ? `Saved ${saved.name}` : `Added ${saved.name}`)

@@ -36,10 +36,12 @@ def move_balance(account: Account, change: Decimal, now: datetime) -> None:
 
 
 def transaction_counts(db: Session) -> dict[uuid.UUID, int]:
-    rows = db.execute(
-        select(Transaction.account_id, func.count()).group_by(Transaction.account_id)
-    ).all()
-    return {account_id: count for account_id, count in rows}
+    rows = (
+        db.execute(select(Transaction.account_id, func.count()).group_by(Transaction.account_id))
+        .tuples()
+        .all()
+    )
+    return dict(rows)
 
 
 def account_out(db: Session, account: Account, transaction_count: int | None = None) -> AccountOut:

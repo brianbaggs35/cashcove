@@ -81,7 +81,7 @@ class Money(TypeDecorator[Decimal]):
 
 
 def _values(enum: type[StrEnum]) -> list[str]:
-    return [member.value for member in enum]
+    return [member.value for member in enum.__members__.values()]
 
 
 def enum_type(enum: type[StrEnum], name: str) -> Enum:

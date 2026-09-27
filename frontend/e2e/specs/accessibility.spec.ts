@@ -162,6 +162,7 @@ test.describe('Accessibility', () => {
       })
 
       test('categorizing a selection', async ({ page, signInAs, transactionsPage }) => {
+        // Phones list transactions without the table's checkboxes, so there's nothing to select.
         test.skip(test.info().project.name === 'mobile', 'Only computers select several at once')
         await signInAs('admin')
         await transactionsPage.goto()

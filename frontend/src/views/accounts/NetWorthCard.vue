@@ -38,13 +38,15 @@ const share = computed(() => {
         {{ money(main.net, main.currency) }}
       </div>
 
-      <div
+      <svg
         class="net-worth__bar mt-4"
         role="img"
         :aria-label="`Assets ${share}%, owed ${100 - share}%`"
+        width="100%"
+        height="10"
       >
-        <div class="net-worth__assets" :style="{ width: `${share}%` }" />
-      </div>
+        <rect class="net-worth__assets" :width="`${share}%`" height="10" />
+      </svg>
       <div class="d-flex flex-wrap ga-6 mt-3">
         <div>
           <div class="d-flex align-center ga-2 text-label-medium text-medium-emphasis">
@@ -106,16 +108,14 @@ const share = computed(() => {
 }
 
 .net-worth__bar {
-  height: 10px;
+  display: block;
   border-radius: 999px;
   overflow: hidden;
   background: rgb(var(--v-theme-warning));
 }
 
 .net-worth__assets {
-  height: 100%;
-  background: rgb(var(--v-theme-primary));
-  border-radius: 999px 0 0 999px;
+  fill: rgb(var(--v-theme-primary));
 }
 
 .net-worth__dot {

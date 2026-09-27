@@ -1,4 +1,5 @@
 import datetime as dt
+import time
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -270,6 +271,7 @@ def test_search_treats_backslashes_as_text(
         ("42.5", Decimal("42.5")),
         (" $1,234.56 ", Decimal("1234.56")),
         ("-€18.20", Decimal("18.20")),
+        ("- $ 18.20", Decimal("18.20")),
         ("+ 7", Decimal("7.0")),
         ("1,234,567,890", Decimal("1234567890.0")),
         ("12,34", None),
@@ -281,6 +283,13 @@ def test_search_treats_backslashes_as_text(
 )
 def test_amounts_people_search_for(text: str, amount: Decimal | None) -> None:
     assert searched_amount(text) == amount
+
+
+def test_a_long_search_is_quick_to_rule_out_as_an_amount() -> None:
+    # Spaces that could go before or after a currency sign once made this take seconds.
+    started = time.perf_counter()
+    assert searched_amount("-" + " " * 20_000 + "x") is None
+    assert time.perf_counter() - started < 1
 
 
 @pytest.mark.parametrize(
