@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import StatusIndicator from '@/components/StatusIndicator.vue'
+import { useConnectionAlerts } from '@/composables/useConnectionAlerts'
 import { navItems } from '@/navigation'
 
 const open = defineModel<boolean | null>({ default: null })
+const alerts = useConnectionAlerts()
 </script>
 
 <template>
@@ -20,6 +22,12 @@ const open = defineModel<boolean | null>({ default: null })
         <v-list-item :to="item.path" :title="item.title" rounded="lg" class="app-nav__item mb-1">
           <template #prepend>
             <v-icon :icon="item.icon" size="20" />
+          </template>
+          <template v-if="item.name === 'connect' && alerts.count.value" #append>
+            <v-chip size="x-small" color="warning" variant="flat" data-test="nav-connect-alerts">
+              {{ alerts.count.value }}
+              <span class="d-sr-only">{{ alerts.label.value }}</span>
+            </v-chip>
           </template>
         </v-list-item>
       </li>

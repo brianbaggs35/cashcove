@@ -22,7 +22,7 @@ describe('navigation', () => {
 
   it('lists what is planned only for tabs still to come', () => {
     const planned = navItems.filter((item) => item.planned).map((item) => item.name)
-    expect(planned).toEqual(['budget', 'subscriptions', 'import', 'connect'])
+    expect(planned).toEqual(['budget', 'subscriptions', 'import'])
     for (const name of planned) expect(findNavItem(name).planned?.length).toBeGreaterThan(0)
   })
 

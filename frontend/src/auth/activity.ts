@@ -10,6 +10,7 @@ import {
   MailPlus,
   MonitorX,
   PartyPopper,
+  Plug,
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
@@ -17,6 +18,7 @@ import {
   UserCog,
   UserMinus,
   UserX,
+  Unplug,
   type LucideIcon,
 } from '@lucide/vue'
 
@@ -266,6 +268,28 @@ const DESCRIPTIONS = new Map(
       icon: KeyRound,
       tone: 'info',
     }),
+    bank_connected: ({ details, say, person }) => ({
+      title: join(say('Connected', `${person} connected`), text(details.bank) || 'a bank'),
+      icon: Plug,
+      tone: 'success',
+    }),
+    bank_disconnected: ({ details, say, person }) => {
+      const count = typeof details.accounts === 'number' ? details.accounts : 0
+      const accounts = count === 1 ? 'its account' : `its ${count} accounts`
+      return {
+        title: join(
+          say('Removed', `${person} removed`),
+          text(details.bank) || 'a bank',
+          count
+            ? details.kept_accounts === false
+              ? `and deleted ${accounts}`
+              : `and kept ${accounts}`
+            : '',
+        ),
+        icon: Unplug,
+        tone: 'neutral',
+      }
+    },
   }),
 )
 

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { Menu } from '@lucide/vue'
 
+import { useConnectionAlerts } from '@/composables/useConnectionAlerts'
 import { findNavItem } from '@/navigation'
 
 const emit = defineEmits<{ more: [] }>()
+const alerts = useConnectionAlerts()
 const items = (['accounts', 'transactions', 'budget', 'subscriptions'] as const).map(findNavItem)
 </script>
 
@@ -19,8 +21,16 @@ const items = (['accounts', 'transactions', 'budget', 'subscriptions'] as const)
       <span class="text-label-small mt-1">{{ item.title }}</span>
     </v-btn>
     <v-btn data-test="bottom-more" @click="emit('more')">
-      <v-icon :icon="Menu" size="22" />
+      <v-badge
+        :model-value="!!alerts.count.value"
+        color="warning"
+        dot
+        data-test="bottom-more-alert"
+      >
+        <v-icon :icon="Menu" size="22" />
+      </v-badge>
       <span class="text-label-small mt-1">More</span>
+      <span v-if="alerts.count.value" class="d-sr-only">, {{ alerts.label.value }}</span>
     </v-btn>
   </v-bottom-navigation>
 </template>

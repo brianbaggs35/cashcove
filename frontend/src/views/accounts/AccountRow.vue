@@ -6,6 +6,7 @@ import {
   EllipsisVertical,
   Link,
   Pencil,
+  Plug,
   Trash2,
 } from '@lucide/vue'
 import { computed, h } from 'vue'
@@ -181,6 +182,13 @@ const utilization = computed(() => {
           title="See transactions"
           data-test="account-transactions"
           @click="router.push(transactionsLink)"
+        />
+        <v-list-item
+          v-if="linked"
+          :prepend-icon="Plug"
+          title="Manage bank connection"
+          data-test="account-connection"
+          @click="router.push('/connect')"
         />
         <v-divider class="my-1" aria-hidden="true" />
         <v-list-item

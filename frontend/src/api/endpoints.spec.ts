@@ -4,6 +4,7 @@ import * as account from '@/api/account'
 import * as accounts from '@/api/accounts'
 import * as auth from '@/api/auth'
 import * as categories from '@/api/categories'
+import * as connections from '@/api/connections'
 import * as preferences from '@/api/preferences'
 import * as system from '@/api/system'
 import * as transactions from '@/api/transactions'
@@ -406,6 +407,65 @@ const endpoints: [string, () => Promise<unknown>, string, string, unknown][] = [
     'POST',
     '/transactions/bulk/categorize',
     { ids: ['t1'], category_id: null },
+  ],
+  ['fetchConnections', () => connections.fetchConnections(), 'GET', '/connections', undefined],
+  ['fetchConnection', () => connections.fetchConnection('c1'), 'GET', '/connections/c1', undefined],
+  [
+    'createLinkToken',
+    () => connections.createLinkToken(365),
+    'POST',
+    '/connections/link-token',
+    { history_days: 365 },
+  ],
+  [
+    'createLinkToken without a history length',
+    () => connections.createLinkToken(),
+    'POST',
+    '/connections/link-token',
+    { history_days: null },
+  ],
+  [
+    'createConnection',
+    () => connections.createConnection('public-sandbox-1'),
+    'POST',
+    '/connections',
+    { public_token: 'public-sandbox-1' },
+  ],
+  [
+    'chooseAccounts',
+    () => connections.chooseAccounts('c1', { accounts: [{ id: 'p1', name: 'Bills' }] }),
+    'PUT',
+    '/connections/c1/accounts',
+    { accounts: [{ id: 'p1', name: 'Bills' }] },
+  ],
+  [
+    'updateLinkToken',
+    () => connections.updateLinkToken('c1', 'accounts'),
+    'POST',
+    '/connections/c1/link-token',
+    { mode: 'accounts' },
+  ],
+  [
+    'syncConnection',
+    () => connections.syncConnection('c1'),
+    'POST',
+    '/connections/c1/sync',
+    { reason: 'manual' },
+  ],
+  [
+    'syncConnection after reconnecting',
+    () => connections.syncConnection('c1', 'reconnected'),
+    'POST',
+    '/connections/c1/sync',
+    { reason: 'reconnected' },
+  ],
+  ['fetchSyncs', () => connections.fetchSyncs('c1'), 'GET', '/connections/c1/syncs', undefined],
+  [
+    'deleteConnection',
+    () => connections.deleteConnection('c1', false),
+    'DELETE',
+    '/connections/c1?keep_accounts=false',
+    undefined,
   ],
 ]
 

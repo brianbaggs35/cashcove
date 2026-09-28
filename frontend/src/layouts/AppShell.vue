@@ -8,6 +8,7 @@ import UserMenu from '@/components/auth/UserMenu.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useConnectionsStore } from '@/stores/connections'
 import { useHealthStore } from '@/stores/health'
 import { formatLongDate, greeting } from '@/utils/format'
 
@@ -21,7 +22,13 @@ const firstName = computed(() => auth.user?.name.split(' ')[0])
 const drawer = ref<boolean | null>(null)
 const now = new Date()
 
-onMounted(() => healthStore.refresh())
+const connections = useConnectionsStore()
+
+onMounted(() => {
+  void healthStore.refresh()
+  // The navigation points out banks that need attention, wherever people are.
+  void connections.ensureLoaded()
+})
 </script>
 
 <template>
