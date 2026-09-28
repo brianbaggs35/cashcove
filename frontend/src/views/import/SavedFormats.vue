@@ -50,7 +50,7 @@ async function remove(format: SavedFormat) {
 </script>
 
 <template>
-  <v-card class="saved-formats mb-6" data-test="saved-formats">
+  <v-card class="saved-formats" data-test="saved-formats">
     <div class="px-5 pt-4 pb-2">
       <div class="d-flex align-center flex-wrap ga-2">
         <h2 class="text-title-medium font-weight-bold ma-0">Saved formats</h2>

@@ -146,10 +146,28 @@ Behind them, `baseline.history` holds a year of everyday money, 199 transactions
   biggest page of 200, and some in every period the Transactions tab offers, last year
   included. `allTransactions(baseline)` lists them all, newest first.
 - The Rewards Visa's came from its bank (`source: 'plaid'`). Of the accounts kept by hand,
-  what's older than four months was imported from the bank's CSV export (`source: 'file'`,
-  with the bank's description), and the rest was entered by hand.
+  what's older than four months came from statement files imported when the household
+  started with Cashcove (`source: 'file'`, with the bank's description, and `file_import`
+  naming the import), and the rest was entered by hand.
 - No payee in the history is also a named transaction's payee, so
   `transactionsPage.row('Netflix')` still finds exactly one row.
+
+The Import tab lists those two imports, `baseline.imports`, which Alex made 120 days ago,
+leaving the balances as they were:
+
+| File                        | In `baseline.imports` | Account           | Read with                    | Transactions | Left out |
+| --------------------------- | --------------------- | ----------------- | ---------------------------- | ------------ | -------- |
+| harbor-savings-history.qfx  | `savings_history`     | Rainy day fund    | Its OFX tags                 | 19           | None     |
+| harbor-checking-history.csv | `checking_history`    | Everyday checking | Harbor Credit Union checking | 62           | 2 rows   |
+
+And the CSV layouts saved for banks' files, `baseline.saved_formats`. A CSV file with a
+saved format's column names goes straight to reviewing its rows, into the account the
+format was last used for:
+
+| Saved format                 | In `baseline.saved_formats` | Columns                                                                     | Last used                     |
+| ---------------------------- | --------------------------- | --------------------------------------------------------------------------- | ----------------------------- |
+| Harbor Credit Union checking | `harbor_checking`           | Date, Description, Amount, Balance, Transaction ID                          | 120 days ago, for checking    |
+| Maple store card             | `maple_card`                | Trans. Date, Post Date, Description, Amount, Category; charges are positive | Never; saved for the old card |
 
 Read values from `baseline` rather than copying them into specs, so the baseline can change
 without breaking them. It's defined in `backend/e2e/baseline.py`.
@@ -221,18 +239,19 @@ working across resets, even a reset in the middle of a test.
 
 ### Fixtures
 
-| Fixture                       | What it gives you                                                                                                                                                                                                                                                                                                         |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `baseline`                    | The baseline data above, plus `reset()` and `freshInstall()`, which empties the database as on a first start and returns the setup wizard's code.                                                                                                                                                                         |
-| `signInAs(who, { remember })` | Signs the test's browser in as a baseline person (`'admin'`, `'viewer'`, …) or anyone by `{ email }`, skipping the form, two-step and rate limits. Call it before `page.goto`.                                                                                                                                            |
-| `apiAs(who)`                  | An API client signed in as someone, to set up data or check results without clicking: `get`, `post`, `put`, `patch`, `delete`, with paths like `'/settings'`.                                                                                                                                                             |
-| `shell`                       | The signed-in app's frame: `open('budget')` from the side menu or the phone's bottom bar, `chooseTheme('dark')`, `signOut()`.                                                                                                                                                                                             |
-| `signInPage`                  | The sign-in page: `goto()`, `signIn(user)`, `signInWithPasskey()`, `enterCode(code)`, `useRecoveryCode(code)`, and its `error` and `notice` messages.                                                                                                                                                                     |
-| `accountsPage`                | The Accounts tab: `goto()`, `row(name)`, `balance(name)`, `act(name, 'edit')` from an account's menu, `showClosed()`, and the dialog's `fill({ … })` and `save()`.                                                                                                                                                        |
-| `transactionsPage`            | The Transactions tab: `goto(query)` (e.g. `{ page: '2', size: '25' }`), `row(payee)`, `open(payee)`, `nextPage()`, `searchFor(text)`, `choosePeriod(title)`, `openFilters()`, `select(...payees)` then `categorizeSelected(category)` or `deleteSelected()`, and the dialog's `fill({ … })`, `save()` and `deleteOpen()`. |
-| `categoriesPage`              | Settings > Categories: `goto()`, `group(name)`, `category(name)`, `actOnGroup` and `actOnCategory`, `addCategory(group)`, the dialogs' `fillGroup`, `fillCategory` and saves, and `deleteCategory(name, { moveTo })`.                                                                                                     |
-| `connectPage`                 | The Connect tab: `goto()`, `card(bank)`, `status(bank)`, `account(bank, name)`, `syncNow(bank)`, `act(bank, 'choose')` from a bank's menu, `remove(bank, { deleteAccounts })`, and the wizard's `startConnecting({ history })`, `chooseAccounts(...names)`, `renameAccount(name, to)`, `importAccounts()` and `finish()`. |
-| `plaid`                       | Plaid, as the next section describes: Link's window (`link`), with `connect(bank)`, `signInAgain()`, `close()` and `fail()`, and the banks behind the test server, with `addTransaction({ … })` and `failSyncs(connectionId, code)`.                                                                                      |
+| Fixture                       | What it gives you                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline`                    | The baseline data above, plus `reset()` and `freshInstall()`, which empties the database as on a first start and returns the setup wizard's code.                                                                                                                                                                                                                                                                                                                     |
+| `signInAs(who, { remember })` | Signs the test's browser in as a baseline person (`'admin'`, `'viewer'`, …) or anyone by `{ email }`, skipping the form, two-step and rate limits. Call it before `page.goto`.                                                                                                                                                                                                                                                                                        |
+| `apiAs(who)`                  | An API client signed in as someone, to set up data or check results without clicking: `get`, `post`, `put`, `patch`, `delete`, with paths like `'/settings'`.                                                                                                                                                                                                                                                                                                         |
+| `shell`                       | The signed-in app's frame: `open('budget')` from the side menu or the phone's bottom bar, `chooseTheme('dark')`, `signOut()`.                                                                                                                                                                                                                                                                                                                                         |
+| `signInPage`                  | The sign-in page: `goto()`, `signIn(user)`, `signInWithPasskey()`, `enterCode(code)`, `useRecoveryCode(code)`, and its `error` and `notice` messages.                                                                                                                                                                                                                                                                                                                 |
+| `accountsPage`                | The Accounts tab: `goto()`, `row(name)`, `balance(name)`, `act(name, 'edit')` from an account's menu, `showClosed()`, and the dialog's `fill({ … })` and `save()`.                                                                                                                                                                                                                                                                                                    |
+| `transactionsPage`            | The Transactions tab: `goto(query)` (e.g. `{ page: '2', size: '25' }`), `row(payee)`, `open(payee)`, `nextPage()`, `searchFor(text)`, `choosePeriod(title)`, `openFilters()`, `select(...payees)` then `categorizeSelected(category)` or `deleteSelected()`, and the dialog's `fill({ … })`, `save()` and `deleteOpen()`.                                                                                                                                             |
+| `categoriesPage`              | Settings > Categories: `goto()`, `group(name)`, `category(name)`, `actOnGroup` and `actOnCategory`, `addCategory(group)`, the dialogs' `fillGroup`, `fillCategory` and saves, and `deleteCategory(name, { moveTo })`.                                                                                                                                                                                                                                                 |
+| `connectPage`                 | The Connect tab: `goto()`, `card(bank)`, `status(bank)`, `account(bank, name)`, `syncNow(bank)`, `act(bank, 'choose')` from a bank's menu, `remove(bank, { deleteAccounts })`, and the wizard's `startConnecting({ history })`, `chooseAccounts(...names)`, `renameAccount(name, to)`, `importAccounts()` and `finish()`.                                                                                                                                             |
+| `importPage`                  | The Import tab: `goto()`, `chooseFile(file)`, the columns step's `columnMatch(column)`, `matchColumn(column, 'Amount')` and `continue()`, the review step's `chooseAccount(name)`, `row(text)`, `tick(texts, { on })`, `showRows('New')`, `chooseBalance('move')` and `saveFormat(name)`, then `importRows()`, `seeTransactions()` and `close()`, and the lists' `importItem(file)`, `undo(file)`, `format(name)`, `renameFormat(name, to)` and `deleteFormat(name)`. |
+| `plaid`                       | Plaid, as the next section describes: Link's window (`link`), with `connect(bank)`, `signInAgain()`, `close()` and `fail()`, and the banks behind the test server, with `addTransaction({ … })` and `failSyncs(connectionId, code)`.                                                                                                                                                                                                                                  |
 
 And helpers: `signInFiles` holds the saved sign-ins, `expectAccessible(page)` fails on WCAG
 2.2 AA problems that axe finds (pass `{ include: '.v-overlay--active' }` to check just an
@@ -243,6 +262,38 @@ every baseline transaction, `choose(field, option)` picks from a select or autoc
 `typeDate(field, '2026-09-20')` fills in a date field, and `openOverlays(page)` finds what's in
 the dialog or menu that's open: a menu that just closed stays in the page while it fades out,
 so `openOverlays(page).getByTestId(…)` won't also match the item in that one.
+
+### Statement files
+
+The Import tab reads files from banks, so specs make up their own, with dates counted back
+from today like the baseline's: `csvFile(name, columns, rows)` with any columns a bank might
+use (`null` for none), `simpleCsv(name, rows)` with Date, Description and Amount,
+`ofxFile(name, rows, { type, number, balance })` for OFX, QFX and QBO downloads, and
+`qifFile(name, rows)`. `bankDate(daysAgo)` writes a day the way US banks do, or day first
+with `'dmy'`.
+
+```ts
+test('an admin imports a bank export', async ({ importPage }) => {
+  await importPage.goto()
+  await importPage.chooseFile(
+    csvFile(
+      'chase.csv',
+      ['Posting Date', 'Description', 'Amount'],
+      [[bankDate(2), 'LA TAQUERIA', '-23.80']],
+    ),
+  )
+  await expect(importPage.columnMatch('Posting Date')).toContainText('Date')
+  await importPage.continue()
+
+  await importPage.chooseAccount('Everyday checking')
+  await expect(importPage.row('LA TAQUERIA')).toBeVisible()
+  await importPage.importRows()
+})
+```
+
+An OFX file's account number ending in an account's last four digits imports into that
+account: `ofxFile('visa.qfx', rows, { type: 'credit_card', number: '4111111111113333' })` goes
+to the Rewards Visa. `specs/import.spec.ts` has more examples.
 
 ### Plaid
 

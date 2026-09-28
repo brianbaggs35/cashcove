@@ -16,9 +16,13 @@ export {
   type BaselineConnectionKey,
   type BaselineData,
   type BaselineDevice,
+  type BaselineImport,
+  type BaselineImportKey,
   type BaselineInvitation,
   type BaselinePasskey,
   type BaselinePerson,
+  type BaselineSavedFormat,
+  type BaselineSavedFormatKey,
   type BaselineTransaction,
   type BaselineTransactionKey,
   type BaselineUser,
@@ -29,6 +33,12 @@ export { AccountsPage, type AccountAction, type AccountFields } from './pages/ac
 export { AppShell, TABS, type Tab } from './pages/app-shell'
 export { CategoriesPage } from './pages/categories-page'
 export { ConnectPage, type ConnectionAction } from './pages/connect-page'
+export {
+  ImportPage,
+  type BalanceChoice,
+  type ColumnMatch,
+  type RowFilter,
+} from './pages/import-page'
 export {
   choose,
   comboboxInput,
@@ -42,5 +52,16 @@ export { TransactionsPage, type TransactionFields } from './pages/transactions-p
 export { addPasskey } from './passkeys'
 export { NEW_BANKS, PlaidStandIn, type BankTransaction, type NewBank } from './plaid'
 export { signInFiles } from './sign-in-files'
+export {
+  bankDate,
+  csvFile,
+  ofxFile,
+  qifFile,
+  simpleCsv,
+  type DateOrder,
+  type OfxAccount,
+  type StatementFile,
+  type StatementRow,
+} from './statements'
 export { expect, test, type Baseline } from './test'
 export { totpCode } from './totp'

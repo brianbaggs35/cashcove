@@ -14,6 +14,7 @@ import { AccountsPage } from './pages/accounts-page'
 import { AppShell } from './pages/app-shell'
 import { CategoriesPage } from './pages/categories-page'
 import { ConnectPage } from './pages/connect-page'
+import { ImportPage } from './pages/import-page'
 import { SignInPage } from './pages/sign-in-page'
 import { TransactionsPage } from './pages/transactions-page'
 import { PlaidStandIn, useLinkStandIn } from './plaid'
@@ -43,6 +44,8 @@ export interface CashcoveFixtures {
   categoriesPage: CategoriesPage
   /** The Connect tab and its wizard. */
   connectPage: ConnectPage
+  /** The Import tab and its import dialog. */
+  importPage: ImportPage
   /** Plaid Link's window, which a stand-in replaces in every test, and the banks behind the
    * test server's stand-in for Plaid. */
   plaid: PlaidStandIn
@@ -125,6 +128,10 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
 
   connectPage: async ({ page }, use) => {
     await use(new ConnectPage(page))
+  },
+
+  importPage: async ({ page }, use) => {
+    await use(new ImportPage(page))
   },
 
   plaid: async ({ page, harness }, use) => {

@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { expect, expectAccessible, TABS, test } from '../support'
+import { bankDate, csvFile, expect, expectAccessible, simpleCsv, TABS, test } from '../support'
 
 const SETTINGS = [
   'general',
@@ -27,6 +27,7 @@ const LOADED: Record<string, string> = {
   '/accounts': 'net-worth',
   '/transactions': 'transaction-totals',
   '/connect': 'connection-card',
+  '/import': 'import-item',
   '/settings/categories': 'category-row',
 }
 
@@ -112,6 +113,7 @@ test.describe('Accessibility', () => {
           '/accounts',
           '/transactions',
           '/connect',
+          '/import',
           '/settings/general',
           '/settings/categories',
           '/settings/users',
@@ -199,6 +201,59 @@ test.describe('Accessibility', () => {
             await expect(connectPage.history.getByTestId('sync-history-item').first()).toBeVisible()
           },
           'removing a bank': () => connectPage.act('Tartan Bank', 'remove'),
+        })
+      })
+
+      test('the import dialog, and the saved formats’ dialogs and menu', async ({
+        page,
+        baseline,
+        signInAs,
+        importPage,
+      }) => {
+        await signInAs('admin')
+        await importPage.goto()
+        const statement = simpleCsv('harbor-checking.csv', [
+          { days_ago: 1, description: 'NORTHWIND HEALTH PAYROLL PPD', amount: '1875.00' },
+          { days_ago: 2, description: 'LA TAQUERIA', amount: '-23.80' },
+        ])
+
+        await expectAccessibleOverlays(page, {
+          'matching a file’s columns': () =>
+            importPage.chooseFile(
+              csvFile(
+                'credit-union.csv',
+                ['Date', 'Description', 'Amount', 'Type'],
+                [[bankDate(1), 'NORTHWIND HEALTH PAYROLL', '1875.00', 'CR']],
+              ),
+            ),
+          'reviewing its rows': async () => {
+            await importPage.chooseFile(statement)
+            await importPage.continue()
+            await importPage.chooseAccount('Everyday checking')
+          },
+          'a file that can’t be read': () =>
+            importPage.chooseFile({
+              name: 'statement.pdf',
+              mimeType: 'application/pdf',
+              buffer: Buffer.from('%PDF-1.7\n'),
+            }),
+          "a saved format's menu": () =>
+            importPage
+              .format(baseline.saved_formats.maple_card.name)
+              .getByTestId('saved-format-actions')
+              .click(),
+          'renaming a saved format': async () => {
+            await importPage
+              .format(baseline.saved_formats.maple_card.name)
+              .getByTestId('saved-format-actions')
+              .click()
+            await page.getByTestId('saved-format-rename').click()
+          },
+          'undoing an import': () =>
+            importPage
+              .importItem(baseline.imports.checking_history.file_name)
+              .getByTestId('import-item-undo')
+              .click(),
         })
       })
 
