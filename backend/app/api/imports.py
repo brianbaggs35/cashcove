@@ -47,7 +47,7 @@ def preview_import(body: ImportPreviewRequest, auth: AdminAuth, db: Db) -> Impor
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_import(body: ImportCreate, auth: AdminAuth, db: Db) -> FileImportOut:
-    """Imports the chosen transactions from a file into an account kept by hand."""
+    """Imports the chosen transactions from a file into an open account."""
     locale = load_preferences(db).general.locale
     record = import_file(db, body, auth.user, locale, utcnow().date())
     return FileImportOut.model_validate(record).model_copy(update={"created_by": auth.user.name})

@@ -278,17 +278,12 @@ def test_the_likeliest_account_is_chosen(
 
 @pytest.mark.parametrize(
     ("account", "status_code", "code"),
-    [
-        ("linked", 409, "linked_account"),
-        ("closed", 409, "account_closed"),
-        ("gone", 422, "unknown_account"),
-    ],
+    [("closed", 409, "account_closed"), ("gone", 422, "unknown_account")],
 )
-def test_files_only_go_into_open_accounts_kept_by_hand(
+def test_files_only_go_into_open_accounts(
     admin_client: TestClient, session: Session, account: str, status_code: int, code: str
 ) -> None:
     accounts = {
-        "linked": linked_account(session).id,
         "closed": add_account(session, "Old savings", closed_at=utcnow()).id,
         "gone": uuid.uuid4(),
     }
@@ -683,22 +678,46 @@ def test_transactions_already_imported_arent_imported_again(
     assert len(transactions(session)) == 5
 
 
-def test_imports_only_go_into_open_accounts_kept_by_hand(
+def test_files_fill_in_a_linked_accounts_history_and_leave_its_balance_to_the_bank(
+    admin_client: TestClient, session: Session
+) -> None:
+    visa = linked_account(session, mask="3333")
+    # It's the account the file is for, by its last digits, and the bank keeps its balance.
+    preview = previewed(admin_client, CARD_OFX)
+    assert (preview["account_id"], preview["bank_history"]) == (str(visa.id), None)
+    assert preview["balance"]["suggested"] == "keep"
+    # The days the bank's own transactions cover, which go on while it's linked.
+    add_transaction(
+        session, visa, "-9.99", date=dt.date(2026, 3, 4), source=TransactionSource.PLAID
+    )
+    add_transaction(
+        session, visa, "-4.50", date=dt.date(2026, 9, 1), source=TransactionSource.PLAID
+    )
+    add_transaction(session, visa, "-1.00", date=dt.date(2025, 1, 2))
+    history = previewed(admin_client, CARD_OFX)["bank_history"]
+    assert history == {"start": "2026-03-04", "end": None}
+
+    moved = import_response(admin_client, CARD_OFX, visa, balance="move", file_name="card.qfx")
+
+    assert moved.status_code == 422
+    assert error(moved) == "bank_balance"
+    record = imported(admin_client, CARD_OFX, visa, file_name="card.qfx")
+    assert (record["added"], record["balance_change"]) == (1, "0.00")
+    assert balance_of(session, visa) == Decimal("-612.40")
+    # Undoing it leaves the balance to the bank too.
+    assert admin_client.delete(f"/api/imports/{record['id']}").json() == {"count": 1}
+    assert balance_of(session, visa) == Decimal("-612.40")
+
+
+def test_the_banks_history_ends_when_it_stops_keeping_the_account(
     admin_client: TestClient, session: Session, checking: Account
 ) -> None:
-    detected = previewed(admin_client, CHECKING_CSV)["options"]
-    body = upload(
-        CHECKING_CSV,
-        options=detected,
-        account_id=str(linked_account(session).id),
-        lines=[2],
-        balance="keep",
-    )
+    for day in (dt.date(2025, 2, 1), dt.date(2025, 11, 30)):
+        add_transaction(session, checking, "-20.00", date=day, source=TransactionSource.PLAID)
 
-    response = admin_client.post("/api/imports", json=body)
+    preview = previewed(admin_client, CHECKING_CSV, account_id=str(checking.id))
 
-    assert response.status_code == 409
-    assert error(response) == "linked_account"
+    assert preview["bank_history"] == {"start": "2025-02-01", "end": "2025-11-30"}
 
 
 # ---- Saved formats -------------------------------------------------------------------------
