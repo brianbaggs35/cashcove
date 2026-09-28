@@ -26,6 +26,7 @@ const PAGES = [
 const LOADED: Record<string, string> = {
   '/accounts': 'net-worth',
   '/transactions': 'transaction-totals',
+  '/connect': 'connection-card',
   '/settings/categories': 'category-row',
 }
 
@@ -110,6 +111,7 @@ test.describe('Accessibility', () => {
         for (const path of [
           '/accounts',
           '/transactions',
+          '/connect',
           '/settings/general',
           '/settings/categories',
           '/settings/users',
@@ -171,6 +173,33 @@ test.describe('Accessibility', () => {
         await expectAccessible(page)
         await transactionsPage.bulkBar.getByTestId('bulk-categorize').click()
         await expectAccessible(page, { include: OVERLAY })
+      })
+
+      test('the connect wizard, and each bank’s dialogs and menu', async ({
+        page,
+        signInAs,
+        connectPage,
+        plaid,
+      }) => {
+        await signInAs('admin')
+        await connectPage.goto()
+
+        await expectAccessibleOverlays(page, {
+          'the connect wizard': () => connectPage.addButton.click(),
+          'choosing a new bank’s accounts': async () => {
+            await connectPage.startConnecting()
+            await plaid.connect('platypus')
+            await expect(connectPage.accountRows).toHaveCount(3)
+          },
+          "a bank's menu": () =>
+            connectPage.card('Tartan Bank').getByTestId('connection-actions').click(),
+          'choosing a connected bank’s accounts': () => connectPage.act('Tartan Bank', 'choose'),
+          'the sync history': async () => {
+            await connectPage.act('Tartan Bank', 'history')
+            await expect(connectPage.history.getByTestId('sync-history-item').first()).toBeVisible()
+          },
+          'removing a bank': () => connectPage.act('Tartan Bank', 'remove'),
+        })
       })
 
       test('the category dialogs', async ({ page, signInAs, categoriesPage }) => {

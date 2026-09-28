@@ -6,6 +6,7 @@ import type { SharedAccount } from '@/api/connections'
 import AccountAvatar from '@/components/finance/AccountAvatar.vue'
 import { accountType } from '@/components/finance/accountTypes'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
+import { vPartlyChecked } from '@/directives/partlyChecked'
 import { negate } from '@/utils/money'
 
 /**
@@ -57,6 +58,7 @@ const nameRules = [
 <template>
   <div class="account-picker" data-test="account-picker">
     <v-checkbox
+      v-partly-checked="some"
       :model-value="all"
       :indeterminate="some"
       :disabled="disabled"

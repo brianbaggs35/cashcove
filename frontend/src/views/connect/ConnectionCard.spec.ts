@@ -193,9 +193,17 @@ describe('ConnectionCard', () => {
     )
     await menuSettled()
 
+    const website = vi.spyOn(window, 'open').mockReturnValue(null)
     await openMenu(find)
-    expect(menuItem('connection-website').attributes('href')).toBe('https://tartanbank.example.com')
-    expect(menuItem('connection-website').attributes('target')).toBe('_blank')
+    await click('.v-overlay--active [data-test="connection-website"]')
+    expect(website).toHaveBeenCalledWith(
+      'https://tartanbank.example.com',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    await menuSettled()
+
+    await openMenu(find)
     await click('.v-overlay--active [data-test="connection-history"]')
     expect(wrapper.emitted('history')).toHaveLength(1)
     await menuSettled()

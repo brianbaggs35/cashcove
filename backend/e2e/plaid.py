@@ -371,15 +371,20 @@ class FakePlaid:
         return item
 
     def _link_token(self, body: dict[str, Any]) -> dict[str, Any]:
+        # Plaid's tokens are opaque. These say what they're for, so the end-to-end tests'
+        # stand-in for Link (frontend/e2e/support/plaid-link.ts) can show the right screen.
+        purpose = "new"
         if "access_token" in body:
             # Update mode. The person will fix whatever the bank needed in Link.
-            self._item(body, healthy=False).error = None
+            item = self._item(body, healthy=False)
+            item.error = None
+            purpose = f"update-{item.bank.key}"
         elif body.get("products") != ["transactions"]:
             raise _invalid("products must be ['transactions']")
         self.link_tokens.append(body)
         expiration = utcnow() + dt.timedelta(hours=4)
         return {
-            "link_token": f"link-sandbox-{secrets.token_hex(8)}",
+            "link_token": f"link-sandbox-{purpose}-{secrets.token_hex(8)}",
             "expiration": expiration.isoformat(),
         }
 

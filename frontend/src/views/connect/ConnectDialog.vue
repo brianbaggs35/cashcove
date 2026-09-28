@@ -69,6 +69,11 @@ const valid = ref(true)
 
 /** Changing which accounts a connected bank imports, rather than connecting a new one. */
 const choosing = computed(() => props.connection !== null)
+
+/** "1 account" or "3 accounts". */
+function accountCount(count: number): string {
+  return count === 1 ? '1 account' : `${count} accounts`
+}
 const busy = computed(() => ['opening', 'saving', 'importing'].includes(step.value) || saving.value)
 /** Plaid Link covers the page while it's open, so the dialog steps aside for it. */
 const shown = computed({
@@ -115,7 +120,7 @@ const heading = computed((): { title: string; subtitle?: string; icon: LucideIco
           }
         : {
             title: 'Choose accounts to import',
-            subtitle: `${bank} shares ${count === 1 ? '1 account' : `${count} accounts`}. Tick the ones Cashcove should keep up to date.`,
+            subtitle: `${bank} shares ${accountCount(count)}. Tick the ones Cashcove should keep up to date.`,
             icon: ListChecks,
           }
     case 'importing':
@@ -356,8 +361,7 @@ function owed(type: Connection['accounts'][number]['type'], balance: string) {
         <template v-if="step === 'opening'">Opening Plaid…</template>
         <template v-else-if="step === 'saving'">Saving the connection to {{ bankName }}…</template>
         <template v-else>
-          Importing {{ selected.length === 1 ? '1 account' : `${selected.length} accounts` }} and
-          their transactions…
+          Importing {{ accountCount(selected.length) }} and their transactions…
         </template>
       </p>
     </div>
@@ -401,7 +405,7 @@ function owed(type: Connection['accounts'][number]['type'], balance: string) {
         <div>
           <div class="text-title-medium font-weight-bold">{{ current.institution_name }}</div>
           <div class="text-body-medium text-medium-emphasis">
-            {{ imported.length === 1 ? '1 account' : `${imported.length} accounts` }} imported
+            {{ accountCount(imported.length) }} imported
           </div>
         </div>
       </div>
@@ -454,9 +458,7 @@ function owed(type: Connection['accounts'][number]['type'], balance: string) {
           @click="save"
         >
           <template v-if="choosing">Save</template>
-          <template v-else>
-            Import {{ selected.length === 1 ? '1 account' : `${selected.length} accounts` }}
-          </template>
+          <template v-else> Import {{ accountCount(selected.length) }} </template>
         </v-btn>
       </template>
       <template v-else-if="step === 'done'">

@@ -116,6 +116,11 @@ async function run(what: NonNullable<typeof busy.value>, action: () => Promise<u
   }
 }
 
+/** A menu of actions can't hold links, so the bank's website opens from a click. */
+function openWebsite(url: string) {
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
 const sync = () => run('sync', () => syncNow(props.connection))
 const reconnect = () => run('reconnect', () => relink(props.connection, 'reconnect'))
 /** Lets the bank share different accounts, then offers to import any new ones. */
@@ -127,7 +132,7 @@ const shareOthers = () =>
 </script>
 
 <template>
-  <v-card class="connection mb-4" :data-test="`connection-${connection.id}`">
+  <v-card class="connection mb-4" data-test="connection-card">
     <div class="d-flex align-start ga-4 pa-5 pb-3">
       <BankLogo :connection="connection" :size="xs ? 44 : 52" />
       <div class="flex-grow-1" style="min-width: 0">
@@ -236,10 +241,8 @@ const shareOthers = () =>
               v-if="connection.institution_url"
               :prepend-icon="ExternalLink"
               :title="`Open ${bank}’s website`"
-              :href="connection.institution_url"
-              target="_blank"
-              rel="noopener noreferrer"
               data-test="connection-website"
+              @click="openWebsite(connection.institution_url)"
             />
             <template v-if="auth.isAdmin">
               <v-divider class="my-1" aria-hidden="true" />
@@ -383,7 +386,12 @@ const shareOthers = () =>
         <AccountAvatar :type="account.type" size="40" />
         <div class="flex-grow-1" style="min-width: 0">
           <div class="d-flex align-center flex-wrap ga-2">
-            <span class="text-title-small font-weight-bold text-break">{{ name(account) }}</span>
+            <span
+              class="text-title-small font-weight-bold text-break"
+              data-test="connection-account-name"
+            >
+              {{ name(account) }}
+            </span>
             <v-chip
               size="x-small"
               :color="states[account.state].color"

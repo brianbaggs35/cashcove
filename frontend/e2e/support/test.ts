@@ -13,8 +13,10 @@ import {
 import { AccountsPage } from './pages/accounts-page'
 import { AppShell } from './pages/app-shell'
 import { CategoriesPage } from './pages/categories-page'
+import { ConnectPage } from './pages/connect-page'
 import { SignInPage } from './pages/sign-in-page'
 import { TransactionsPage } from './pages/transactions-page'
+import { PlaidStandIn, useLinkStandIn } from './plaid'
 
 /** The baseline data, and ways to put the database back to it. */
 export interface Baseline extends BaselineData {
@@ -39,6 +41,11 @@ export interface CashcoveFixtures {
   transactionsPage: TransactionsPage
   /** Settings > Categories. */
   categoriesPage: CategoriesPage
+  /** The Connect tab and its wizard. */
+  connectPage: ConnectPage
+  /** Plaid Link's window, which a stand-in replaces in every test, and the banks behind the
+   * test server's stand-in for Plaid. */
+  plaid: PlaidStandIn
   /** Collects the web app's coverage in Chromium, for every test. */
   webCoverage: undefined
 }
@@ -74,6 +81,12 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
     { scope: 'worker' },
   ],
 
+  // Every test's browser gets the stand-in for Plaid Link, so nothing reaches Plaid.
+  context: async ({ context }, use) => {
+    await useLinkStandIn(context)
+    await use(context)
+  },
+
   signInAs: async ({ context, baseline }, use) => {
     await use((who, options) => startSession(context.request, emailOf(baseline, who), options))
   },
@@ -108,6 +121,14 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
 
   categoriesPage: async ({ page }, use) => {
     await use(new CategoriesPage(page))
+  },
+
+  connectPage: async ({ page }, use) => {
+    await use(new ConnectPage(page))
+  },
+
+  plaid: async ({ page, harness }, use) => {
+    await use(new PlaidStandIn(page, harness))
   },
 
   webCoverage: [
