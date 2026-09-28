@@ -11,7 +11,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from app.imports.files import FileProblem, FileRow, Statement
+from app.imports.files import FileProblem, FileRow, Statement, payee_and_notes, settle
 from app.imports.values import clean_text, parse_amount, parse_date
 from app.models import AccountType
 from app.schemas.imports import DecimalMark, ImportOptions, PayeeField
@@ -84,13 +84,13 @@ def _mask(account_id: str) -> str | None:
 
 
 def _row(line: int, node: _Node, options: ImportOptions) -> FileRow:
-    name, memo = node.value("NAME"), node.value("MEMO")
-    if options.payee_field == "memo" and memo:
-        name, memo = memo, name
-    if not name:
-        name, memo = memo, ""
     number = node.value("CHECKNUM")
-    notes = " · ".join(part for part in (memo, f"Check {number}" if number else "") if part)
+    name, notes = payee_and_notes(
+        node.value("NAME"),
+        node.value("MEMO"),
+        f"Check {number}" if number else "",
+        memo_first=options.payee_field == "memo",
+    )
     row = FileRow(
         line=line,
         description=name[:255],
@@ -102,15 +102,7 @@ def _row(line: int, node: _Node, options: ImportOptions) -> FileRow:
     text = node.value("TRNAMT")
     # Some banks write a decimal comma.
     mark: DecimalMark = "," if "," in text and "." not in text else "."
-    amount = parse_amount(text, mark)
-    if row.date is None:
-        row.problem = "It has no date." if not posted else f"“{posted[:40]}” isn't a date."
-    elif amount is None:
-        row.problem = "It has no amount." if not text else f"“{text[:40]}” isn't an amount."
-    elif amount == 0:
-        row.problem = "Its amount is zero."
-    else:
-        row.amount = -amount if options.flip else amount
+    settle(row, posted, text, parse_amount(text, mark), flip=options.flip)
     return row
 
 

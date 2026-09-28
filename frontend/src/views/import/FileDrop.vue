@@ -120,8 +120,8 @@ function drop(event: DragEvent) {
               account’s details and balance, so they need no setup.
             </li>
             <li>
-              <strong>CSV</strong> or spreadsheet files work from any bank. Cashcove works out what
-              each column holds, and remembers it for the bank’s next file.
+              <strong>CSV</strong> files work from any bank. Cashcove works out what each column
+              holds, and remembers it for the bank’s next file. Save an Excel workbook as CSV first.
             </li>
             <li><strong>QIF</strong>, an older Quicken format, works too.</li>
           </ul>
@@ -134,7 +134,9 @@ function drop(event: DragEvent) {
       </v-expand-transition>
     </div>
 
+    <label for="file-drop-input" class="d-sr-only">Statement file to import</label>
     <input
+      id="file-drop-input"
       ref="input"
       type="file"
       :accept="ACCEPTED_FILES"

@@ -585,15 +585,24 @@ class _RowReader:
             row.amount = amount
         return row
 
-    def _amount(self, record: list[str]) -> tuple[Decimal | None, str | None]:
+    def _written(self, record: list[str]) -> list[str]:
+        """The amount as the file writes it: money in and money out, or the one amount."""
         columns = self.columns
         if self.layout.amounts == "split":
-            written = [
-                self._cell(record, columns.money_in),
-                self._cell(record, columns.money_out),
-            ]
-        else:
-            written = [self._cell(record, columns.amount)]
+            return [self._cell(record, columns.money_in), self._cell(record, columns.money_out)]
+        return [self._cell(record, columns.amount)]
+
+    def _signed(self, values: list[Decimal], record: list[str]) -> Decimal:
+        """The amount in Cashcove's terms, positive for money in."""
+        if self.layout.amounts == "split":
+            return abs(values[0]) - abs(values[1])
+        if self.layout.amounts == "direction":
+            into = self._cell(record, self.columns.direction).casefold() in self.money_in
+            return abs(values[0]) if into else -abs(values[0])
+        return -values[0] if self.options.flip else values[0]
+
+    def _amount(self, record: list[str]) -> tuple[Decimal | None, str | None]:
+        written = self._written(record)
         if not any(written):
             return None, "It has no amount."
         values: list[Decimal] = []
@@ -602,13 +611,7 @@ class _RowReader:
             if value is None:
                 return None, f"“{_short(text)}” isn't an amount."
             values.append(value)
-        if self.layout.amounts == "split":
-            amount = abs(values[0]) - abs(values[1])
-        elif self.layout.amounts == "direction":
-            into = self._cell(record, columns.direction).casefold() in self.money_in
-            amount = abs(values[0]) if into else -abs(values[0])
-        else:
-            amount = -values[0] if self.options.flip else values[0]
+        amount = self._signed(values, record)
         if amount == 0:
             return None, "Its amount is zero."
         return amount, None

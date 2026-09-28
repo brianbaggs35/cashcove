@@ -29,92 +29,65 @@ _CATEGORY_PARTS = re.compile(r"[-:/>|]")
 _NOT_WORDS = re.compile(r"[^0-9a-z&]+")
 
 # Categories banks put in their exports (Chase, American Express, Capital One, Discover and
-# others), and the starting category (app/finance/categories.py) each one means. Names match
-# in lowercase, with "and" as "&". A category of the household's own with the bank's name
-# comes first.
-BANK_CATEGORIES = {
-    "food & drink": "Restaurants",
-    "dining": "Restaurants",
-    "restaurant": "Restaurants",
-    "fast food": "Restaurants",
-    "grocery": "Groceries",
-    "supermarkets": "Groceries",
-    "coffee shops": "Coffee",
-    "gas": "Gas & fuel",
-    "gasoline": "Gas & fuel",
-    "fuel": "Gas & fuel",
-    "gas stations": "Gas & fuel",
-    "gas automotive": "Gas & fuel",
-    "automotive": "Car maintenance",
-    "auto": "Car maintenance",
-    "airline": "Travel",
-    "airfare": "Travel",
-    "lodging": "Travel",
-    "hotel": "Travel",
-    "car rental": "Travel",
-    "vehicle rental": "Travel",
-    "other travel": "Travel",
-    "merchandise": "Shopping",
-    "general merchandise": "Shopping",
-    "department stores": "Shopping",
-    "warehouse clubs": "Shopping",
-    "general retail": "Shopping",
-    "internet purchase": "Shopping",
-    "clothing stores": "Clothing",
-    "computer supplies": "Electronics",
-    "hardware supplies": "Home maintenance",
-    "pharmacies": "Pharmacy",
-    "bills & utilities": "Utilities",
-    "phone": "Phone & internet",
-    "internet": "Phone & internet",
-    "mobile phone": "Phone & internet",
-    "phone cable": "Phone & internet",
-    "communications": "Phone & internet",
-    "health & wellness": "Medical",
-    "health": "Medical",
-    "health care": "Medical",
-    "healthcare": "Medical",
-    "medical services": "Medical",
-    "health care services": "Medical",
-    "gym": "Fitness",
-    "personal": "Personal care",
-    "home": "Home maintenance",
-    "home improvement": "Home maintenance",
-    "gifts": "Gifts & donations",
-    "donations": "Gifts & donations",
-    "charity": "Gifts & donations",
-    "fees & adjustments": "Bank fees",
-    "fees": "Bank fees",
-    "fee": "Bank fees",
-    "fee interest charge": "Bank fees",
-    "tax": "Taxes",
-    "payment": "Credit card payments",
-    "payments": "Credit card payments",
-    "payments & credits": "Credit card payments",
-    "transfer": "Transfers",
-    "income": "Other income",
-    "salary": "Paycheck",
-    "payroll": "Paycheck",
-    "interest": "Interest & dividends",
-    "dividends": "Interest & dividends",
-    "rent": "Rent & mortgage",
-    "mortgage": "Rent & mortgage",
-    "cash": "Cash & ATM",
-    "atm": "Cash & ATM",
-    "streaming": "Subscriptions",
-    "parking": "Parking & tolls",
-    "parking charges": "Parking & tolls",
-    "tolls": "Parking & tolls",
-    "tolls & fees": "Parking & tolls",
-    "public transportation": "Public transit",
-    "transit": "Public transit",
-    "rail services": "Public transit",
-    "taxi": "Rideshare & taxis",
-    "taxis & rideshare": "Rideshare & taxis",
-    "taxis & limousines": "Rideshare & taxis",
-    "rideshare": "Rideshare & taxis",
-    "pet": "Pets",
+# others), under the starting category (app/finance/categories.py) each one means. Names
+# match in lowercase, with "and" as "&". A category of the household's own with the bank's
+# name comes first.
+_BANK_CATEGORY_NAMES = {
+    "Restaurants": ("food & drink", "dining", "restaurant", "fast food"),
+    "Groceries": ("grocery", "supermarkets"),
+    "Coffee": ("coffee shops",),
+    "Gas & fuel": ("gas", "gasoline", "fuel", "gas stations", "gas automotive"),
+    "Car maintenance": ("automotive", "auto"),
+    "Travel": (
+        "airline",
+        "airfare",
+        "lodging",
+        "hotel",
+        "car rental",
+        "vehicle rental",
+        "other travel",
+    ),
+    "Shopping": (
+        "merchandise",
+        "general merchandise",
+        "department stores",
+        "warehouse clubs",
+        "general retail",
+        "internet purchase",
+    ),
+    "Clothing": ("clothing stores",),
+    "Electronics": ("computer supplies",),
+    "Home maintenance": ("hardware supplies", "home", "home improvement"),
+    "Pharmacy": ("pharmacies",),
+    "Utilities": ("bills & utilities",),
+    "Phone & internet": ("phone", "internet", "mobile phone", "phone cable", "communications"),
+    "Medical": (
+        "health & wellness",
+        "health",
+        "health care",
+        "healthcare",
+        "medical services",
+        "health care services",
+    ),
+    "Fitness": ("gym",),
+    "Personal care": ("personal",),
+    "Gifts & donations": ("gifts", "donations", "charity"),
+    "Bank fees": ("fees & adjustments", "fees", "fee", "fee interest charge"),
+    "Taxes": ("tax",),
+    "Credit card payments": ("payment", "payments", "payments & credits"),
+    "Transfers": ("transfer",),
+    "Other income": ("income",),
+    "Paycheck": ("salary", "payroll"),
+    "Interest & dividends": ("interest", "dividends"),
+    "Rent & mortgage": ("rent", "mortgage"),
+    "Cash & ATM": ("cash", "atm"),
+    "Subscriptions": ("streaming",),
+    "Parking & tolls": ("parking", "parking charges", "tolls", "tolls & fees"),
+    "Public transit": ("public transportation", "transit", "rail services"),
+    "Rideshare & taxis": ("taxi", "taxis & rideshare", "taxis & limousines", "rideshare"),
+    "Pets": ("pet",),
 }
+BANK_CATEGORIES = {bank: ours for ours, names in _BANK_CATEGORY_NAMES.items() for bank in names}
 
 
 def text_key(text: str) -> str:
@@ -312,24 +285,31 @@ def _same_ids(rows: list[FileRow]) -> set[int]:
     return repeats
 
 
-def review(db: Session, rows: list[FileRow], account: Account | None) -> list[Reviewed]:
-    """Each row's fate: new, already in the account, possibly already in it, or unreadable."""
-    readable = [row for row in rows if row.problem is None]
-    repeats = _same_ids(readable)
-    existing = _Existing(db, account, readable)
+def _matched(
+    existing: _Existing, rows: list[FileRow]
+) -> tuple[dict[int, Transaction], dict[int, Transaction]]:
+    """By line, the transactions the account already has for rows, and ones it might have."""
     matches: dict[int, Transaction] = {}
-    fresh = [row for row in readable if row.line not in repeats]
     # Matched by ID first, then by date, amount and description, so neither takes a
     # transaction a stronger match would have claimed.
     for find in (existing.same_id, existing.same):
-        for row in fresh:
+        for row in rows:
             if row.line not in matches and (found := find(row)) is not None:
                 matches[row.line] = found
     near = {
         row.line: found
-        for row in fresh
+        for row in rows
         if row.line not in matches and (found := existing.near(row)) is not None
     }
+    return matches, near
+
+
+def review(db: Session, rows: list[FileRow], account: Account | None) -> list[Reviewed]:
+    """Each row's fate: new, already in the account, possibly already in it, or unreadable."""
+    readable = [row for row in rows if row.problem is None]
+    repeats = _same_ids(readable)
+    fresh = [row for row in readable if row.line not in repeats]
+    matches, near = _matched(_Existing(db, account, readable), fresh)
     namer = Namer(db, fresh)
     results: list[Reviewed] = []
     for row in rows:

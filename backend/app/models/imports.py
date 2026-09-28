@@ -12,6 +12,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.auth import JSON_TYPE
 from app.models.base import Base, Money, TimestampMixin, UTCDateTime, enum_type, utcnow
 
+SET_NULL = "SET NULL"
+
 
 class FileFormat(StrEnum):
     """The kinds of file banks export that Cashcove reads."""
@@ -41,7 +43,7 @@ class ImportProfile(TimestampMixin, Base):
     options: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE)
     # The account its files were last imported into, to suggest next time.
     account_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("accounts.id", ondelete="SET NULL")
+        ForeignKey("accounts.id", ondelete=SET_NULL)
     )
     last_used_at: Mapped[dt.datetime | None] = mapped_column(UTCDateTime())
 
@@ -56,7 +58,7 @@ class FileImport(Base):
         ForeignKey("accounts.id", ondelete="CASCADE"), index=True
     )
     profile_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("import_profiles.id", ondelete="SET NULL")
+        ForeignKey("import_profiles.id", ondelete=SET_NULL)
     )
     file_name: Mapped[str] = mapped_column(String(255))
     format: Mapped[FileFormat] = mapped_column(enum_type(FileFormat, "file_format"))
@@ -72,6 +74,6 @@ class FileImport(Base):
     first_date: Mapped[dt.date] = mapped_column(Date())
     last_date: Mapped[dt.date] = mapped_column(Date())
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
+        ForeignKey("users.id", ondelete=SET_NULL)
     )
     created_at: Mapped[dt.datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)

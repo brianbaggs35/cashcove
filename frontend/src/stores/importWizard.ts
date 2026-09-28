@@ -56,7 +56,11 @@ function formatNameFor(account: Account | undefined, taken: ReadonlySet<string>)
     .slice(0, 76)
     .trim()
   let unique = name
-  for (let number = 2; taken.has(unique.toLowerCase()); number += 1) unique = `${name} ${number}`
+  let number = 2
+  while (taken.has(unique.toLowerCase())) {
+    unique = `${name} ${number}`
+    number += 1
+  }
   return unique
 }
 
