@@ -167,7 +167,7 @@ Both are recorded in the activity log.
 ```sh
 make dev      # the same single container, with Vite hot reload and API auto-reload
 make install  # or install dependencies locally to run tests and linters outside Docker
-make test     # pytest + vitest, both must stay at 100% coverage
+make test     # pytest (on a throwaway Postgres in Docker) + vitest, both at 100% coverage
 make e2e      # Playwright end-to-end tests against a test server built from the image
 make lint     # ruff, pyright, mypy, bandit, ESLint, Prettier, vue-tsc, hadolint, ShellCheck, actionlint
 make audit    # pip-audit and npm audit

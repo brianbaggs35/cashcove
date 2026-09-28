@@ -24,11 +24,8 @@ def utcnow() -> datetime:
 
 
 class UTCDateTime(TypeDecorator[datetime]):
-    """A timezone-aware timestamp that always comes back in UTC.
-
-    Postgres keeps the offset, but SQLite (used by the tests) drops it, so values read back
-    without one are known to be UTC. Naive values are refused on the way in.
-    """
+    """A timezone-aware timestamp that always comes back in UTC, whatever the connection's
+    time zone. Naive values are refused on the way in."""
 
     impl = DateTime(timezone=True)
     cache_ok = True
@@ -43,22 +40,15 @@ class UTCDateTime(TypeDecorator[datetime]):
 
     @override
     def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value.astimezone(UTC)
+        return None if value is None else value.astimezone(UTC)
 
 
 CENT = Decimal("0.01")
 
 
 class Money(TypeDecorator[Decimal]):
-    """An amount of money, stored exactly as a whole number of cents.
-
-    SQLite (used by the tests) has no exact decimal type, so counting cents keeps amounts and
-    their sums exact on both databases. Python sees Decimals with two decimal places.
-    """
+    """An amount of money, stored exactly as a whole number of cents, so amounts and their sums
+    stay exact. Python sees Decimals with two decimal places."""
 
     impl = BigInteger()
     cache_ok = True

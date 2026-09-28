@@ -77,9 +77,6 @@ jobs:
       - name: Dependency audit
         run: pip-audit
 
-      - name: Tests with 100% coverage
-        run: pytest
-
       - name: Migrations on Postgres 18
         env:
           CASHCOVE_DATABASE_URL: postgresql+psycopg://cashcove@127.0.0.1:5432/cashcove
@@ -90,12 +87,11 @@ jobs:
           alembic downgrade base
           alembic upgrade head
 
-      # The same tests again on the database the app really runs on (after the migration
-      # checks, because the tests replace the schema with the models' own).
-      - name: Tests on Postgres 18
+      # After the migration checks, because the tests replace the schema with the models' own.
+      - name: Tests with 100% coverage on Postgres 18
         env:
           CASHCOVE_TEST_DATABASE_URL: postgresql+psycopg://cashcove@127.0.0.1:5432/cashcove
-        run: pytest --no-cov -p no:cacheprovider
+        run: pytest
 
       - name: Upload coverage report
         if: ${{ !cancelled() }}

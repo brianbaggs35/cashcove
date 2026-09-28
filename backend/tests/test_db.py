@@ -5,11 +5,12 @@ from sqlalchemy import text
 
 from app import db
 from app.config import Settings
+from tests.helpers import TEST_DATABASE_URL
 
 
 @pytest.fixture(autouse=True)
-def sqlite_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setattr(db, "get_settings", lambda: Settings(database_url="sqlite://"))
+def configured_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    monkeypatch.setattr(db, "get_settings", lambda: Settings(database_url=TEST_DATABASE_URL))
     db.get_engine.cache_clear()
     db.get_sessionmaker.cache_clear()
     yield
@@ -19,7 +20,7 @@ def sqlite_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 def test_engine_uses_configured_url() -> None:
-    assert str(db.get_engine().url) == "sqlite://"
+    assert db.get_engine().url.render_as_string(hide_password=False) == TEST_DATABASE_URL
     assert db.get_engine() is db.get_engine()
 
 
