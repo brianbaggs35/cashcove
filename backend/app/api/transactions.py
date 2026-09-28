@@ -10,7 +10,7 @@ from sqlalchemy import case, delete, desc, func, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.deps import AdminAuth, ApiError, CurrentAuth, Db
-from app.finance.accounts import get_account, move_balance
+from app.finance.accounts import get_account, move_balance, writable_account
 from app.finance.categories import find_category
 from app.finance.transactions import SORT_ORDERS, conditions, like_pattern
 from app.models import Account, Transaction, TransactionSource
@@ -38,30 +38,6 @@ def _transaction(db: Session, transaction_id: uuid.UUID, *, lock: bool = False) 
             status.HTTP_404_NOT_FOUND, "not_found", "That transaction doesn't exist anymore."
         )
     return transaction
-
-
-def _writable_account(db: Session, account_id: uuid.UUID) -> Account:
-    """An account people can add transactions to: one they keep themselves, and open."""
-    account = db.get(Account, account_id, with_for_update=True)
-    if account is None:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "unknown_account",
-            "That account doesn't exist anymore. Choose another one.",
-        )
-    if account.is_linked:
-        raise ApiError(
-            status.HTTP_409_CONFLICT,
-            "linked_account",
-            f"Transactions in {account.name} come from the bank through Plaid.",
-        )
-    if account.is_closed:
-        raise ApiError(
-            status.HTTP_409_CONFLICT,
-            "account_closed",
-            f"{account.name} is closed. Reopen it to add transactions to it.",
-        )
-    return account
 
 
 @router.get("")
@@ -139,7 +115,7 @@ def suggest_payees(
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_transaction(body: TransactionCreate, auth: AdminAuth, db: Db) -> TransactionOut:
     """Adds a transaction by hand. A manual account's balance moves with it."""
-    account = _writable_account(db, body.account_id)
+    account = writable_account(db, body.account_id)
     find_category(db, body.category_id)
     transaction = Transaction(
         account_id=account.id,
@@ -192,7 +168,7 @@ def update_transaction(
         find_category(db, body.category_id)
         transaction.category_id = body.category_id
     if moved:
-        move_balance(_writable_account(db, account_id), amount, now)
+        move_balance(writable_account(db, account_id), amount, now)
         move_balance(get_account(db, transaction.account_id, lock=True), -transaction.amount, now)
         transaction.account_id = account_id
     elif amount != transaction.amount:

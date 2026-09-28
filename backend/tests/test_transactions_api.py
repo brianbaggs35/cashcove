@@ -133,6 +133,7 @@ def test_everyone_sees_the_newest_transactions_first_with_totals(
         "notes": None,
         "pending": True,
         "source": "plaid",
+        "import_id": None,
         "created_at": coffee["created_at"],
         "updated_at": coffee["updated_at"],
     }

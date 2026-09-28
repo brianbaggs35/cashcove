@@ -92,6 +92,8 @@ class TransactionOut(BaseModel):
     notes: str | None
     pending: bool
     source: TransactionSource
+    # The file it was imported from, while that import can still be undone.
+    import_id: uuid.UUID | None
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -117,6 +119,8 @@ class TransactionQuery(BaseModel):
     direction: Literal["in", "out"] | None = None
     status: Literal["pending", "posted"] | None = None
     source: list[TransactionSource] = []
+    # Only the transactions one import added.
+    import_id: uuid.UUID | None = None
     # How big the amount is, whichever way the money went.
     min_amount: PositiveAmount | None = None
     max_amount: PositiveAmount | None = None

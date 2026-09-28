@@ -9,6 +9,7 @@ from app.api import (
     categories,
     connections,
     health,
+    imports,
     settings,
     system,
     transactions,
@@ -28,5 +29,6 @@ api_router.include_router(accounts.router)
 api_router.include_router(transactions.router)
 api_router.include_router(categories.router)
 api_router.include_router(connections.router)
+api_router.include_router(imports.router)
 
 __all__ = ["api_router"]
