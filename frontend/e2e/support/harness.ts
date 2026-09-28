@@ -227,6 +227,45 @@ export interface BaselineTransaction {
   source: 'manual' | 'plaid' | 'file'
   /** What the bank called it, for linked accounts' and imported transactions. */
   original_description: string | null
+  /** The import that brought it in, by key in `baseline.imports`. */
+  file_import: BaselineImportKey | null
+}
+
+/** A CSV layout saved for a bank's files, as the Import tab lists it. */
+export interface BaselineSavedFormat {
+  id: string
+  name: string
+  /** The column names of the files it reads, which is how it recognizes them. */
+  headers: string[]
+  /** The account it was last used for, by key in `baseline.accounts`. */
+  account: BaselineAccountKey | null
+  /** How many hours before the reset it was last used, or null when it never was. */
+  last_used_hours_ago: number | null
+}
+
+/** A statement file imported into an account kept by hand. */
+export interface BaselineImport {
+  id: string
+  /** Its account's key in `baseline.accounts`. */
+  account: BaselineAccountKey
+  account_id: string
+  file_name: string
+  /** QFX and QBO files are OFX inside, so they're `'ofx'` too. */
+  format: 'csv' | 'ofx' | 'qif'
+  /** The saved format that read it, by key in `baseline.saved_formats`. */
+  saved_format: BaselineSavedFormatKey | null
+  /** How many transactions it added, and how many of the file's rows it left out. */
+  added: number
+  skipped: number
+  /** What its transactions add up to, e.g. `'31390.29'`. */
+  total: string
+  /** How many days before the reset its first and last transactions were. */
+  first_days_ago: number
+  last_days_ago: number
+  /** How many hours before the reset it was imported. */
+  hours_ago: number
+  /** Who imported it. */
+  created_by: BaselinePerson
 }
 
 /** What the database holds after a reset. It mirrors backend/e2e/baseline.py. */
@@ -304,9 +343,26 @@ export interface BaselineData {
    * 398 days old. Their payees repeat, but never one of the named transactions' payees.
    */
   history: BaselineTransaction[]
+  /** The statement files imported when the household started with Cashcove, newest first. */
+  imports: {
+    /** harbor-savings-history.qfx: the Rainy day fund's history from before then. */
+    savings_history: BaselineImport
+    /** harbor-checking-history.csv: Everyday checking's, read with the Harbor Credit Union
+     * checking format; 2 of its rows were left out. */
+    checking_history: BaselineImport
+  }
+  /** The CSV layouts saved for banks' files. */
+  saved_formats: {
+    /** Harbor Credit Union checking: date, description, amount, balance and ID columns. */
+    harbor_checking: BaselineSavedFormat
+    /** Maple store card: charges as positive amounts, with the bank's categories; never used. */
+    maple_card: BaselineSavedFormat
+  }
 }
 
 export type BaselineAccountKey = keyof BaselineData['accounts']
+export type BaselineImportKey = keyof BaselineData['imports']
+export type BaselineSavedFormatKey = keyof BaselineData['saved_formats']
 export type BaselineConnectionKey = keyof BaselineData['connections']
 export type BaselineTransactionKey = keyof BaselineData['transactions']
 

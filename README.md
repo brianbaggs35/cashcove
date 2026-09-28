@@ -119,6 +119,37 @@ app secret key. The browser only loads Plaid Link from `cdn.plaid.com`, which th
 Security Policy allows along with the matching Plaid API host. Removing a bank in Cashcove
 also removes it at Plaid, so Plaid stops billing for it.
 
+### Importing statement files
+
+The **Import** tab brings in transactions from files downloaded from a bank's website: for
+accounts Plaid can't reach, or history from before a bank was connected. Nothing needs
+setting up.
+
+- **Formats:** CSV (including tab-separated and `.txt` exports), OFX, QFX, QBO and QIF, up to
+  5 MB a file. PDF statements and spreadsheets can't be read, so download CSV or OFX instead,
+  usually from **Download** or **Export** on the account's activity page.
+- **Any bank's CSV:** Cashcove matches the columns by their names and what's in them: dates in
+  any order, amounts in one column, in separate money in and money out columns, or beside a
+  column saying which way the money went (Debit or Credit, CR or DR), decimal commas, and
+  lines to skip above the transactions. You check or change what each column holds, and it's
+  saved as a format for that bank, so its next file goes straight to review.
+- **Review:** Choose the account (an OFX file finds it by its last four digits), see which
+  rows are new, which the account already has and which it might, and tick what to import.
+  Rows the account already has aren't imported again, so a file imported twice adds nothing
+  the second time.
+- **Balances:** For an account kept by hand, take the file's closing balance, add what's
+  imported, or leave the balance as it is. A linked account's balance stays as Plaid reports
+  it.
+- **Linked accounts:** Plaid shares up to two years of history. Importing the bank's older
+  statements into a linked account fills in what came before; rows on days Plaid already
+  covers start unticked.
+- **Undo:** Each import in **Recent imports** can be undone, which deletes what it added and
+  puts the balance back.
+
+Imported transactions are ordinary transactions: they show on the Transactions tab and count
+wherever the others do. Viewers see the imports and saved formats but can't import or change
+them.
+
 ## Security
 
 Cashcove holds financial data and bank connections, so it's locked down even on a home

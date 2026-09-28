@@ -60,7 +60,7 @@ async function undo(record: FileImport) {
 </script>
 
 <template>
-  <v-card class="import-history mb-6" data-test="import-history">
+  <v-card class="import-history" data-test="import-history">
     <div class="d-flex align-center flex-wrap ga-2 px-5 pt-4 pb-2">
       <h2 class="text-title-medium font-weight-bold ma-0">Recent imports</h2>
       <v-chip v-if="store.imports.length" size="x-small" variant="tonal">
