@@ -51,6 +51,10 @@ class Transaction(TimestampMixin, Base):
     )
     # The bank's or file's own ID for it, such as Plaid's transaction_id.
     external_id: Mapped[str | None] = mapped_column(String(255))
+    # The file it was imported from, which can be undone.
+    import_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("file_imports.id", ondelete="SET NULL"), index=True
+    )
 
     @property
     def from_bank(self) -> bool:

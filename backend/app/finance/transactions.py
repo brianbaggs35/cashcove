@@ -71,6 +71,8 @@ def conditions(query: TransactionQuery) -> list[ColumnElement[bool]]:
         where.append(Transaction.pending.is_(query.status == "pending"))
     if query.source:
         where.append(Transaction.source.in_(query.source))
+    if query.import_id is not None:
+        where.append(Transaction.import_id == query.import_id)
     if query.min_amount is not None:
         where.append(
             or_(Transaction.amount >= query.min_amount, Transaction.amount <= -query.min_amount)

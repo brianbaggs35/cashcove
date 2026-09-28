@@ -22,6 +22,7 @@ from app.models.connection import (
     HistoryStatus,
     SyncTrigger,
 )
+from app.models.imports import FileFormat, FileImport, ImportProfile
 from app.models.transaction import Transaction, TransactionSource
 from app.models.user import Role, User
 
@@ -41,7 +42,10 @@ __all__ = [
     "ConnectionProvider",
     "ConnectionStatus",
     "ConnectionSync",
+    "FileFormat",
+    "FileImport",
     "HistoryStatus",
+    "ImportProfile",
     "Invitation",
     "LoginThrottle",
     "Passkey",

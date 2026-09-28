@@ -23,6 +23,32 @@ def get_account(db: Session, account_id: uuid.UUID, *, lock: bool = False) -> Ac
     return account
 
 
+def writable_account(db: Session, account_id: uuid.UUID, *, lock: bool = True) -> Account:
+    """An account people can add transactions to, by hand or from a file: one they keep
+    themselves, and open. It's locked against other changes until the commit, unless it's
+    only being looked at."""
+    account = db.get(Account, account_id, with_for_update=lock)
+    if account is None:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "unknown_account",
+            "That account doesn't exist anymore. Choose another one.",
+        )
+    if account.is_linked:
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "linked_account",
+            f"Transactions in {account.name} come from the bank through Plaid.",
+        )
+    if account.is_closed:
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "account_closed",
+            f"{account.name} is closed. Reopen it to add transactions to it.",
+        )
+    return account
+
+
 def move_balance(account: Account, change: Decimal, now: datetime) -> None:
     """Moves a manual account's balance by a transaction's change.
 
