@@ -1,4 +1,5 @@
 import { checking, coffee, seedFinance } from '@/test/finance'
+import { checkingImport, seedImports } from '@/test/imports'
 import { mountWithPlugins } from '@/test/mount'
 import FilterChips from '@/views/transactions/FilterChips.vue'
 import { emptyFilters, type TransactionFilters } from '@/views/transactions/view'
@@ -6,7 +7,10 @@ import { emptyFilters, type TransactionFilters } from '@/views/transactions/view
 async function render(changes: Partial<TransactionFilters>) {
   const { wrapper } = await mountWithPlugins(FilterChips, {
     props: { filters: { ...emptyFilters(), ...changes } },
-    beforeMount: () => seedFinance(),
+    beforeMount: () => {
+      seedFinance()
+      seedImports()
+    },
   })
   const chip = (key: string) => wrapper.find(`[data-test="filter-chip-${key}"]`)
   const labels = () =>
@@ -57,6 +61,8 @@ describe('FilterChips', () => {
     [{ max: '50.00' }, 'At most $50.00'],
     [{ period: 'custom', start: '2026-09-01', end: null }, 'From Sep 1, 2026'],
     [{ period: 'custom', start: null, end: '2026-09-15' }, 'Until Sep 15, 2026'],
+    [{ importId: checkingImport.id }, 'From harbor-checking.csv'],
+    [{ importId: 'import-undone' }, 'From an import'],
   ])('describes %o', async (filters, expected) => {
     const { labels } = await render(filters)
     expect(labels().join(' ')).toBe(expected)
@@ -72,6 +78,7 @@ describe('FilterChips', () => {
       direction: 'in',
       status: 'posted',
       sources: ['plaid', 'file'],
+      importId: checkingImport.id,
       min: '5.00',
     })
     const close = async (key: string) => chip(key).find('.v-chip__close').trigger('click')
@@ -86,6 +93,7 @@ describe('FilterChips', () => {
     await close('direction')
     await close('status')
     await close('source-plaid')
+    await close('import')
     await close('amount')
     expect(wrapper.emitted('change')).toEqual([
       [{ accounts: ['account-gone'] }],
@@ -95,6 +103,7 @@ describe('FilterChips', () => {
       [{ direction: null }],
       [{ status: null }],
       [{ sources: ['file'] }],
+      [{ importId: null }],
       [{ min: null, max: null }],
     ])
 

@@ -379,6 +379,19 @@ def test_the_preview_lists_what_the_direction_column_says() -> None:
     assert options.csv is not None
 
     assert csv_file.preview(options.csv).direction_values == ["credit", "debit"]
+    # As the file writes them, once each.
+    shouting = CsvFile(
+        "Date,Description,Amount,Type\n"
+        "09/26/2026,PAYROLL,1875.00,CR\n"
+        "09/27/2026,COFFEE,4.50,DR\n"
+        "09/28/2026,REFUND,12.00,cr\n"
+    )
+    detected = shouting.detect("en-US").csv
+    assert detected is not None
+    assert detected.money_in_values == ["CR"]
+    assert shouting.preview(detected).direction_values == ["CR", "DR"]
+    rows = shouting.read(shouting.detect("en-US"), dt.date(2026, 9, 28)).rows
+    assert [str(row.amount) for row in rows] == ["1875.00", "-4.50", "12.00"]
 
 
 def test_saved_layouts_follow_their_column_names_down_the_file() -> None:

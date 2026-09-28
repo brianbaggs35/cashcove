@@ -21,6 +21,7 @@ import {
   visa,
   wholeFoods,
 } from '@/test/finance'
+import { checkingImport, seedImports } from '@/test/imports'
 import { mountWithPlugins } from '@/test/mount'
 import { todayIso } from '@/utils/dates'
 import TransactionDialog from '@/views/transactions/TransactionDialog.vue'
@@ -59,7 +60,10 @@ async function render({ accounts = [checking, savings, visa, oldCash], ...props 
   })
   const { wrapper } = await mountWithPlugins(Host, {
     width: 1280,
-    beforeMount: () => seedFinance({ accounts }),
+    beforeMount: () => {
+      seedFinance({ accounts })
+      seedImports()
+    },
   })
   open.value = true
   await flushPromises()
@@ -278,6 +282,30 @@ describe('TransactionDialog', () => {
     await render({ transaction: makeTransaction({ source: 'file' }) })
     expect(field('from-file').text()).toBe('Imported from a file.')
     expect(field('from-bank').exists()).toBe(false)
+  })
+
+  it('names the file a transaction came from, and what the file called it', async () => {
+    await render({
+      transaction: makeTransaction({
+        source: 'file',
+        import_id: checkingImport.id,
+        original_description: 'WHOLEFDS MKT #10234 AUSTIN TX',
+      }),
+    })
+    expect(field('from-file').text()).toBe(
+      'Imported from harbor-checking.csv. The file calls it “WHOLEFDS MKT #10234 AUSTIN TX”.',
+    )
+  })
+
+  it('leaves out what the file called a transaction when that’s its payee', async () => {
+    await render({
+      transaction: makeTransaction({
+        source: 'file',
+        import_id: 'import-older',
+        original_description: 'Whole Foods',
+      }),
+    })
+    expect(field('from-file').text()).toBe('Imported from a file.')
   })
 
   it('lists the accounts it could go in, and the closed one it is in', async () => {

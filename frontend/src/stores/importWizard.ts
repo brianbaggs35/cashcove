@@ -37,19 +37,27 @@ function defaultLines(preview: ImportPreview): number[] {
     .map((row) => row.line)
 }
 
-/** A CSV file that a saved format read cleanly goes straight to its review. */
+/** A CSV file has columns to match, unless a saved format read it cleanly. */
 function needsColumns(preview: ImportPreview): boolean {
-  if (preview.format !== 'csv') return false
   const { summary, csv } = preview
-  const clean = !csv?.missing.length && summary.rows > 0 && summary.invalid < summary.rows
+  if (!csv) return false
+  const clean = !csv.missing.length && summary.rows > 0 && summary.invalid < summary.rows
   return !(preview.profile_id && clean)
 }
 
-/** What a new saved format is called at first: the bank's name and the kind of account. */
-function formatNameFor(account: Account | undefined): string {
+/**
+ * What a new saved format is called at first: the bank's name and the kind of account, with a
+ * number when another saved format has that name already.
+ */
+function formatNameFor(account: Account | undefined, taken: ReadonlySet<string>): string {
   if (!account) return ''
   const kind = accountType(account.type).title.toLowerCase()
-  return account.institution ? `${account.institution} ${kind}` : account.name
+  const name = (account.institution ? `${account.institution} ${kind}` : account.name)
+    .slice(0, 76)
+    .trim()
+  let unique = name
+  for (let number = 2; taken.has(unique.toLowerCase()); number += 1) unique = `${name} ${number}`
+  return unique
 }
 
 /**
@@ -85,18 +93,23 @@ export const useImportWizard = defineStore('import-wizard', () => {
   const account = computed(() => accounts.find(accountId.value))
   /** Its bank keeps its balance through Plaid. */
   const linked = computed(() => account.value?.source === 'plaid')
-  const rowsByLine = computed(() => new Map(preview.value?.rows.map((row) => [row.line, row])))
-  const selectedTotal = computed(() =>
-    sumAmounts(selected.value.map((line) => rowsByLine.value.get(line)?.amount ?? '0')),
-  )
+  /** What the ticked rows add up to. */
+  const selectedTotal = computed(() => {
+    const chosen = new Set(selected.value)
+    const rows = preview.value?.rows ?? []
+    return sumAmounts(
+      rows.flatMap((row) => (chosen.has(row.line) && row.amount ? [row.amount] : [])),
+    )
+  })
   const profileName = computed(() => imports.findFormat(preview.value?.profile_id)?.name ?? null)
   /** How the file was read can be saved: a CSV file's new format, or changes to its saved one. */
-  const canSave = computed(
-    () => format.value === 'csv' && (!preview.value?.profile_id || edited.value),
-  )
+  const canSave = computed(() => {
+    const current = preview.value
+    return current?.format === 'csv' && (!current.profile_id || edited.value)
+  })
   const formatSave = computed(() => {
     if (!canSave.value || !save.value) return null
-    const id = preview.value?.profile_id ?? null
+    const id = (preview.value as ImportPreview).profile_id
     return { id, name: (id && profileName.value) || formatName.value.trim() }
   })
   const canImport = computed(
@@ -143,7 +156,10 @@ export const useImportWizard = defineStore('import-wizard', () => {
     accountId.value = next.account_id
     selected.value = defaultLines(next)
     balance.value = next.balance?.suggested ?? 'keep'
-    if (!nameChanged.value) formatName.value = formatNameFor(account.value)
+    if (!nameChanged.value) {
+      const taken = new Set(imports.formats.map((saved) => saved.name.toLowerCase()))
+      formatName.value = formatNameFor(account.value, taken)
+    }
   }
 
   /** Reads a newly chosen file the way that fits it best. */
@@ -229,10 +245,10 @@ export const useImportWizard = defineStore('import-wizard', () => {
   function failed(error: unknown) {
     if (isCancelled(error)) return
     const code = error instanceof ApiError ? error.code : null
+    // Someone else imported them meanwhile: this shows what's left, and why.
+    if (code === 'nothing_to_import') void refresh()
     if (code === 'name_taken') nameError.value = errorMessage(error)
     else notice.value = errorMessage(error)
-    // Someone else imported them meanwhile: show what's left.
-    if (code === 'nothing_to_import') void refresh()
   }
 
   async function importRows() {

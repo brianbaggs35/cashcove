@@ -13,7 +13,7 @@ import itertools
 import re
 import unicodedata
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -393,13 +393,22 @@ def first_row(layout: CsvLayout) -> int:
     return layout.skip_rows + (1 if layout.header else 0)
 
 
+def _spellings(values: Iterable[str]) -> dict[str, str]:
+    """Each value as the file first writes it, by the value as compared."""
+    spellings: dict[str, str] = {}
+    for value in values:
+        spellings.setdefault(value.casefold(), value)
+    return spellings
+
+
 def _direction_values(layout: CsvLayout, data: list[list[str]]) -> list[str]:
-    """What the direction column says, for choosing which values mean money in."""
+    """What the direction column says, as the file writes it, for choosing which values mean
+    money in."""
     index = layout.columns.direction
     if index is None or layout.amounts != "direction":
         return []
-    values = {row[index].casefold() for row in data if index < len(row) and row[index]}
-    return sorted(values)[:20]
+    spellings = _spellings(row[index] for row in data if index < len(row) and row[index])
+    return sorted(spellings.values(), key=str.casefold)[:20]
 
 
 def missing(layout: CsvLayout) -> list[NeededField]:
@@ -512,14 +521,17 @@ def _amount_style(layout: CsvLayout, data: list[list[str]]) -> CsvLayout:
         columns = columns.model_copy(update={"amount": None, "direction": None})
     elif columns.direction is not None and columns.amount is not None:
         values = _Values(data, columns)
-        words = {value.casefold() for value in values.of("direction")}
+        spellings = _spellings(values.of("direction"))
+        words = set(spellings)
         signed = any(
             (amount := parse_amount(value)) is not None and amount < 0
             for value in values.of("amount")
         )
         if words and words <= MONEY_IN_WORDS | MONEY_OUT_WORDS and not signed:
             style = "direction"
-            money_in_values = sorted(words & MONEY_IN_WORDS)
+            money_in_values = sorted(
+                (spellings[word] for word in words & MONEY_IN_WORDS), key=str.casefold
+            )
     if style == "one":
         columns = columns.model_copy(update={"direction": None})
     return layout.model_copy(

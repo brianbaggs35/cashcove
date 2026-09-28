@@ -11,7 +11,8 @@ import {
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import type { AccountInput } from '@/api/accounts'
+import type { Account, AccountInput } from '@/api/accounts'
+import type { CsvPreview, FileImport, ImportPreview } from '@/api/imports'
 import AccountAvatar from '@/components/finance/AccountAvatar.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
@@ -24,7 +25,7 @@ import { formatDateRange } from '@/utils/dates'
 import { sumAmounts } from '@/utils/money'
 import AccountDialog from '@/views/accounts/AccountDialog.vue'
 import ColumnsStep from '@/views/import/ColumnsStep.vue'
-import { transactionCount } from '@/views/import/file'
+import { balanceShown, transactionCount } from '@/views/import/file'
 import ReviewStep from '@/views/import/ReviewStep.vue'
 
 /**
@@ -32,6 +33,8 @@ import ReviewStep from '@/views/import/ReviewStep.vue'
  * account and the rows to import, then importing them. The Import tab starts it with a file.
  */
 const open = defineModel<boolean>({ required: true })
+/** Asks for another file, when this one couldn't be read. */
+const emit = defineEmits<{ 'choose-file': [] }>()
 
 const router = useRouter()
 const wizard = useImportWizard()
@@ -85,9 +88,15 @@ const tone = computed(() => {
 
 /** Continue once the date and amount columns are chosen and some rows read. */
 const readable = computed(() => {
-  const preview = wizard.preview
-  return !!preview && !preview.csv?.missing.length && preview.summary.rows > preview.summary.invalid
+  const { csv, summary } = wizard.preview as ImportPreview
+  return !(csv as CsvPreview).missing.length && summary.rows > summary.invalid
 })
+
+const progress = computed(() =>
+  wizard.step === 'reading'
+    ? `Reading ${wizard.fileName}…`
+    : `Importing ${transactionCount(wizard.selected.length)} into ${(wizard.account as Account).name}…`,
+)
 
 /** A new account starts with what the file says about it. */
 const draft = computed((): Partial<AccountInput> => {
@@ -102,22 +111,29 @@ const draft = computed((): Partial<AccountInput> => {
   }
 })
 
+/** What an account kept by hand has for its balance now, as the Accounts tab shows it. */
+function balanceNote(account: Account, record: FileImport): string | null {
+  const current = (wizard.preview as ImportPreview).balance?.current
+  if (!current || wizard.linked) return null
+  const { amount, owed } = balanceShown(account.type, sumAmounts([current, record.balance_change]))
+  return `${account.name}’s balance is now ${money(amount, account.currency)}${owed ? ' owed' : ''}.`
+}
+
+/** What was imported, once it has been. */
 const done = computed(() => {
-  const record = wizard.record
-  if (!record) return null
+  const record = wizard.record as FileImport
   const days = formatDateRange({ start: record.first_date, end: record.last_date }, locale.value)
-  const current = wizard.preview?.balance?.current
+  const account = accounts.find(record.account_id)
   return {
     record,
-    account: accounts.find(record.account_id),
+    account,
     summary: `${transactionCount(record.added)} · ${days}`,
-    balance: current && !wizard.linked ? sumAmounts([current, record.balance_change]) : null,
+    balance: account ? balanceNote(account, record) : null,
   }
 })
 
 const doneNotes = computed(() => {
-  const record = wizard.record
-  if (!record) return []
+  const record = wizard.record as FileImport
   const notes = []
   if (record.skipped)
     notes.push(
@@ -131,7 +147,7 @@ const doneNotes = computed(() => {
 })
 
 function seeTransactions() {
-  const id = wizard.record?.id
+  const { id } = wizard.record as FileImport
   open.value = false
   void router.push({ path: '/transactions', query: { import: id } })
 }
@@ -190,12 +206,7 @@ watch(open, (value) => {
       data-test="import-progress"
     >
       <v-progress-circular indeterminate color="primary" size="48" width="4" />
-      <output class="d-block text-body-large mt-5">
-        <template v-if="wizard.step === 'reading'">Reading {{ wizard.fileName }}…</template>
-        <template v-else>
-          Importing {{ transactionCount(wizard.selected.length) }} into {{ wizard.account?.name }}…
-        </template>
-      </output>
+      <output class="d-block text-body-large mt-5">{{ progress }}</output>
     </div>
 
     <p v-else-if="wizard.step === 'failed'" class="text-body-medium mb-0" data-test="import-failed">
@@ -206,7 +217,7 @@ watch(open, (value) => {
 
     <ReviewStep v-else-if="wizard.step === 'review'" @add-account="accountOpen = true" />
 
-    <div v-else-if="done" data-test="import-done">
+    <div v-else data-test="import-done">
       <div class="d-flex align-center ga-4 mb-5">
         <AccountAvatar v-if="done.account" :type="done.account.type" size="48" />
         <div class="flex-grow-1" style="min-width: 0">
@@ -225,10 +236,7 @@ watch(open, (value) => {
       <v-alert type="success" variant="tonal" density="compact" data-test="import-done-note">
         <div>
           The transactions are on the Transactions page, and your budget counts them.
-          <template v-if="done.balance">
-            {{ done.account?.name }}’s balance is now
-            {{ money(done.balance, done.account?.currency) }}.
-          </template>
+          <template v-if="done.balance">{{ done.balance }}</template>
         </div>
         <div v-for="note in doneNotes" :key="note" class="mt-1">{{ note }}</div>
       </v-alert>
@@ -277,13 +285,25 @@ watch(open, (value) => {
           Done
         </v-btn>
       </template>
+      <template v-else-if="wizard.step === 'failed'">
+        <v-btn variant="text" data-test="import-close" @click="open = false">Close</v-btn>
+        <v-btn
+          color="primary"
+          variant="flat"
+          :prepend-icon="FileUp"
+          data-test="import-choose-again"
+          @click="emit('choose-file')"
+        >
+          Choose another file
+        </v-btn>
+      </template>
       <v-btn
-        v-else-if="wizard.step !== 'importing'"
+        v-else-if="wizard.step === 'reading'"
         variant="text"
         data-test="import-close"
         @click="open = false"
       >
-        {{ wizard.step === 'failed' ? 'Close' : 'Cancel' }}
+        Cancel
       </v-btn>
     </template>
 

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 import type { Account } from '@/api/accounts'
-import type { BalanceChoice, ImportBalance } from '@/api/imports'
+import type { BalanceChoice, ImportBalance, ImportPreview } from '@/api/imports'
 import { accountType } from '@/components/finance/accountTypes'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
 import { useHousehold } from '@/composables/useHousehold'
@@ -15,7 +15,7 @@ const wizard = useImportWizard()
 const { locale, money } = useHousehold()
 
 const account = computed(() => wizard.account as Account)
-const info = computed(() => wizard.preview?.balance as ImportBalance)
+const info = computed(() => (wizard.preview as ImportPreview).balance as ImportBalance)
 /** Cards and loans show what's owed. */
 const owed = computed(() => accountType(account.value.type).liability)
 const shown = (amount: string) => (owed.value ? negate(amount) : amount)

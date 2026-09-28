@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { BookmarkCheck, Link, Plus } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, nextTick, useTemplateRef, watch } from 'vue'
 
 import type { Account } from '@/api/accounts'
 import type { ImportPreview, ImportStatement } from '@/api/imports'
@@ -12,7 +12,7 @@ import { useImportWizard } from '@/stores/importWizard'
 import { formatDateRange, formatListDate } from '@/utils/dates'
 import BalanceChoice from '@/views/import/BalanceChoice.vue'
 import { coveredByBank } from '@/views/import/columns'
-import { formatIcon, formatName, transactionCount } from '@/views/import/file'
+import { balanceShown, formatIcon, formatName, transactionCount } from '@/views/import/file'
 import ReviewRows from '@/views/import/ReviewRows.vue'
 
 /** Choosing the account, the rows to import and what happens to the balance. */
@@ -74,17 +74,38 @@ const bankNote = computed(() => {
     (row) => row.status === 'new' && coveredByBank(row, history),
   ).length
   if (!history || !covered) return null
-  const name = wizard.account?.name ?? 'The account'
+  const { name } = wizard.account as Account
   const rows = covered === 1 ? 'the 1 row' : `the ${covered.toLocaleString('en-US')} rows`
-  const start = formatListDate(history.start, locale.value)
+  const start = covered === 1 ? 'starts' : 'start'
+  const from = formatListDate(history.start, locale.value)
   if (history.end === null)
-    return `Plaid brings in ${name}’s transactions from ${start} on, so ${rows} from then start unticked. Tick any the bank missed.`
+    return `Plaid brings in ${name}’s transactions from ${from} on, so ${rows} from then ${start} unticked. Tick any the bank missed.`
   const end = formatListDate(history.end, locale.value)
-  return `Plaid brought in ${name}’s transactions from ${start} to ${end}, so ${rows} from those days start unticked.`
+  return `Plaid brought in ${name}’s transactions from ${from} to ${end}, so ${rows} from those days ${start} unticked.`
 })
 
+/** A linked account's balance, which its bank keeps. */
+const bankBalance = computed(() => {
+  const account = wizard.account as Account
+  const { amount, owed } = balanceShown(account.type, account.balance)
+  return `${money(amount, account.currency)}${owed ? ' owed' : ''}`
+})
+
+// A name another saved format has is only found out on importing, which brings back this
+// step; the field comes into view to say so.
+const nameField = useTemplateRef<{ focus: () => void }>('nameField')
+watch(
+  () => wizard.nameError,
+  async (error) => {
+    if (!error) return
+    await nextTick()
+    nameField.value?.focus()
+  },
+  { immediate: true },
+)
+
 const saveLabel = computed(() =>
-  wizard.preview?.profile_id
+  preview.value.profile_id
     ? `Update the ${wizard.profileName ?? 'saved'} format with these changes`
     : 'Save how this file is read, for the bank’s next files',
 )
@@ -192,7 +213,7 @@ const saveLabel = computed(() =>
           data-test="review-bank-balance"
         >
           Plaid keeps {{ wizard.account.name }}’s balance up to date, so importing leaves it at
-          {{ money(preview.balance?.current ?? '0', wizard.account.currency) }}.
+          {{ bankBalance }}.
         </v-alert>
         <BalanceChoice v-else-if="preview.balance" />
       </div>
@@ -209,6 +230,7 @@ const saveLabel = computed(() =>
         <v-expand-transition>
           <div v-if="wizard.save && !preview.profile_id" class="pt-3">
             <v-text-field
+              ref="nameField"
               :model-value="wizard.formatName"
               label="Format name"
               hint="The bank’s next file with these columns is read the same way."
