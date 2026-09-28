@@ -7,7 +7,6 @@ tests can add transactions, or have a bank ask for a new sign-in, to see what a 
 The baseline's two connections (see e2e/baseline.py) are here from the start.
 """
 
-import base64
 import datetime as dt
 import json
 import secrets
@@ -18,14 +17,6 @@ from typing import Any
 import httpx2 as httpx
 
 from app.models.base import utcnow
-
-# A 1x1 PNG, standing in for each bank's logo.
-LOGO = base64.b64encode(
-    bytes.fromhex(
-        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
-        "0000000b49444154789c6360000200000500017a5eab3f0000000049454e44ae426082"
-    )
-).decode()
 
 
 @dataclass(frozen=True)
@@ -431,7 +422,8 @@ class FakePlaid:
                 "name": bank.name,
                 "url": bank.url,
                 "primary_color": bank.color,
-                "logo": LOGO,
+                # Like most of Plaid's Sandbox banks, these have no logo.
+                "logo": None,
             }
         }
 

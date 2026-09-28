@@ -261,5 +261,6 @@ describe('ConnectionCard', () => {
     const { find } = await render(tartan, { width: 400 })
     expect(find('connection-sync').attributes('aria-label')).toBe('Sync Tartan Bank now')
     expect(find('connection-sync').text()).toBe('')
+    expect(find('connection-sync').find('.v-icon svg').exists()).toBe(true)
   })
 })
