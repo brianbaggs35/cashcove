@@ -32,6 +32,7 @@ from app.auth.tokens import hash_token, new_token
 from app.auth.useragent import describe as describe_device
 from app.config import Settings
 from app.finance.categories import SUGGESTED
+from app.imports.csvfile import signature
 from app.models import (
     Account,
     AccountSource,
@@ -46,7 +47,10 @@ from app.models import (
     ConnectionProvider,
     ConnectionStatus,
     ConnectionSync,
+    FileFormat,
+    FileImport,
     HistoryStatus,
+    ImportProfile,
     Invitation,
     Passkey,
     RecoveryCode,
@@ -61,6 +65,7 @@ from app.models.app_settings import SINGLETON_ID
 from app.plaid.accounts import SharedAccount
 from app.plaid.client import PlaidError
 from app.plaid.errors import diagnose
+from app.schemas.imports import CsvColumns, CsvLayout, ImportOptions
 from app.schemas.preferences import GeneralPreferences, Preferences
 from e2e.plaid import BANKS, FIDELITY_ACCESS, FIDELITY_ITEM, TARTAN_ACCESS, TARTAN_ITEM
 
@@ -1003,6 +1008,107 @@ def _history() -> tuple[SeedTransaction, ...]:
 HISTORY = _history()
 
 
+# ---- Imports: statement files and the formats saved for them ------------------------------
+
+
+@dataclass(frozen=True)
+class SeedFormat:
+    """A CSV layout saved for a bank's files."""
+
+    key: str
+    name: str
+    # The column names of the files it reads.
+    headers: tuple[str, ...]
+    options: ImportOptions
+    # The account it was last used for.
+    account: SeedAccount | None
+    last_used_hours_ago: int | None
+
+    @property
+    def id(self) -> uuid.UUID:
+        return stable_id("import_profile", self.key)
+
+
+@dataclass(frozen=True)
+class SeedImport:
+    """A file imported into an account: its older history, brought in when Cashcove was set up.
+    The balance was entered with the account, so importing left it alone."""
+
+    key: str
+    account: SeedAccount
+    file_name: str
+    format: FileFormat
+    saved_format: SeedFormat | None
+    hours_ago: int
+    # Rows of the file that were left out, as already there or unreadable.
+    skipped: int
+
+    @property
+    def id(self) -> uuid.UUID:
+        return stable_id("import", self.key)
+
+    @property
+    def transactions(self) -> tuple[SeedTransaction, ...]:
+        return tuple(item for item in HISTORY if item.account == self.account and item.imported)
+
+    @property
+    def total(self) -> Decimal:
+        return sum((Decimal(item.amount) for item in self.transactions), Decimal(0))
+
+    @property
+    def days_ago(self) -> tuple[int, int]:
+        """How long ago its first and last transactions were."""
+        days = [item.days_ago for item in self.transactions]
+        return max(days), min(days)
+
+
+HARBOR_CHECKING_FORMAT = SeedFormat(
+    key="harbor_checking",
+    name="Harbor Credit Union checking",
+    headers=("Date", "Description", "Amount", "Balance", "Transaction ID"),
+    options=ImportOptions(
+        csv=CsvLayout(columns=CsvColumns(date=0, payee=1, amount=2, balance=3, id=4))
+    ),
+    account=CHECKING,
+    last_used_hours_ago=SET_UP_DAYS_AGO * 24 - 2,
+)
+# Saved for the store card's statements, which charge as positive amounts; never used since.
+MAPLE_CARD_FORMAT = SeedFormat(
+    key="maple_card",
+    name="Maple store card",
+    headers=("Trans. Date", "Post Date", "Description", "Amount", "Category"),
+    options=ImportOptions(
+        flip=True,
+        csv=CsvLayout(columns=CsvColumns(date=0, payee=2, amount=3, category=4)),
+    ),
+    account=CLOSED,
+    last_used_hours_ago=None,
+)
+SAVED_FORMATS = (HARBOR_CHECKING_FORMAT, MAPLE_CARD_FORMAT)
+
+CHECKING_IMPORT = SeedImport(
+    key="checking_history",
+    account=CHECKING,
+    file_name="harbor-checking-history.csv",
+    format=FileFormat.CSV,
+    saved_format=HARBOR_CHECKING_FORMAT,
+    hours_ago=SET_UP_DAYS_AGO * 24 - 2,
+    skipped=2,
+)
+SAVINGS_IMPORT = SeedImport(
+    key="savings_history",
+    account=SAVINGS,
+    file_name="harbor-savings-history.qfx",
+    format=FileFormat.OFX,
+    saved_format=None,
+    hours_ago=SET_UP_DAYS_AGO * 24 - 3,
+    skipped=0,
+)
+# Newest first, as the Import tab lists them.
+IMPORTS = (SAVINGS_IMPORT, CHECKING_IMPORT)
+IMPORTED_BY = {item.key: record for record in IMPORTS for item in record.transactions}
+
+
 # ---- What specs are told about the baseline --------------------------------------------
 
 
@@ -1141,6 +1247,39 @@ class BaselineTransaction(BaseModel):
     pending: bool
     source: TransactionSource
     original_description: str | None
+    # Its import's key in ``imports``, for the ones imported from a file.
+    file_import: str | None
+
+
+class BaselineSavedFormat(BaseModel):
+    id: uuid.UUID
+    name: str
+    # The column names of the files it reads.
+    headers: list[str]
+    # The key in ``accounts`` of the account it was last used for.
+    account: str | None
+    last_used_hours_ago: int | None
+
+
+class BaselineImport(BaseModel):
+    id: uuid.UUID
+    # Its account's key in ``accounts``.
+    account: str
+    account_id: uuid.UUID
+    file_name: str
+    format: FileFormat
+    # The key in ``saved_formats`` of the format it was read with.
+    saved_format: str | None
+    added: int
+    skipped: int
+    # What its transactions add up to.
+    total: str
+    # The days its first and last transactions were, counted back from the reset.
+    first_days_ago: int
+    last_days_ago: int
+    hours_ago: int
+    # Who imported it: the key in ``users``.
+    created_by: str
 
 
 class Baseline(BaseModel):
@@ -1159,6 +1298,10 @@ class Baseline(BaseModel):
     transactions: dict[str, BaselineTransaction]
     # The rest of the year's transactions, older than all of those, newest first.
     history: list[BaselineTransaction]
+    # Files imported into the accounts kept by hand, newest first, and the CSV layouts saved
+    # for banks' files, by key ("checking_history", "harbor_checking").
+    imports: dict[str, BaselineImport]
+    saved_formats: dict[str, BaselineSavedFormat]
 
 
 def _device(device: Device) -> BaselineDevice:
@@ -1278,6 +1421,36 @@ def describe(settings: Settings) -> Baseline:
         },
         transactions={transaction.key: _transaction(transaction) for transaction in TRANSACTIONS},
         history=[_transaction(transaction) for transaction in HISTORY],
+        imports={record.key: _import(record) for record in IMPORTS},
+        saved_formats={
+            saved.key: BaselineSavedFormat(
+                id=saved.id,
+                name=saved.name,
+                headers=list(saved.headers),
+                account=saved.account.key if saved.account else None,
+                last_used_hours_ago=saved.last_used_hours_ago,
+            )
+            for saved in SAVED_FORMATS
+        },
+    )
+
+
+def _import(record: SeedImport) -> BaselineImport:
+    first, last = record.days_ago
+    return BaselineImport(
+        id=record.id,
+        account=record.account.key,
+        account_id=record.account.id,
+        file_name=record.file_name,
+        format=record.format,
+        saved_format=record.saved_format.key if record.saved_format else None,
+        added=len(record.transactions),
+        skipped=record.skipped,
+        total=str(record.total),
+        first_days_ago=first,
+        last_days_ago=last,
+        hours_ago=record.hours_ago,
+        created_by=ADMIN.key,
     )
 
 
@@ -1316,6 +1489,7 @@ def _transaction(transaction: SeedTransaction) -> BaselineTransaction:
         pending=transaction.pending,
         source=transaction.source,
         original_description=transaction.original_description,
+        file_import=record.key if (record := IMPORTED_BY.get(transaction.key)) else None,
     )
 
 
@@ -1588,6 +1762,7 @@ def _seed_money(db: Session, now: datetime) -> None:
         )
     # Accounts and categories first: transactions refer to them.
     db.flush()
+    _seed_imports(db, now)
     for transaction in (*TRANSACTIONS, *HISTORY):
         # Entered on the day it happened, so transactions on the same day keep one order.
         entered = now - timedelta(days=transaction.days_ago)
@@ -1604,7 +1779,49 @@ def _seed_money(db: Session, now: datetime) -> None:
                 pending=transaction.pending,
                 source=transaction.source,
                 external_id=transaction.external_id,
+                import_id=record.id if (record := IMPORTED_BY.get(transaction.key)) else None,
                 created_at=entered,
                 updated_at=entered,
             )
         )
+
+
+def _seed_imports(db: Session, now: datetime) -> None:
+    set_up = now - timedelta(days=SET_UP_DAYS_AGO)
+    for saved in SAVED_FORMATS:
+        db.add(
+            ImportProfile(
+                id=saved.id,
+                name=saved.name,
+                headers=list(saved.headers),
+                signature=signature(saved.headers),
+                options=saved.options.model_dump(mode="json"),
+                account_id=saved.account.id if saved.account else None,
+                last_used_at=_hours_before(now, saved.last_used_hours_ago),
+                created_at=set_up,
+                updated_at=set_up,
+            )
+        )
+    # Before the imports, which refer to them.
+    db.flush()
+    for record in IMPORTS:
+        first, last = record.days_ago
+        db.add(
+            FileImport(
+                id=record.id,
+                account_id=record.account.id,
+                profile_id=record.saved_format.id if record.saved_format else None,
+                file_name=record.file_name,
+                format=record.format,
+                added=len(record.transactions),
+                skipped=record.skipped,
+                total=record.total,
+                balance_change=Decimal(0),
+                first_date=(now - timedelta(days=first)).date(),
+                last_date=(now - timedelta(days=last)).date(),
+                created_by_id=ADMIN.id,
+                created_at=now - timedelta(hours=record.hours_ago),
+            )
+        )
+    # Before the transactions, which refer to them.
+    db.flush()
