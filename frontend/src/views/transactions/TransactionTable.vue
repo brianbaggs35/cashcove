@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { Eye, Pencil } from '@lucide/vue'
-import { ref, watch, type Directive } from 'vue'
+import { ref, watch } from 'vue'
 
 import type { Transaction, TransactionSort } from '@/api/transactions'
 import CategoryChip from '@/components/finance/CategoryChip.vue'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
 import { useHousehold } from '@/composables/useHousehold'
+import { vPartlyChecked } from '@/directives/partlyChecked'
 import { useAccountsStore } from '@/stores/accounts'
 import { formatListDate } from '@/utils/dates'
 import { PAGE_SIZES } from '@/views/transactions/view'
@@ -28,17 +29,6 @@ const emit = defineEmits<{
 
 const accounts = useAccountsStore()
 const { locale } = useHousehold()
-
-// Vuetify marks a partly ticked box as aria-checked="mixed" but leaves the checkbox itself
-// unticked, and assistive technology needs the two to agree.
-const vPartlyChecked: Directive<HTMLElement, boolean> = {
-  mounted: markPartlyChecked,
-  updated: markPartlyChecked,
-}
-
-function markPartlyChecked(element: HTMLElement, { value }: { value: boolean }) {
-  for (const input of element.querySelectorAll('input')) input.indeterminate = value
-}
 
 const headers = [
   { title: 'Date', key: 'date', sortable: true, width: 112 },

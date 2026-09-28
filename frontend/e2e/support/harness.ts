@@ -8,6 +8,8 @@ import {
   type APIResponse,
 } from '@playwright/test'
 
+import type { BankTransaction } from './plaid'
+
 /**
  * The test server's harness (backend/e2e): it resets the database to the baseline, signs
  * browsers in without the sign-in form and reports the API's coverage. Only the e2e image
@@ -117,6 +119,23 @@ export interface BaselineAccount {
   credit_limit: string | null
   notes: string | null
   closed: boolean
+}
+
+/** A bank connected through Plaid, as the Connect tab shows it. */
+export interface BaselineConnection {
+  id: string
+  /** The bank's name, e.g. `'Tartan Bank'`. */
+  institution: string
+  /** `'login_required'` when the bank wants someone to sign in again. */
+  status: 'healthy' | 'login_required' | 'error'
+  /** Plaid's error code, while the bank needs attention, e.g. `'ITEM_LOGIN_REQUIRED'`. */
+  error_code: string | null
+  /** The accounts it keeps up to date, by key in `baseline.accounts`. */
+  accounts: BaselineAccountKey[]
+  /** What the bank calls the accounts it shares that the household chose not to import. */
+  skipped: string[]
+  /** How many hours before the reset it last synced. */
+  last_synced_hours_ago: number | null
 }
 
 /** The suggested category groups, which a new household starts with. */
@@ -243,6 +262,15 @@ export interface BaselineData {
     /** Old store card, a closed card kept by hand. */
     closed: BaselineAccount
   }
+  /** The banks connected through Plaid. Both came through the test server's stand-in for
+   * Plaid, so they sync, reconnect and report new transactions (`plaid.addTransaction`)
+   * without reaching Plaid. */
+  connections: {
+    /** Tartan Bank: imports the Rewards Visa and skips Tartan Checking; synced 3 hours ago. */
+    tartan: BaselineConnection
+    /** Fidelity: imports the Retirement 401(k), and wants Alex to sign in again. */
+    fidelity: BaselineConnection
+  }
   /** Every suggested category group, by name. */
   category_groups: Record<BaselineCategoryGroupName, BaselineCategoryGroup>
   /** Every suggested category, by name. */
@@ -279,6 +307,7 @@ export interface BaselineData {
 }
 
 export type BaselineAccountKey = keyof BaselineData['accounts']
+export type BaselineConnectionKey = keyof BaselineData['connections']
 export type BaselineTransactionKey = keyof BaselineData['transactions']
 
 /** A baseline transaction's date (YYYY-MM-DD), as the last reset gave it. */
@@ -420,6 +449,24 @@ export class Harness {
       await request.storageState({ path: file })
     } finally {
       await request.dispose()
+    }
+  }
+
+  /** Has an account's bank report a new transaction, which the bank's next sync brings in. */
+  async addBankTransaction(transaction: BankTransaction): Promise<void> {
+    const response = await this.api.post('/api/e2e/plaid/transactions', { data: transaction })
+    await readJson(response, `Adding ${transaction.payee} at the bank`)
+  }
+
+  /** Has a connected bank fail its syncs with one of Plaid's error codes, or stop with null. */
+  async failBankSyncs(connectionId: string, code: string | null): Promise<void> {
+    const response = await this.api.post(`/api/e2e/plaid/connections/${connectionId}/error`, {
+      data: { code },
+    })
+    if (!response.ok()) {
+      throw new Error(
+        `Making the bank fail failed with ${response.status()}: ${await response.text()}`,
+      )
     }
   }
 

@@ -69,13 +69,55 @@ Without a certificate in `./certs`, Cashcove generates a self-signed one for
 
 ### Plaid
 
-Add `CASHCOVE_PLAID_CLIENT_ID`, `CASHCOVE_PLAID_SECRET` and `CASHCOVE_PLAID_ENV`
-(`sandbox` or `production`) to `.env`. The keys stay on the server; the browser only
-loads Plaid Link from `cdn.plaid.com`, which the Content Security Policy allows along
-with the matching Plaid API host.
+Cashcove connects to banks through [Plaid](https://plaid.com), using keys of your own. Until
+it has them, the **Connect** tab shows how to set it up.
 
-A self-hosted install on a private network can't receive Plaid webhooks, so Cashcove
-fetches new transactions on a schedule you choose in **Settings > Sync**.
+1. Sign up at [dashboard.plaid.com](https://dashboard.plaid.com/signup). A new account gets
+   the **sandbox** straight away, with test banks and made-up data. For your real banks, ask
+   for production access from the dashboard's home page and include the **Transactions**
+   product.
+2. Copy your client ID and secret from **Developers > Keys**
+   ([dashboard.plaid.com/developers/keys](https://dashboard.plaid.com/developers/keys)). The
+   sandbox and production have different secrets, so take the one for the environment you
+   use.
+3. Add them to `.env` and run `make up` to restart with them:
+
+   ```sh
+   CASHCOVE_PLAID_ENV=sandbox          # or production, with the production secret
+   CASHCOVE_PLAID_CLIENT_ID=your-client-id
+   CASHCOVE_PLAID_SECRET=your-secret
+   ```
+
+4. Open **Connect**, choose **Connect a bank**, pick how far back to import (up to two years,
+   defaulting to what **Settings > Sync** says), and sign in to the bank in Plaid's window.
+   In the sandbox, pick any bank and sign in with `user_good` and `pass_good`. Then tick the
+   accounts to import, rename them if you like, and Cashcove brings in their transactions.
+   Accounts you leave unticked can be imported later with **Choose accounts**.
+
+Big banks such as Chase and Wells Fargo sign you in on their own website (OAuth). Plaid opens
+that in a pop-up window, which works on a computer. To come back to Cashcove in the same tab
+instead, which suits phones better:
+
+1. In the dashboard, add `https://<CASHCOVE_SERVER_NAME>/connect/oauth` to **Developers > API
+   > Allowed redirect URIs**, with your server's name and any port that isn't 443
+   (`https://cashcove.example.com/connect/oauth`).
+2. Set `CASHCOVE_PLAID_OAUTH_REDIRECT=true` in `.env` and run `make up`.
+
+Banks outside the US need their countries in `CASHCOVE_PLAID_COUNTRY_CODES`, a
+comma-separated list of Plaid's country codes such as `US,CA` (the default is `US`), and
+Plaid has to have enabled them for your account.
+
+Plaid usually pushes changes through webhooks, but a server on a private network can't
+receive them, so Cashcove asks Plaid for anything new on a schedule instead: every 6 hours
+unless you change it in **Settings > Sync**, where you can also turn it off. **Sync now** on a
+bank fetches right away. When a bank wants you to sign in again, the Connect tab and its badge
+in the menu say so, as does a bank's card a month before it stops sharing, and **Reconnect**
+opens Plaid to fix it.
+
+Plaid's keys and each bank's access token stay on the server, the tokens encrypted with the
+app secret key. The browser only loads Plaid Link from `cdn.plaid.com`, which the Content
+Security Policy allows along with the matching Plaid API host. Removing a bank in Cashcove
+also removes it at Plaid, so Plaid stops billing for it.
 
 ## Security
 

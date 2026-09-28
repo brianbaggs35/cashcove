@@ -727,17 +727,19 @@ def test_the_baseline_banks_sync_and_reconnect_through_the_stand_in(e2e: TestCli
     use_saved_sign_in(e2e, "admin")
 
     added = e2e.post(
-        "/api/e2e/plaid/tartan/transactions",
+        "/api/e2e/plaid/transactions",
         json={
-            "account_id": "e2e-card",
-            "amount": "12.34",
-            "merchant": "Corner Bakery",
+            "account_id": baseline["accounts"]["card"]["id"],
+            "amount": "-12.34",
+            "payee": "Corner Bakery",
             "category": "FOOD_AND_DRINK_RESTAURANT",
         },
     )
     synced = e2e.post(f"/api/connections/{tartan}/sync", json={}).json()
 
-    assert added.status_code == 200
+    assert added.status_code == 201
+    # As Plaid reports it: positive when money leaves the account.
+    assert (added.json()["account_id"], added.json()["amount"]) == ("e2e-card", 12.34)
     assert synced["last_sync"]["added"] == 1
     bakery = e2e.get("/api/transactions", params={"q": "Corner Bakery"}).json()["items"]
     assert [(item["amount"], item["category_id"]) for item in bakery] == [
@@ -747,11 +749,14 @@ def test_the_baseline_banks_sync_and_reconnect_through_the_stand_in(e2e: TestCli
     assert e2e.post(f"/api/connections/{fidelity}/sync", json={}).json()["status"] == (
         "login_required"
     )
-    assert e2e.post(f"/api/connections/{fidelity}/link-token", json={}).status_code == 200
+    update = e2e.post(f"/api/connections/{fidelity}/link-token", json={})
+    assert update.json()["link_token"].startswith("link-sandbox-update-fidelity-")
     reconnected = e2e.post(
         f"/api/connections/{fidelity}/sync", json={"reason": "reconnected"}
     ).json()
     assert reconnected["status"] == "healthy"
+    new = e2e.post("/api/connections/link-token", json={})
+    assert new.json()["link_token"].startswith("link-sandbox-new-")
 
 
 def test_a_bank_can_be_made_to_want_a_new_sign_in(e2e: TestClient) -> None:
@@ -759,26 +764,37 @@ def test_a_bank_can_be_made_to_want_a_new_sign_in(e2e: TestClient) -> None:
     tartan = baseline["connections"]["tartan"]["id"]
     use_saved_sign_in(e2e, "admin")
 
-    response = e2e.post("/api/e2e/plaid/tartan/error", json={"code": "ITEM_LOGIN_REQUIRED"})
+    response = e2e.post(
+        f"/api/e2e/plaid/connections/{tartan}/error", json={"code": "ITEM_LOGIN_REQUIRED"}
+    )
 
     assert response.status_code == 204
     assert e2e.post(f"/api/connections/{tartan}/sync", json={}).json()["status"] == (
         "login_required"
     )
-    e2e.post("/api/e2e/plaid/tartan/error", json={"code": None})
+    e2e.post(f"/api/e2e/plaid/connections/{tartan}/error", json={"code": None})
     assert e2e.post(f"/api/connections/{tartan}/sync", json={}).json()["status"] == "healthy"
 
 
 def test_the_stand_in_only_knows_the_banks_it_has(e2e: TestClient) -> None:
-    e2e.post("/api/e2e/reset")
+    baseline = e2e.post("/api/e2e/reset").json()
+    nowhere = "00000000-0000-0000-0000-000000000000"
 
-    unknown_bank = e2e.post("/api/e2e/plaid/nowhere/error", json={"code": None})
+    unknown_bank = e2e.post(f"/api/e2e/plaid/connections/{nowhere}/error", json={"code": None})
     unknown_account = e2e.post(
-        "/api/e2e/plaid/tartan/transactions",
-        json={"account_id": "nope", "amount": "1.00", "merchant": "Shop"},
+        "/api/e2e/plaid/transactions",
+        json={"account_id": nowhere, "amount": "-1.00", "payee": "Shop"},
+    )
+    kept_by_hand = e2e.post(
+        "/api/e2e/plaid/transactions",
+        json={"account_id": baseline["accounts"]["checking"]["id"], "amount": "1", "payee": "x"},
     )
 
-    assert (unknown_bank.status_code, unknown_account.status_code) == (404, 404)
+    assert [response.status_code for response in (unknown_bank, unknown_account, kept_by_hand)] == [
+        404,
+        404,
+        404,
+    ]
 
 
 def test_resets_put_the_stand_in_back_to_the_baseline_banks(

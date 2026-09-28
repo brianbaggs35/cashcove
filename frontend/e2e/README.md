@@ -87,6 +87,14 @@ The household keeps six accounts, all in US dollars:
 | Retirement 401(k) | `accounts.retirement` | Investment  | Plaid (linked)     | $48,210.55                    | None         |
 | Old store card    | `accounts.closed`     | Credit card | Hand, now closed   | $0.00                         | 1            |
 
+Two of them are kept up to date by banks connected through Plaid (`baseline.connections`),
+which the Connect tab shows:
+
+| Bank        | In `baseline`          | Imports           | Shares, not imported | State                                               |
+| ----------- | ---------------------- | ----------------- | -------------------- | --------------------------------------------------- |
+| Tartan Bank | `connections.tartan`   | Rewards Visa      | Tartan Checking      | Up to date, synced 3 hours ago; 4 syncs             |
+| Fidelity    | `connections.fidelity` | Retirement 401(k) | Nothing              | Wants Alex to sign in again, so Connect has a badge |
+
 Closed accounts don't count, so the net worth is **$53,428.33**: $63,160.73 of assets less
 $9,732.40 owed. The categories are the 37 suggested ones every new household starts with,
 in 11 groups, by name: `baseline.categories['Groceries']`,
@@ -223,6 +231,8 @@ working across resets, even a reset in the middle of a test.
 | `accountsPage`                | The Accounts tab: `goto()`, `row(name)`, `balance(name)`, `act(name, 'edit')` from an account's menu, `showClosed()`, and the dialog's `fill({ … })` and `save()`.                                                                                                                                                        |
 | `transactionsPage`            | The Transactions tab: `goto(query)` (e.g. `{ page: '2', size: '25' }`), `row(payee)`, `open(payee)`, `nextPage()`, `searchFor(text)`, `choosePeriod(title)`, `openFilters()`, `select(...payees)` then `categorizeSelected(category)` or `deleteSelected()`, and the dialog's `fill({ … })`, `save()` and `deleteOpen()`. |
 | `categoriesPage`              | Settings > Categories: `goto()`, `group(name)`, `category(name)`, `actOnGroup` and `actOnCategory`, `addCategory(group)`, the dialogs' `fillGroup`, `fillCategory` and saves, and `deleteCategory(name, { moveTo })`.                                                                                                     |
+| `connectPage`                 | The Connect tab: `goto()`, `card(bank)`, `status(bank)`, `account(bank, name)`, `syncNow(bank)`, `act(bank, 'choose')` from a bank's menu, `remove(bank, { deleteAccounts })`, and the wizard's `startConnecting({ history })`, `chooseAccounts(...names)`, `renameAccount(name, to)`, `importAccounts()` and `finish()`. |
+| `plaid`                       | Plaid, as the next section describes: Link's window (`link`), with `connect(bank)`, `signInAgain()`, `close()` and `fail()`, and the banks behind the test server, with `addTransaction({ … })` and `failSyncs(connectionId, code)`.                                                                                      |
 
 And helpers: `signInFiles` holds the saved sign-ins, `expectAccessible(page)` fails on WCAG
 2.2 AA problems that axe finds (pass `{ include: '.v-overlay--active' }` to check just an
@@ -233,6 +243,43 @@ every baseline transaction, `choose(field, option)` picks from a select or autoc
 `typeDate(field, '2026-09-20')` fills in a date field, and `openOverlays(page)` finds what's in
 the dialog or menu that's open: a menu that just closed stays in the page while it fades out,
 so `openOverlays(page).getByTestId(…)` won't also match the item in that one.
+
+### Plaid
+
+Nothing in the tests reaches Plaid. The test server talks to a stand-in for Plaid's API
+(`backend/e2e/plaid.py`) that knows the baseline's two banks and two more to connect, First
+Platypus Bank (`'platypus'`) and First Gingham Credit Union (`'gingham'`), each sharing Plaid
+Checking, Plaid Saving and Plaid Credit Card with a couple of months of transactions. Every
+test's browser gets a stand-in for Plaid Link too: a plain window listing those two banks, or
+when Link opens to reconnect a bank, a **Continue** button. The `plaid` fixture drives it:
+
+```ts
+test('an admin connects a bank', async ({ connectPage, plaid }) => {
+  await connectPage.goto()
+  await connectPage.startConnecting({ history: 'Last 90 days' })
+  await plaid.connect('platypus')
+
+  await connectPage.chooseAccounts('Plaid Checking', 'Plaid Credit Card')
+  await connectPage.importAccounts()
+  await connectPage.finish()
+  await expect(connectPage.status('First Platypus Bank')).toHaveText('Up to date')
+})
+```
+
+- `plaid.connect(bank, { onBankWebsite: true })` goes through the app's OAuth redirect page
+  (`/connect/oauth`), as banks that sign people in on their own website do.
+- `plaid.signInAgain()` finishes reconnecting (**Reconnect**) or sharing other accounts.
+  `plaid.close()` closes Link, and `plaid.fail()` closes it with an error, as when the bank
+  isn't responding.
+- `plaid.addTransaction({ account_id, amount, payee, category })` has an account's bank
+  report a new transaction, which the next sync brings in (**Sync now**, or
+  `connectPage.syncNow(bank)`). Amounts are as Cashcove shows them, so `'-12.34'` is money
+  out; `category` is one of Plaid's, such as `FOOD_AND_DRINK_RESTAURANT`.
+- `plaid.failSyncs(baseline.connections.tartan.id, 'ITEM_LOGIN_REQUIRED')` makes a bank's syncs
+  fail with that error until it's reconnected, or cleared with `null`.
+
+`specs/connect.spec.ts` has more examples. Resets put the stand-in back to the baseline's
+banks.
 
 ### Conventions
 

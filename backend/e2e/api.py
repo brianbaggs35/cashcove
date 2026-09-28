@@ -6,6 +6,8 @@ over the API's code coverage. Only ``e2e.main`` mounts them.
 
 import base64
 import tempfile
+import uuid
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -18,7 +20,7 @@ from app.auth import sessions
 from app.auth.deps import ApiError, AppSettings, Db
 from app.auth.service import session_state
 from app.auth.setup import issue_code
-from app.models import User
+from app.models import Account, Connection, User
 from app.models.base import utcnow
 from app.schemas.auth import SessionState
 from e2e import baseline
@@ -118,35 +120,39 @@ def use_saved_sign_in(
 # ---- The stand-in for Plaid -------------------------------------------------------------
 
 
-def _bank(fake: FakePlaid, bank: str) -> FakeItem:
+def _item(fake: FakePlaid, connection: Connection | None) -> FakeItem:
     try:
-        return fake.item(bank)
+        return fake.item(connection.external_id if connection else "")
     except KeyError:
         raise ApiError(
-            status.HTTP_404_NOT_FOUND, "not_found", f"No bank called {bank} is connected."
+            status.HTTP_404_NOT_FOUND, "not_found", "No bank is connected with that ID."
         ) from None
 
 
 class BankTransaction(BaseModel):
-    # Plaid's account_id, like "e2e-card".
-    account_id: str
-    # As Plaid reports it: positive when money leaves the account.
-    amount: str
-    merchant: str
+    # The account in Cashcove, which a bank keeps up to date.
+    account_id: uuid.UUID
+    # As Cashcove shows it: negative when money leaves the account.
+    amount: Decimal
+    payee: str
     # One of Plaid's categories, which decides the transaction's category in Cashcove.
     category: str = "GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE"
 
 
-@router.post("/plaid/{bank}/transactions")
-def add_bank_transaction(bank: str, body: BankTransaction, fake: Fake) -> dict[str, Any]:
-    """Has a connected bank (by key, like "tartan") report a new transaction, which the next
-    sync brings in."""
-    item = _bank(fake, bank)
-    if body.account_id not in {account.account_id for account in item.accounts}:
+@router.post("/plaid/transactions", status_code=status.HTTP_201_CREATED)
+def add_bank_transaction(body: BankTransaction, db: Db, fake: Fake) -> dict[str, Any]:
+    """Has an account's bank report a new transaction, which the bank's next sync brings in.
+    Returns it as Plaid would."""
+    account = db.get(Account, body.account_id)
+    if account is None or account.connection_id is None or account.external_id is None:
         raise ApiError(
-            status.HTTP_404_NOT_FOUND, "not_found", f"{bank} has no account {body.account_id}."
+            status.HTTP_404_NOT_FOUND, "not_found", "No bank keeps an account with that ID."
         )
-    return fake.add_transaction(bank, body.account_id, body.amount, body.merchant, body.category)
+    item = _item(fake, db.get(Connection, account.connection_id))
+    # Plaid's amounts are positive when money leaves the account.
+    return fake.add_transaction(
+        item.item_id, account.external_id, str(-body.amount), body.payee, body.category
+    )
 
 
 class BankError(BaseModel):
@@ -154,11 +160,11 @@ class BankError(BaseModel):
     code: str | None
 
 
-@router.post("/plaid/{bank}/error", status_code=status.HTTP_204_NO_CONTENT)
-def set_bank_error(bank: str, body: BankError, fake: Fake) -> None:
-    """Has a connected bank fail its next syncs with an error until it's cleared, as when the
-    bank wants someone to sign in again. Reconnecting clears it too."""
-    _bank(fake, bank).error = body.code
+@router.post("/plaid/connections/{connection_id}/error", status_code=status.HTTP_204_NO_CONTENT)
+def set_bank_error(connection_id: uuid.UUID, body: BankError, db: Db, fake: Fake) -> None:
+    """Has a connected bank fail its syncs with an error until it's cleared, as when the bank
+    wants someone to sign in again. Reconnecting clears it too."""
+    _item(fake, db.get(Connection, connection_id)).error = body.code
 
 
 # ---- Code coverage ----------------------------------------------------------------------
