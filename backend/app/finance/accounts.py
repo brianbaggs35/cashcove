@@ -23,10 +23,7 @@ def get_account(db: Session, account_id: uuid.UUID, *, lock: bool = False) -> Ac
     return account
 
 
-def writable_account(db: Session, account_id: uuid.UUID, *, lock: bool = True) -> Account:
-    """An account people can add transactions to, by hand or from a file: one they keep
-    themselves, and open. It's locked against other changes until the commit, unless it's
-    only being looked at."""
+def _chosen_account(db: Session, account_id: uuid.UUID, *, lock: bool) -> Account:
     account = db.get(Account, account_id, with_for_update=lock)
     if account is None:
         raise ApiError(
@@ -34,12 +31,10 @@ def writable_account(db: Session, account_id: uuid.UUID, *, lock: bool = True) -
             "unknown_account",
             "That account doesn't exist anymore. Choose another one.",
         )
-    if account.is_linked:
-        raise ApiError(
-            status.HTTP_409_CONFLICT,
-            "linked_account",
-            f"Transactions in {account.name} come from the bank through Plaid.",
-        )
+    return account
+
+
+def _open(account: Account) -> Account:
     if account.is_closed:
         raise ApiError(
             status.HTTP_409_CONFLICT,
@@ -47,6 +42,25 @@ def writable_account(db: Session, account_id: uuid.UUID, *, lock: bool = True) -
             f"{account.name} is closed. Reopen it to add transactions to it.",
         )
     return account
+
+
+def writable_account(db: Session, account_id: uuid.UUID, *, lock: bool = True) -> Account:
+    """An account people can add transactions to by hand: one they keep themselves, and open.
+    It's locked against other changes until the commit, unless it's only being looked at."""
+    account = _chosen_account(db, account_id, lock=lock)
+    if account.is_linked:
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "linked_account",
+            f"Transactions in {account.name} come from the bank through Plaid.",
+        )
+    return _open(account)
+
+
+def importable_account(db: Session, account_id: uuid.UUID, *, lock: bool = True) -> Account:
+    """An account a statement file can be imported into: any open one. Files fill in a linked
+    account's history from before the bank shared it through Plaid."""
+    return _open(_chosen_account(db, account_id, lock=lock))
 
 
 def move_balance(account: Account, change: Decimal, now: datetime) -> None:

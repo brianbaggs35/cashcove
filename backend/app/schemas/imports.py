@@ -219,6 +219,15 @@ class BalanceOut(BaseModel):
     suggested: BalanceChoice
 
 
+class BankHistory(BaseModel):
+    """The days of an account's transactions that came from its bank through Plaid. A file
+    fills in the account's history before them, and after them once the bank stopped."""
+
+    start: dt.date
+    # None while the bank still keeps the account up to date.
+    end: dt.date | None
+
+
 class ImportSummary(BaseModel):
     rows: int
     new: int
@@ -243,6 +252,7 @@ class ImportPreview(BaseModel):
     new_account: AccountSuggestion
     # The account the rows were compared with: the one asked for, or the likeliest one.
     account_id: uuid.UUID | None
+    bank_history: BankHistory | None
     rows: list[PreviewRow]
     summary: ImportSummary
     balance: BalanceOut | None

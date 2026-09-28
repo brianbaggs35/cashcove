@@ -13,7 +13,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import ApiError
-from app.finance.accounts import get_account, move_balance, writable_account
+from app.finance.accounts import get_account, importable_account, move_balance
 from app.imports.csvfile import CsvFile, signature
 from app.imports.files import FileProblem, Statement, decode, sniff
 from app.imports.matching import Reviewed, review
@@ -34,6 +34,7 @@ from app.schemas.imports import (
     AccountSuggestion,
     BalanceChoice,
     BalanceOut,
+    BankHistory,
     FileImportOut,
     ImportCreate,
     ImportOptions,
@@ -140,30 +141,35 @@ def read_file(db: Session, body: Upload, locale: str, today: dt.date) -> ReadFil
         ) from None
 
 
-def _usable(account: Account | None) -> bool:
-    return account is not None and account.source == AccountSource.MANUAL and not account.is_closed
-
-
 def _likely_account(
     db: Session, statement: Statement, profile: ImportProfile | None
 ) -> Account | None:
     """The account a file most likely belongs in: the one its saved format was last used
-    with, the one whose last digits it has, or the only one it could go in."""
+    with, the one whose last digits it has, or the only one kept by hand it could go in."""
     if profile is not None and profile.account_id is not None:
         account = db.get(Account, profile.account_id)
-        if _usable(account):
+        if account is not None and not account.is_closed:
             return account
-    accounts = list(
-        db.scalars(
-            select(Account).where(
-                Account.source == AccountSource.MANUAL, Account.closed_at.is_(None)
-            )
-        )
-    )
+    accounts = list(db.scalars(select(Account).where(Account.closed_at.is_(None))))
     same = [account for account in accounts if statement.mask and account.mask == statement.mask]
     if len(same) == 1:
         return same[0]
-    return accounts[0] if len(accounts) == 1 else None
+    manual = [account for account in accounts if account.source == AccountSource.MANUAL]
+    return manual[0] if len(manual) == 1 else None
+
+
+def _bank_history(db: Session, account: Account) -> BankHistory | None:
+    """The days of the account's transactions that came from its bank through Plaid, which
+    the file's transactions are likely already among."""
+    count, start, end = db.execute(
+        select(func.count(), func.min(Transaction.date), func.max(Transaction.date)).where(
+            Transaction.account_id == account.id,
+            Transaction.source == TransactionSource.PLAID,
+        )
+    ).one()
+    if not count:
+        return None
+    return BankHistory(start=start, end=None if account.is_linked else end)
 
 
 def _suggested_balance(
@@ -171,7 +177,9 @@ def _suggested_balance(
 ) -> BalanceChoice:
     """Take the file's balance when it has one. Otherwise, add up the transactions when
     they're newer than every one the account has, and leave the balance alone when they're
-    history it already counts."""
+    history it already counts. A linked account's bank keeps its balance."""
+    if account.is_linked:
+        return "keep"
     if statement.closing is not None:
         return "file"
     latest = db.scalar(
@@ -221,7 +229,7 @@ def preview(db: Session, body: ImportPreviewRequest, locale: str, today: dt.date
     read = read_file(db, body, locale, today)
     index, statement = read.statement(body.statement)
     if body.account_id is not None:
-        account: Account | None = writable_account(db, body.account_id, lock=False)
+        account: Account | None = importable_account(db, body.account_id, lock=False)
     else:
         account = _likely_account(db, statement, read.profile)
     reviewed = review(db, statement.rows, account)
@@ -252,6 +260,7 @@ def preview(db: Session, body: ImportPreviewRequest, locale: str, today: dt.date
             currency=statement.currency,
         ),
         account_id=account.id if account else None,
+        bank_history=_bank_history(db, account) if account else None,
         rows=[_row_out(item) for item in reviewed],
         summary=_summary(reviewed),
         balance=BalanceOut(
@@ -299,6 +308,12 @@ def _save_profile(
 def _balance_change(
     account: Account, choice: BalanceChoice, total: Decimal, statement: Statement
 ) -> Decimal:
+    if account.is_linked and choice != "keep":
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "bank_balance",
+            f"The bank keeps {account.name}'s balance, so importing leaves it as it is.",
+        )
     if choice == "move":
         return total
     if choice == "file":
@@ -317,7 +332,7 @@ def import_file(
 ) -> FileImport:
     """Imports the rows chosen from the preview that still can be: ones already in the
     account by now are left out."""
-    account = writable_account(db, body.account_id)
+    account = importable_account(db, body.account_id)
     read = read_file(db, body, locale, today)
     _, statement = read.statement(body.statement)
     wanted = set(body.lines)
