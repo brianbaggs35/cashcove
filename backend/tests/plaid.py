@@ -1,5 +1,6 @@
 """A stand-in for Plaid behind the API, for the Connect tab's tests."""
 
+import base64
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -22,6 +23,14 @@ from app.models import (
 from app.plaid.accounts import share
 from app.plaid.client import PlaidAccount
 from e2e.plaid import FakePlaid
+
+# A 1x1 PNG, standing in for a bank's logo. Plaid's Sandbox banks mostly have none.
+LOGO = base64.b64encode(
+    bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000b49444154789c6360000200000500017a5eab3f0000000049454e44ae426082"
+    )
+).decode()
 
 
 def connect(client: TestClient, bank: str = "platypus", number: int = 1) -> dict[str, Any]:

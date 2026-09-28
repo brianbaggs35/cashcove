@@ -25,8 +25,8 @@ from app.plaid.connections import link_language, valid_logo
 from app.plaid.errors import diagnose, plaid_failed
 from app.plaid.schedule import IMPORT_INTERVAL, next_sync
 from app.schemas.preferences import SyncPreferences
-from e2e.plaid import LOGO
 from tests.finance import add_account, add_transaction
+from tests.plaid import LOGO
 
 
 def plaid_error(code: str, error_type: str = "ITEM_ERROR") -> PlaidError:
