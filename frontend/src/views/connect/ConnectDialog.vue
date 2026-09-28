@@ -353,17 +353,16 @@ function owed(type: Connection['accounts'][number]['type'], balance: string) {
     <div
       v-else-if="step === 'opening' || step === 'saving' || step === 'importing'"
       class="text-center py-10"
-      role="status"
       data-test="connect-progress"
     >
       <v-progress-circular indeterminate color="primary" size="48" width="4" />
-      <p class="text-body-large mt-5 mb-0">
+      <output class="d-block text-body-large mt-5">
         <template v-if="step === 'opening'">Opening Plaid…</template>
         <template v-else-if="step === 'saving'">Saving the connection to {{ bankName }}…</template>
         <template v-else>
           Importing {{ accountCount(selected.length) }} and their transactions…
         </template>
-      </p>
+      </output>
     </div>
 
     <v-form

@@ -11,6 +11,12 @@ const byName = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true
 export const SYNCING_POLL = 3_000
 export const IMPORTING_POLL = 20_000
 
+/** Balances and transactions change as banks sync, so the accounts are read again. */
+function refreshAccounts() {
+  const accounts = useAccountsStore()
+  if (accounts.loaded) void accounts.load()
+}
+
 /** The banks connected through Plaid, for the Connect tab and the navigation's alerts. */
 export const useConnectionsStore = defineStore('connections', () => {
   const connections = ref<Connection[]>([])
@@ -31,12 +37,6 @@ export const useConnectionsStore = defineStore('connections', () => {
     )
     return importing ? IMPORTING_POLL : null
   })
-
-  /** Balances and transactions change as banks sync, so the accounts are read again. */
-  function refreshAccounts() {
-    const accounts = useAccountsStore()
-    if (accounts.loaded) void accounts.load()
-  }
 
   /** Which sync each connection had last, to tell when one finished. */
   const lastSyncs = () =>

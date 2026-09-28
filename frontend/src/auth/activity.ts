@@ -276,15 +276,13 @@ const DESCRIPTIONS = new Map(
     bank_disconnected: ({ details, say, person }) => {
       const count = typeof details.accounts === 'number' ? details.accounts : 0
       const accounts = count === 1 ? 'its account' : `its ${count} accounts`
+      const fate =
+        details.kept_accounts === false ? `and deleted ${accounts}` : `and kept ${accounts}`
       return {
         title: join(
           say('Removed', `${person} removed`),
           text(details.bank) || 'a bank',
-          count
-            ? details.kept_accounts === false
-              ? `and deleted ${accounts}`
-              : `and kept ${accounts}`
-            : '',
+          count ? fate : '',
         ),
         icon: Unplug,
         tone: 'neutral',
