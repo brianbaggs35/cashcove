@@ -62,7 +62,7 @@ from app.plaid.accounts import SharedAccount
 from app.plaid.client import PlaidError
 from app.plaid.errors import diagnose
 from app.schemas.preferences import GeneralPreferences, Preferences
-from e2e.plaid import BANKS, FIDELITY_ACCESS, FIDELITY_ITEM, LOGO, TARTAN_ACCESS, TARTAN_ITEM
+from e2e.plaid import BANKS, FIDELITY_ACCESS, FIDELITY_ITEM, TARTAN_ACCESS, TARTAN_ITEM
 
 HOUSEHOLD_NAME = "The Rivera household"
 # Every baseline account signs in with this password. It's made-up test data that only
@@ -1509,7 +1509,7 @@ def _seed_connections(db: Session, settings: Settings, now: datetime) -> None:
                 institution_name=bank.name,
                 institution_url=bank.url,
                 institution_color=bank.color,
-                institution_logo=LOGO,
+                institution_logo=None,
                 status=connection.status,
                 error_code=error,
                 error_message=diagnose(_plaid_error(error)).message if error else None,

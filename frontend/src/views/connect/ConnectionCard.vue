@@ -192,7 +192,8 @@ const shareOthers = () =>
           data-test="connection-sync"
           @click="sync"
         >
-          <template v-if="!xs">Sync now</template>
+          <!-- On a phone it's the icon alone: a default slot, even an empty one, would hide it. -->
+          <template v-if="!xs" #default>Sync now</template>
         </v-btn>
         <v-menu location="bottom end">
           <template #activator="{ props: activator }">
@@ -266,7 +267,7 @@ const shareOthers = () =>
         type="warning"
         variant="tonal"
         density="compact"
-        class="mb-3"
+        class="connection__alert mb-3"
         data-test="connection-problem"
       >
         {{ connection.error_message ?? `${bank} needs you to sign in again.` }}
@@ -289,7 +290,7 @@ const shareOthers = () =>
         type="error"
         variant="tonal"
         density="compact"
-        class="mb-3"
+        class="connection__alert mb-3"
         data-test="connection-problem"
       >
         {{ connection.error_message ?? `The last sync of ${bank} failed.` }}
@@ -311,7 +312,7 @@ const shareOthers = () =>
         type="warning"
         variant="tonal"
         density="compact"
-        class="mb-3"
+        class="connection__alert mb-3"
         data-test="connection-consent"
       >
         {{ bank }} stops sharing on {{ consentEnds }} unless you renew your consent. Reconnect to
@@ -326,7 +327,7 @@ const shareOthers = () =>
         type="info"
         variant="tonal"
         density="compact"
-        class="mb-3"
+        class="connection__alert mb-3"
         data-test="connection-importing"
       >
         <template v-if="connection.history === 'pending'">
@@ -344,7 +345,7 @@ const shareOthers = () =>
         color="accent"
         variant="tonal"
         density="compact"
-        class="mb-3"
+        class="connection__alert mb-3"
         data-test="connection-unchosen"
       >
         <template v-if="imported.length">
@@ -452,6 +453,27 @@ const shareOthers = () =>
 .connection__meta > span + span::before {
   content: '·';
   margin-inline-end: 6px;
+}
+
+/* Phones: one fact per line, and alerts' buttons under their text. */
+@media (max-width: 599.98px) {
+  .connection__meta {
+    flex-direction: column;
+  }
+
+  .connection__meta > span + span::before {
+    content: none;
+  }
+
+  .connection__alert {
+    grid-template-areas: 'prepend content' 'prepend append';
+    grid-template-columns: max-content auto;
+  }
+
+  .connection__alert :deep(.v-alert__append) {
+    margin-top: 8px;
+    margin-inline-start: 0;
+  }
 }
 
 .connection__account {
