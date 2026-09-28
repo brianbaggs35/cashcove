@@ -77,10 +77,13 @@ const form = reactive<TransactionForm>({
 })
 const valid = ref(false)
 
-const fromBank = computed(() => props.transaction?.source === 'plaid')
-const locked = computed(() => props.readonly || fromBank.value)
 const account = computed(() => accounts.find(form.accountId))
 const original = computed(() => accounts.find(props.transaction?.account_id))
+/** Plaid keeps it up to date, until its account stops being linked to the bank. */
+const fromBank = computed(
+  () => props.transaction?.source === 'plaid' && original.value?.source === 'plaid',
+)
+const locked = computed(() => props.readonly || fromBank.value)
 
 /** Accounts kept by hand, plus the transaction's own, which may be closed or linked. */
 const accountItems = computed(() => {
@@ -220,6 +223,18 @@ const formError = computed(() =>
       <div v-if="transaction?.original_description" class="text-body-small mt-1">
         The bank calls it “{{ transaction.original_description }}”.
       </div>
+    </v-alert>
+    <v-alert
+      v-else-if="transaction?.source === 'plaid'"
+      :icon="Landmark"
+      color="secondary"
+      variant="tonal"
+      density="compact"
+      class="mb-5"
+      data-test="transaction-was-from-bank"
+    >
+      Came from the bank through Plaid. Its account isn’t linked any more, so it’s yours to keep up
+      to date.
     </v-alert>
     <v-alert
       v-else-if="transaction?.source === 'file'"

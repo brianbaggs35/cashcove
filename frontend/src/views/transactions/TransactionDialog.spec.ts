@@ -266,6 +266,14 @@ describe('TransactionDialog', () => {
     expect(field('from-bank').text()).not.toContain('The bank calls it')
   })
 
+  it('lets the household change what came from a bank that is no longer linked', async () => {
+    const kept = makeAccount({ ...visa, source: 'manual', connection_id: null })
+    await render({ transaction: latte, accounts: [checking, kept] })
+    expect(field('from-bank').exists()).toBe(false)
+    expect(field('was-from-bank').text()).toContain('Its account isn’t linked any more')
+    expect(field('amount').find('input').attributes('disabled')).toBeUndefined()
+  })
+
   it('says when a transaction was imported from a file', async () => {
     await render({ transaction: makeTransaction({ source: 'file' }) })
     expect(field('from-file').text()).toBe('Imported from a file.')

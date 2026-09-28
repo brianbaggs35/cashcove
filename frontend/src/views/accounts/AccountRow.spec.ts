@@ -210,6 +210,15 @@ describe('AccountRow', () => {
     })
   })
 
+  it('goes to the bank connection that keeps a linked account up to date', async () => {
+    const { choose, router, find } = await render(visa)
+    expect(find('linked').exists()).toBe(true)
+    await choose('connection')
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.fullPath).toBe('/connect')
+    })
+  })
+
   it('keeps its menu a list of actions, with the divider out of the way', async () => {
     const { find } = await render(checking)
     await menuSettled()

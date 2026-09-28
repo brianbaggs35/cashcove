@@ -1,5 +1,9 @@
 import AppNavigation from '@/components/AppNavigation.vue'
 import { navItems } from '@/navigation'
+import { useConnectionsStore } from '@/stores/connections'
+import { usePreferencesStore } from '@/stores/preferences'
+import { fidelity, makeConnection, tartan } from '@/test/connections'
+import { makePreferences } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
 
 describe('AppNavigation', () => {
@@ -15,6 +19,30 @@ describe('AppNavigation', () => {
     expect(wrapper.find('.v-list-item--active').text()).toBe('Budget')
     // Each link sits in a list item, so screen readers can count the tabs.
     expect(wrapper.findAll('ul[aria-label="Sections"] > li > a')).toHaveLength(navItems.length)
+    wrapper.unmount()
+  })
+
+  it('points out banks that need attention, unless those alerts are off', async () => {
+    const { wrapper } = await mountWithPlugins(AppNavigation, {
+      withApp: true,
+      width: 1920,
+      beforeMount: () => {
+        useConnectionsStore().connections = [tartan, fidelity]
+      },
+    })
+    const alerts = () => wrapper.find('[data-test="nav-connect-alerts"]')
+    expect(alerts().text()).toBe('1 1 bank needs attention')
+    expect(alerts().find('.d-sr-only').text()).toBe('1 bank needs attention')
+
+    useConnectionsStore().connections = [fidelity, makeConnection({ id: 'c2', status: 'error' })]
+    await wrapper.vm.$nextTick()
+    expect(alerts().find('.d-sr-only').text()).toBe('2 banks need attention')
+
+    const preferences = makePreferences()
+    preferences.alerts.sync_failure_enabled = false
+    usePreferencesStore().saved = preferences
+    await wrapper.vm.$nextTick()
+    expect(alerts().exists()).toBe(false)
     wrapper.unmount()
   })
 

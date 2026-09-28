@@ -24,6 +24,8 @@ export interface Account {
   balance_updated_at: string
   notes: string | null
   source: AccountSource
+  /** The bank connection that keeps a linked account up to date. */
+  connection_id: string | null
   /** The bank's own name for a linked account, e.g. "Platinum Rewards Visa Signature". */
   official_name: string | null
   subtype: string | null

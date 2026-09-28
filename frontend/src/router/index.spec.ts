@@ -38,6 +38,13 @@ describe('router', () => {
     for (const module of modules) expect(module).toHaveProperty('default')
   })
 
+  it('opens Connect when a bank sends people back from its own sign-in page', async () => {
+    const route = await visit('/connect/oauth?oauth_state_id=abc')
+    expect(route.name).toBe('connect')
+    expect(route.path).toBe('/connect/oauth')
+    expect(document.title).toBe('Connect · Cashcove')
+  })
+
   it('shows the not-found page for unknown paths', async () => {
     expect((await visit('/does/not/exist')).name).toBe('not-found')
     expect(document.title).toBe('Page not found · Cashcove')

@@ -22,6 +22,8 @@ const views: Record<NavName, NonNullable<RouteRecordRaw['component']>> = {
 }
 
 export const HOME = '/accounts'
+/** Where a bank's own sign-in page sends people back to; Plaid's dashboard must allow it. */
+export const CONNECT_OAUTH = '/connect/oauth'
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -52,6 +54,9 @@ export const routes: RouteRecordRaw[] = [
   ...navItems.map((item): RouteRecordRaw => ({
     // Settings sections are deep-linkable, e.g. /settings/alerts.
     path: item.name === 'settings' ? `${item.path}/:section?` : item.path,
+    // Banks that sign people in on their own site send them back to Connect, to finish in Plaid
+    // Link. The same page handles it, so it stays open while it does.
+    alias: item.name === 'connect' ? CONNECT_OAUTH : [],
     name: item.name,
     component: views[item.name],
     meta: { title: item.title },

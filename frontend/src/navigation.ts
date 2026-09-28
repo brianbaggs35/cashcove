@@ -80,11 +80,6 @@ export const navItems: NavItem[] = [
     path: '/connect',
     icon: Plug,
     summary: 'Link your banks securely with Plaid.',
-    planned: [
-      'Connect institutions through Plaid Link',
-      'Automatic transaction and balance sync',
-      'Reconnect or remove a link at any time',
-    ],
   },
   {
     name: 'settings',

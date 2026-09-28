@@ -2,28 +2,13 @@
 import { CloudOff, History, Plug, RefreshCw } from '@lucide/vue'
 import { computed } from 'vue'
 
-import { HISTORY_DAYS, SYNC_INTERVALS } from '@/api/preferences'
 import { useHealthStore } from '@/stores/health'
 import PreferencesGate from '@/views/settings/PreferencesGate.vue'
 import SettingsCard from '@/views/settings/SettingsCard.vue'
+import { historyOptions, intervalLabel, intervalOptions } from '@/views/settings/syncOptions'
 
 const healthStore = useHealthStore()
 const plaid = computed(() => healthStore.system?.plaid)
-
-function intervalLabel(hours: number): string {
-  if (hours === 24) return 'Daily'
-  return hours === 1 ? 'Every hour' : `Every ${hours} hours`
-}
-const intervals = SYNC_INTERVALS.map((hours) => ({ value: hours, title: intervalLabel(hours) }))
-
-const historyLabels: Record<(typeof HISTORY_DAYS)[number], string> = {
-  30: 'Last 30 days',
-  90: 'Last 90 days',
-  180: 'Last 6 months',
-  365: 'Last year',
-  730: 'Last 2 years (the most Plaid allows)',
-}
-const history = HISTORY_DAYS.map((days) => ({ value: days, title: historyLabels[days] }))
 </script>
 
 <template>
@@ -54,7 +39,7 @@ const history = HISTORY_DAYS.map((days) => ({ value: days, title: historyLabels[
         data-test="sync-interval"
       >
         <v-chip
-          v-for="interval in intervals"
+          v-for="interval in intervalOptions"
           :key="interval.value"
           :value="interval.value"
           variant="tonal"
@@ -80,7 +65,7 @@ const history = HISTORY_DAYS.map((days) => ({ value: days, title: historyLabels[
     >
       <v-select
         v-model="draft.sync.history_days"
-        :items="history"
+        :items="historyOptions"
         label="Import transactions from"
         hide-details
         data-test="history-days"
