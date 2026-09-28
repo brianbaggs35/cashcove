@@ -7,6 +7,9 @@ dependencies = [
     "alembic>=1.20.0",
     "email-validator>=2.3.0",
     "fastapi>=0.141.1",
+    # Talks to Plaid's API (plaid-python is only published as a source package, and the image
+    # installs prebuilt wheels only).
+    "httpx2>=2.13.1",
     "psycopg[binary]>=3.3.6",
     "pwdlib[argon2]>=0.3.1",
     "pydantic>=2.13.5",
@@ -20,7 +23,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "bandit>=1.9.4",
-    "httpx2>=2.13.1",
     "mypy>=2.3.1",
     "pip-audit>=2.10.1",
     "pyright>=1.1.414",

@@ -36,3 +36,17 @@ def test_plaid_needs_both_client_id_and_secret() -> None:
     assert not Settings(plaid_client_id="id").plaid_configured
     assert not Settings(plaid_secret=SecretStr("secret")).plaid_configured
     assert Settings(plaid_client_id="id", plaid_secret=SecretStr("secret")).plaid_configured
+
+
+def test_plaid_country_codes_come_as_a_list_or_comma_separated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert Settings(plaid_country_codes=["US", "GB"]).plaid_country_codes == ["US", "GB"]
+    monkeypatch.setenv("CASHCOVE_PLAID_COUNTRY_CODES", "us, ca,")
+    assert Settings().plaid_country_codes == ["US", "CA"]
+
+
+def test_plaid_oauth_comes_back_to_the_connect_tab() -> None:
+    settings = Settings(server_name="money.example.com", plaid_oauth_redirect=True)
+    assert settings.plaid_redirect_uri == "https://money.example.com/connect/oauth"
+    assert Settings().plaid_redirect_uri is None

@@ -11,6 +11,7 @@ from app.auth.service import load_preferences
 from app.finance.accounts import account_out, get_account, transaction_counts
 from app.models import Account, AccountSource
 from app.models.base import utcnow
+from app.plaid.connections import skip_deleted
 from app.schemas.accounts import AccountCreate, AccountOut, AccountUpdate
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -87,6 +88,9 @@ def update_account(
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_account(account_id: uuid.UUID, auth: AdminAuth, db: Db) -> None:
-    """Removes the account and every transaction in it."""
-    db.delete(get_account(db, account_id, lock=True))
+    """Removes the account and every transaction in it. A linked account's bank keeps sharing
+    it, so its connection lists it as skipped, ready to import again."""
+    account = get_account(db, account_id, lock=True)
+    skip_deleted(db, account)
+    db.delete(account)
     db.commit()

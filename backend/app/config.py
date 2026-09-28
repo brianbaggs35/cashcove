@@ -5,10 +5,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app import __version__
+
+# The countries Plaid Link can show banks from (Plaid's CountryCode).
+PlaidCountry = Literal[
+    "US", "CA", "GB", "IE", "FR", "ES", "NL", "DE", "IT", "PL", "DK", "NO", "SE", "EE", "LT",
+    "LV", "PT", "BE", "AT", "FI",
+]  # fmt: skip
 
 
 class Settings(BaseSettings):
@@ -44,6 +50,18 @@ class Settings(BaseSettings):
     plaid_env: Literal["sandbox", "production"] = "sandbox"
     plaid_client_id: str | None = None
     plaid_secret: SecretStr | None = None
+    # Where the banks people can connect are, as a comma-separated list ("US,CA").
+    plaid_country_codes: Annotated[list[PlaidCountry], NoDecode, Field(min_length=1)] = ["US"]
+    # Banks that sign in on their own site (OAuth) come back to Cashcove at /connect/oauth
+    # instead of in a pop-up. It has to be on Plaid's list of allowed redirect URIs.
+    plaid_oauth_redirect: bool = False
+
+    @field_validator("plaid_country_codes", mode="before")
+    @classmethod
+    def _split_country_codes(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [code.strip().upper() for code in value.split(",") if code.strip()]
+        return value
 
     @property
     def version(self) -> str:
@@ -61,6 +79,10 @@ class Settings(BaseSettings):
     def public_origin(self) -> str:
         port = "" if self.https_port == 443 else f":{self.https_port}"
         return f"https://{self.server_name}{port}"
+
+    @property
+    def plaid_redirect_uri(self) -> str | None:
+        return f"{self.public_origin}/connect/oauth" if self.plaid_oauth_redirect else None
 
     @property
     def passkeys_supported(self) -> bool:

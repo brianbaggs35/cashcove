@@ -135,7 +135,10 @@ COPY backend/e2e /app/backend/e2e
 COPY docker/e2e/coveragerc /app/docker/e2e/coveragerc
 COPY --chmod=0755 docker/e2e/start-api.sh /app/docker/e2e/start-api.sh
 COPY docker/e2e/api.conf /etc/supervisor/conf.d/api.conf
-RUN sed -i -e 's|zone=api:10m rate=20r/s;|zone=api:10m rate=500r/s;|' \
+# The harness fakes Plaid inside the API and the tests sync when they choose to, so the
+# scheduled syncs don't run.
+RUN rm /etc/supervisor/conf.d/sync.conf \
+    && sed -i -e 's|zone=api:10m rate=20r/s;|zone=api:10m rate=500r/s;|' \
         -e 's|zone=auth:10m rate=10r/m;|zone=auth:10m rate=500r/s;|' /etc/nginx/nginx.conf \
     && grep -q 'zone=api:10m rate=500r/s;' /etc/nginx/nginx.conf \
     && grep -q 'zone=auth:10m rate=500r/s;' /etc/nginx/nginx.conf

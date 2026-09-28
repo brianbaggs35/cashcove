@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import String, Uuid
+from sqlalchemy import ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, Money, TimestampMixin, UTCDateTime, enum_type, utcnow
@@ -53,10 +53,18 @@ class Account(TimestampMixin, Base):
     balance_updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     notes: Mapped[str | None] = mapped_column(String(500))
     source: Mapped[AccountSource] = mapped_column(enum_type(AccountSource, "account_source"))
-    # For linked accounts: Plaid's account_id, and its own name and subtype for the account.
+    # For linked accounts: the connection that keeps it up to date, Plaid's account_id, and the
+    # bank's own name and subtype for the account.
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("connections.id", ondelete="SET NULL"), index=True
+    )
     external_id: Mapped[str | None] = mapped_column(String(255), unique=True)
     official_name: Mapped[str | None] = mapped_column(String(160))
     subtype: Mapped[str | None] = mapped_column(String(40))
+    # Where the next sync of a linked account's transactions picks up: Plaid's
+    # /transactions/sync cursor. Each account keeps its own, so one added later starts with
+    # its whole history.
+    sync_cursor: Mapped[str | None] = mapped_column(Text())
     # Closed accounts keep their history but drop out of totals and pickers.
     closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 

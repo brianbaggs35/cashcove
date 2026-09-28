@@ -34,6 +34,11 @@ def totp_box(settings: Settings) -> SecretBox:
     return _box(settings.read_secret_key(), "totp")
 
 
+def plaid_box(settings: Settings) -> SecretBox:
+    """Encrypts the access tokens Cashcove reads connected banks' data with."""
+    return _box(settings.read_secret_key(), "plaid")
+
+
 def load_preferences(db: Session) -> Preferences:
     row = db.get(AppSettings, SINGLETON_ID)
     # Stored documents are merged over the defaults, so new fields appear without a migration.

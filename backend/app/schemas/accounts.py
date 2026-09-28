@@ -72,6 +72,8 @@ class AccountOut(BaseModel):
     balance_updated_at: datetime
     notes: str | None
     source: AccountSource
+    # The bank connection that keeps a linked account up to date.
+    connection_id: uuid.UUID | None
     official_name: str | None
     subtype: str | None
     closed_at: datetime | None

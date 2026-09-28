@@ -14,6 +14,14 @@ from app.models.auth import (
 )
 from app.models.base import Base, TimestampMixin
 from app.models.category import Category, CategoryGroup, CategoryKind
+from app.models.connection import (
+    Connection,
+    ConnectionProvider,
+    ConnectionStatus,
+    ConnectionSync,
+    HistoryStatus,
+    SyncTrigger,
+)
 from app.models.transaction import Transaction, TransactionSource
 from app.models.user import Role, User
 
@@ -29,12 +37,18 @@ __all__ = [
     "Category",
     "CategoryGroup",
     "CategoryKind",
+    "Connection",
+    "ConnectionProvider",
+    "ConnectionStatus",
+    "ConnectionSync",
+    "HistoryStatus",
     "Invitation",
     "LoginThrottle",
     "Passkey",
     "PasswordReset",
     "RecoveryCode",
     "Role",
+    "SyncTrigger",
     "TimestampMixin",
     "Transaction",
     "TransactionSource",
