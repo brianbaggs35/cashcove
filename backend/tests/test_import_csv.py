@@ -282,8 +282,10 @@ def test_files_without_transactions_are_read_by_their_column_names() -> None:
 
 
 def test_files_the_csv_reader_cant_split_cant_be_imported() -> None:
+    csv_file = CsvFile(f"{'x' * 140_000},1\n")
+
     with pytest.raises(FileProblem) as raised:
-        CsvFile(f"{'x' * 140_000},1\n").detect("en-US")
+        csv_file.detect("en-US")
 
     assert raised.value.message.startswith("Cashcove couldn't read this file.")
 

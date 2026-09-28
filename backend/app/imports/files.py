@@ -52,6 +52,29 @@ class FileRow:
     problem: str | None = None
 
 
+def payee_and_notes(payee: str, memo: str, check: str, *, memo_first: bool) -> tuple[str, str]:
+    """A transaction's description, and its notes: the memo, and the check number if any.
+    The memo is the payee when the file keeps payees there, or when there's no payee."""
+    if memo_first and memo:
+        payee, memo = memo, payee
+    if not payee:
+        payee, memo = memo, ""
+    return payee, " · ".join(part for part in (memo, check) if part)
+
+
+def settle(row: FileRow, written: str, text: str, amount: Decimal | None, *, flip: bool) -> None:
+    """Gives the row its amount, or says why it can't be imported. ``written`` is its date as
+    the file writes it, ``text`` its amount."""
+    if row.date is None:
+        row.problem = "It has no date." if not written else f"“{written[:40]}” isn't a date."
+    elif amount is None:
+        row.problem = "It has no amount." if not text else f"“{text[:40]}” isn't an amount."
+    elif amount == 0:
+        row.problem = "Its amount is zero."
+    else:
+        row.amount = -amount if flip else amount
+
+
 @dataclass
 class Statement:
     """One account's transactions. Most files have one; OFX and QIF files can have several."""
