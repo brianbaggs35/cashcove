@@ -31,6 +31,7 @@ from app.auth.service import one_time_link, plaid_box, totp_box
 from app.auth.tokens import hash_token, new_token
 from app.auth.useragent import describe as describe_device
 from app.config import Settings
+from app.finance.budget import add_months, year_start
 from app.finance.categories import SUGGESTED
 from app.imports.csvfile import signature
 from app.models import (
@@ -40,6 +41,9 @@ from app.models import (
     AppSettings,
     AuditEvent,
     Base,
+    Budget,
+    BudgetAmount,
+    BudgetPeriod,
     Category,
     CategoryGroup,
     CategoryKind,
@@ -1109,6 +1113,63 @@ IMPORTS = (SAVINGS_IMPORT, CHECKING_IMPORT)
 IMPORTED_BY = {item.key: record for record in IMPORTS for item in record.transactions}
 
 
+# ---- Budgets ---------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SeedBudget:
+    """A category's budget, set up with Cashcove about four months before the reset."""
+
+    # One of the suggested categories, by name.
+    category: str
+    # How many months (budget years, for a yearly budget) before the reset's each amount
+    # starts, and the amount: None stops budgeting the category from then on. Negative counts
+    # start after the reset's month.
+    amounts: tuple[tuple[int, str | None], ...]
+    period: BudgetPeriod = BudgetPeriod.MONTHLY
+    # Rolls over what's left from this many months before the reset's month on.
+    rollover_months_ago: int | None = None
+
+    @property
+    def id(self) -> uuid.UUID:
+        return stable_id("budget", self.category)
+
+
+# Set up four months ago, the month the household started with Cashcove.
+BUDGETED_SINCE = 4
+
+
+def _monthly(category: str, amount: str, **options: Any) -> SeedBudget:
+    return SeedBudget(category, ((BUDGETED_SINCE, amount),), **options)
+
+
+# Income first, then spending, as the Budget tab lists them. Some spending isn't budgeted
+# (Cash & ATM, Pharmacy, Clothing, Bank fees), and nothing budgets transfers.
+BUDGETS = (
+    _monthly("Paycheck", "4000.00"),
+    _monthly("Interest & dividends", "10.00"),
+    _monthly("Rent & mortgage", "1850.00"),
+    _monthly("Utilities", "110.00"),
+    _monthly("Phone & internet", "165.00"),
+    _monthly("Insurance", "140.00"),
+    _monthly("Subscriptions", "30.00"),
+    # Raised last month.
+    SeedBudget("Groceries", ((BUDGETED_SINCE, "450.00"), (1, "500.00"))),
+    # What's left rolls over, since two months ago.
+    _monthly("Restaurants", "120.00", rollover_months_ago=2),
+    _monthly("Coffee", "25.00"),
+    _monthly("Gas & fuel", "160.00"),
+    _monthly("Fitness", "25.00"),
+    # More this month only.
+    SeedBudget("Shopping", ((BUDGETED_SINCE, "100.00"), (0, "150.00"), (-1, "100.00"))),
+    _monthly("Loan payments", "325.00"),
+    # For the budget year the reset is in.
+    SeedBudget("Travel", ((0, "2500.00"),), BudgetPeriod.YEARLY),
+    SeedBudget("Home maintenance", ((0, "600.00"),), BudgetPeriod.YEARLY),
+    SeedBudget("Gifts & donations", ((0, "400.00"),), BudgetPeriod.YEARLY),
+)
+
+
 # ---- What specs are told about the baseline --------------------------------------------
 
 
@@ -1282,6 +1343,26 @@ class BaselineImport(BaseModel):
     created_by: str
 
 
+class BaselineBudgetAmount(BaseModel):
+    # It starts this many months before the reset's month, or budget years before the reset's
+    # budget year for a yearly budget. Negative when it starts after the reset's.
+    ago: int
+    # None stops budgeting the category from then on.
+    amount: str | None
+
+
+class BaselineBudget(BaseModel):
+    id: uuid.UUID
+    # Its category's name, the key in ``categories``.
+    category: str
+    category_id: uuid.UUID
+    period: BudgetPeriod
+    # Oldest first.
+    amounts: list[BaselineBudgetAmount]
+    # For a budget that rolls over: from this many months before the reset's month.
+    rollover_months_ago: int | None
+
+
 class Baseline(BaseModel):
     household_name: str
     users: BaselineUsers
@@ -1302,6 +1383,8 @@ class Baseline(BaseModel):
     # for banks' files, by key ("checking_history", "harbor_checking").
     imports: dict[str, BaselineImport]
     saved_formats: dict[str, BaselineSavedFormat]
+    # Categories' budgets, by category name ("Groceries"), income first, then spending.
+    budgets: dict[str, BaselineBudget]
 
 
 def _device(device: Device) -> BaselineDevice:
@@ -1432,6 +1515,20 @@ def describe(settings: Settings) -> Baseline:
             )
             for saved in SAVED_FORMATS
         },
+        budgets={
+            budget.category: BaselineBudget(
+                id=budget.id,
+                category=budget.category,
+                category_id=stable_id("category", budget.category),
+                period=budget.period,
+                amounts=[
+                    BaselineBudgetAmount(ago=ago, amount=amount)
+                    for ago, amount in sorted(budget.amounts, key=lambda item: -item[0])
+                ],
+                rollover_months_ago=budget.rollover_months_ago,
+            )
+            for budget in BUDGETS
+        },
     )
 
 
@@ -1529,6 +1626,7 @@ def seed(db: Session, settings: Settings, now: datetime) -> None:
     _seed_sign_ins(db, settings, now)
     _seed_connections(db, settings, now)
     _seed_money(db, now)
+    _seed_budgets(db, now, preferences.general.fiscal_year_start_month)
 
 
 def _hours_before(now: datetime, hours: int | None) -> datetime | None:
@@ -1825,3 +1923,32 @@ def _seed_imports(db: Session, now: datetime) -> None:
         )
     # Before the transactions, which refer to them.
     db.flush()
+
+
+def _seed_budgets(db: Session, now: datetime, first_month: int) -> None:
+    this_month = now.date().replace(day=1)
+    this_year = year_start(this_month, first_month)
+    for budget in BUDGETS:
+        yearly = budget.period == BudgetPeriod.YEARLY
+        start = this_year if yearly else this_month
+        months = 12 if yearly else 1
+        db.add(
+            Budget(
+                id=budget.id,
+                category_id=stable_id("category", budget.category),
+                period=budget.period,
+                rollover_since=(
+                    None
+                    if budget.rollover_months_ago is None
+                    else add_months(this_month, -budget.rollover_months_ago)
+                ),
+                amounts=[
+                    BudgetAmount(
+                        id=stable_id("budget_amount", f"{budget.category}:{ago}"),
+                        starts_on=add_months(start, -ago * months),
+                        amount=None if amount is None else Decimal(amount),
+                    )
+                    for ago, amount in budget.amounts
+                ],
+            )
+        )
