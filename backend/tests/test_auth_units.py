@@ -254,7 +254,7 @@ def test_the_secret_key_comes_from_the_environment_or_the_key_file(tmp_path: Pat
 
 def test_timestamps_are_always_utc() -> None:
     column = UTCDateTime()
-    dialect = create_engine("sqlite://").dialect
+    dialect = create_engine("postgresql+psycopg://").dialect
     local = datetime(2026, 9, 25, 3, 0, tzinfo=timezone(timedelta(hours=-5)))
     utc = datetime(2026, 9, 25, 8, 0, tzinfo=UTC)
     assert column.process_bind_param(None, dialect) is None
@@ -266,8 +266,6 @@ def test_timestamps_are_always_utc() -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         column.process_bind_param(naive, dialect)
     assert column.process_result_value(None, dialect) is None
-    # SQLite drops the offset, and values read back without one are UTC.
-    assert column.process_result_value(datetime(2026, 9, 25, 8, 0), dialect) == utc
     loaded = column.process_result_value(local, dialect)
     assert loaded is not None
     assert loaded.tzinfo is UTC

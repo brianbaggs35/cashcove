@@ -11,7 +11,7 @@ def test_docs_enabled_when_configured(client: TestClient) -> None:
 
 
 def test_docs_disabled_by_default() -> None:
-    client = TestClient(create_app(Settings(database_url="sqlite://")))
+    client = TestClient(create_app(Settings()))
     assert client.get("/api/docs").status_code == 404
     assert client.get("/api/openapi.json").status_code == 404
 

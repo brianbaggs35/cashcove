@@ -1,5 +1,6 @@
 """Shared helpers for the API tests."""
 
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -12,6 +13,10 @@ from app.auth.deps import CSRF_HEADER
 from app.auth.passwords import get_passwords
 from app.config import Settings
 from app.models import Role, User
+
+# The tests run on Postgres, like the app: `make test-backend` starts a throwaway one, and CI
+# has its own. Every table in it is dropped and made again from the models first.
+TEST_DATABASE_URL = os.environ.get("CASHCOVE_TEST_DATABASE_URL", "")
 
 SERVER_NAME = "cashcove.example.com"
 ORIGIN = f"https://{SERVER_NAME}"

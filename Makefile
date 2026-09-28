@@ -12,6 +12,11 @@ ACTIONLINT_IMAGE := rhysd/actionlint:1.7.12
 TRIVY_IMAGE := aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
 TRIVY := docker run --rm -v cashcove-trivy-cache:/root/.cache/trivy
 TRIVY_FLAGS := --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+# pytest runs on a throwaway Postgres, the same image CI tests on. It only listens on this
+# computer and is removed afterwards, so it has no password.
+TEST_DB_IMAGE := postgres:18
+TEST_DB := cashcove-test-db
+TEST_DB_PORT ?= 55432
 
 .DEFAULT_GOAL := help
 .PHONY: help up pull down restart rebuild logs ps shell psql backup secret-key \
@@ -90,8 +95,16 @@ install: ## Install backend and frontend dependencies locally, and Chromium for 
 
 test: test-backend test-frontend ## Run all tests with coverage (100% required)
 
-test-backend: ## Run pytest with coverage
-	$(BACKEND) uv run pytest
+test-backend: ## Run pytest with coverage, on a throwaway Postgres
+	@docker rm --force $(TEST_DB) >/dev/null 2>&1 || true
+	docker run --detach --rm --name $(TEST_DB) --publish 127.0.0.1:$(TEST_DB_PORT):5432 \
+		--env POSTGRES_USER=cashcove --env POSTGRES_HOST_AUTH_METHOD=trust $(TEST_DB_IMAGE) >/dev/null
+	@# Over TCP, which only opens once the image's first-start setup has finished.
+	@for _ in $$(seq 60); do \
+		docker exec $(TEST_DB) pg_isready --quiet -h 127.0.0.1 -U cashcove && break; sleep 1; \
+	done
+	@$(BACKEND) CASHCOVE_TEST_DATABASE_URL=postgresql+psycopg://cashcove@127.0.0.1:$(TEST_DB_PORT)/cashcove \
+		uv run pytest; status=$$?; docker rm --force $(TEST_DB) >/dev/null; exit $$status
 
 test-frontend: ## Run vitest with coverage
 	$(FRONTEND) npm run coverage

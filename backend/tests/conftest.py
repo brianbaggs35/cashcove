@@ -1,39 +1,31 @@
-import os
 from collections.abc import Iterator
-from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy import Engine, StaticPool, create_engine, event
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db import get_session
 from app.main import create_app
 from app.models import Base, Role, User
-from tests.helpers import ORIGIN, SERVER_NAME, add_user, sign_in
-
-# Set to a Postgres URL to run the suite against Postgres instead of in-memory SQLite.
-TEST_DATABASE_URL = os.environ.get("CASHCOVE_TEST_DATABASE_URL")
+from tests.helpers import ORIGIN, SERVER_NAME, TEST_DATABASE_URL, add_user, sign_in
 
 
-def _enable_foreign_keys(connection: Any, _record: Any) -> None:
-    # SQLite only enforces foreign keys (and their ON DELETE actions) when asked to.
-    connection.execute("PRAGMA foreign_keys=ON")
+def pytest_configure() -> None:
+    if not TEST_DATABASE_URL.startswith("postgresql"):
+        raise pytest.UsageError(
+            "The tests run on Postgres. Run `make test-backend`, which starts one, or set "
+            "CASHCOVE_TEST_DATABASE_URL to a Postgres database the tests may empty."
+        )
 
 
 @pytest.fixture(scope="session")
 def engine() -> Iterator[Engine]:
-    if TEST_DATABASE_URL:
-        engine = create_engine(TEST_DATABASE_URL)
-        Base.metadata.drop_all(engine)
-    else:
-        engine = create_engine(
-            "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
-        )
-        event.listen(engine, "connect", _enable_foreign_keys)
+    engine = create_engine(TEST_DATABASE_URL)
+    Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield engine
     engine.dispose()
@@ -43,7 +35,7 @@ def engine() -> Iterator[Engine]:
 def settings() -> Settings:
     return Settings(
         environment="test",
-        database_url="sqlite://",
+        database_url=TEST_DATABASE_URL,
         enable_docs=True,
         server_name=SERVER_NAME,
         secret_key=SecretStr("test-secret-key-that-is-long-enough-for-hkdf"),
