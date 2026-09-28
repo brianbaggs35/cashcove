@@ -2,7 +2,13 @@
 import { Check, Landmark, Link, Pencil } from '@lucide/vue'
 import { computed, reactive, ref, watch } from 'vue'
 
-import { createAccount, updateAccount, type Account, type AccountType } from '@/api/accounts'
+import {
+  createAccount,
+  updateAccount,
+  type Account,
+  type AccountInput,
+  type AccountType,
+} from '@/api/accounts'
 import { accountType, accountTypes } from '@/components/finance/accountTypes'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import MoneyField from '@/components/ui/MoneyField.vue'
@@ -15,10 +21,15 @@ import { currencyOptions } from '@/utils/regional'
 
 /**
  * Adds an account kept by hand, or edits one. Plaid keeps a linked account's balance and details
- * up to date, so only its name and notes change here.
+ * up to date, so only its name and notes change here. A new account can start from a `draft`,
+ * such as what an imported file says about its account.
  */
 const open = defineModel<boolean>({ required: true })
-const props = defineProps<{ account: Account | null }>()
+const props = withDefaults(
+  defineProps<{ account: Account | null; draft?: Partial<AccountInput> | null }>(),
+  { draft: null },
+)
+const emit = defineEmits<{ saved: [account: Account] }>()
 
 const accounts = useAccountsStore()
 const household = useHousehold()
@@ -61,14 +72,21 @@ const toForm = (account: Account) =>
   accountType(account.type).liability ? negate(account.balance) : account.balance
 const fromForm = (amount: string) => (liability.value ? negate(amount) : amount)
 
+/** A draft's balance as the form shows it, for a new account. */
+function draftBalance(draft: Partial<AccountInput> | null): string | null {
+  if (!draft?.balance) return null
+  return accountType(draft.type ?? 'checking').liability ? negate(draft.balance) : draft.balance
+}
+
 function reset() {
   const account = props.account
-  form.type = account?.type ?? 'checking'
-  form.name = account?.name ?? ''
-  form.institution = account?.institution ?? ''
-  form.mask = account?.mask ?? ''
-  form.currency = account?.currency ?? household.currency.value
-  form.balance = account ? toForm(account) : null
+  const draft = account ? null : props.draft
+  form.type = account?.type ?? draft?.type ?? 'checking'
+  form.name = account?.name ?? draft?.name ?? ''
+  form.institution = account?.institution ?? draft?.institution ?? ''
+  form.mask = account?.mask ?? draft?.mask ?? ''
+  form.currency = account?.currency ?? draft?.currency ?? household.currency.value
+  form.balance = account ? toForm(account) : draftBalance(draft)
   form.creditLimit = account?.credit_limit ?? null
   form.notes = account?.notes ?? ''
   saving.clear()
@@ -104,6 +122,7 @@ const saving = useAction(async () => {
     : await createAccount({ name, notes, ...details() })
   accounts.put(saved)
   notify(account ? `Saved ${saved.name}` : `Added ${saved.name}`)
+  emit('saved', saved)
   open.value = false
 })
 

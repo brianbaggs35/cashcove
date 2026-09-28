@@ -29,6 +29,7 @@ import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
 import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
+import { useImportsStore } from '@/stores/imports'
 import { addDays, todayIso } from '@/utils/dates'
 import { fromCents, negate, toCents } from '@/utils/money'
 import PayeeField from '@/views/transactions/PayeeField.vue'
@@ -53,6 +54,7 @@ const emit = defineEmits<{
 }>()
 
 const accounts = useAccountsStore()
+const imports = useImportsStore()
 const { money } = useHousehold()
 
 interface TransactionForm {
@@ -84,6 +86,18 @@ const fromBank = computed(
   () => props.transaction?.source === 'plaid' && original.value?.source === 'plaid',
 )
 const locked = computed(() => props.readonly || fromBank.value)
+/** Where an imported transaction came from, and what the file called it. */
+const fromFile = computed(() => {
+  const transaction = props.transaction
+  if (transaction?.source !== 'file') return null
+  // Its import is known while it can still be undone.
+  const file = imports.findImport(transaction.import_id)?.file_name
+  const described = transaction.original_description
+  return {
+    text: file ? `Imported from ${file}.` : 'Imported from a file.',
+    described: described && described !== transaction.payee ? described : null,
+  }
+})
 
 /** Accounts kept by hand, plus the transaction's own, which may be closed or linked. */
 const accountItems = computed(() => {
@@ -118,7 +132,9 @@ function reset() {
 }
 
 watch(open, (value) => {
-  if (value) reset()
+  if (!value) return
+  reset()
+  if (props.transaction?.import_id) void imports.ensureLoaded()
 })
 
 /** An amount with its sign: money out is negative. */
@@ -237,7 +253,7 @@ const formError = computed(() =>
       to date.
     </v-alert>
     <v-alert
-      v-else-if="transaction?.source === 'file'"
+      v-else-if="fromFile"
       :icon="FileSpreadsheet"
       color="secondary"
       variant="tonal"
@@ -245,7 +261,10 @@ const formError = computed(() =>
       class="mb-5"
       data-test="transaction-from-file"
     >
-      Imported from a file.
+      <div>{{ fromFile.text }}</div>
+      <div v-if="fromFile.described" class="text-body-small mt-1">
+        The file calls it “{{ fromFile.described }}”.
+      </div>
     </v-alert>
 
     <v-form v-model="valid" :readonly="readonly" @submit.prevent="submit">

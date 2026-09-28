@@ -67,12 +67,7 @@ export const navItems: NavItem[] = [
     title: 'Import',
     path: '/import',
     icon: FileUp,
-    summary: 'Bring in statements from any bank.',
-    planned: [
-      'CSV, OFX and QFX files',
-      'Map each column once and save it as a profile per bank',
-      'Preview and skip duplicates before anything is saved',
-    ],
+    summary: 'Bring in statement files from any bank, and years of history.',
   },
   {
     name: 'connect',

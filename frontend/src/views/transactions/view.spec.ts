@@ -35,6 +35,7 @@ describe('the transactions view', () => {
         direction: null,
         status: null,
         sources: [],
+        importId: null,
         min: null,
         max: null,
       },
@@ -68,6 +69,7 @@ describe('the transactions view', () => {
       direction: 'out',
       status: 'pending',
       source: ['plaid', 'file'],
+      import: 'import-harbor',
       min: '10',
       max: '1,250.5',
       sort: 'amount',
@@ -87,6 +89,7 @@ describe('the transactions view', () => {
         direction: 'out',
         status: 'pending',
         sources: ['plaid', 'file'],
+        importId: 'import-harbor',
         min: '10.00',
         max: '1250.50',
       },
@@ -164,6 +167,7 @@ describe('the transactions view', () => {
           direction: 'in',
           status: 'posted',
           sources: ['manual'],
+          importId: 'import-harbor',
           min: '5.00',
           max: '50.00',
         },
@@ -179,6 +183,7 @@ describe('the transactions view', () => {
       direction: 'in',
       status: 'posted',
       source: ['manual'],
+      import: 'import-harbor',
       min: '5.00',
       max: '50.00',
       sort: 'payee',
@@ -207,6 +212,7 @@ describe('the transactions view', () => {
       direction: undefined,
       status: undefined,
       source: [],
+      import_id: undefined,
       min_amount: undefined,
       max_amount: undefined,
       sort: '-date',
@@ -234,6 +240,7 @@ describe('the transactions view', () => {
         direction: 'out',
         status: 'pending',
         sources: ['plaid'],
+        importId: 'import-harbor',
         min: '2.00',
         max: '10.00',
       }),
@@ -247,6 +254,7 @@ describe('the transactions view', () => {
       direction: 'out',
       status: 'pending',
       source: ['plaid'],
+      import_id: 'import-harbor',
       min_amount: '2.00',
       max_amount: '10.00',
     })
@@ -275,10 +283,11 @@ describe('the transactions view', () => {
         direction: 'in',
         status: 'posted',
         sources: ['manual', 'file'],
+        importId: 'import-harbor',
         min: null,
         max: '10.00',
       }),
-    ).toBe(10)
+    ).toBe(11)
     expect(filterCount({ ...emptyFilters(), q: 'coffee', period: 'this-year' })).toBe(0)
   })
 

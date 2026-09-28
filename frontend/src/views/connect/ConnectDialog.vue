@@ -22,6 +22,7 @@ import {
 import { accountType } from '@/components/finance/accountTypes'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
+import StepList from '@/components/ui/StepList.vue'
 import { notify } from '@/composables/notify'
 import { forgetLink, linkErrorMessage, loadLink, openLink, rememberLink } from '@/plaid/link'
 import { useAccountsStore } from '@/stores/accounts'
@@ -292,21 +293,13 @@ function owed(type: Connection['accounts'][number]['type'], balance: string) {
     max-width="620"
     fullscreen-on-mobile
   >
-    <ol v-if="!choosing" class="connect-steps d-flex ga-2 mb-5 pa-0" aria-label="Steps">
-      <li
-        v-for="(label, index) in steps"
-        :key="label"
-        class="connect-steps__step d-flex align-center ga-2 flex-grow-1"
-        :class="{
-          'connect-steps__step--done': index < stepIndex || step === 'done',
-          'connect-steps__step--current': index === stepIndex && step !== 'done',
-        }"
-        :aria-current="index === stepIndex && step !== 'done' ? 'step' : undefined"
-      >
-        <span class="connect-steps__number" aria-hidden="true">{{ index + 1 }}</span>
-        <span class="text-label-medium">{{ label }}</span>
-      </li>
-    </ol>
+    <StepList
+      v-if="!choosing"
+      :steps="steps"
+      :current="stepIndex"
+      :done="step === 'done'"
+      class="mb-5"
+    />
 
     <v-alert
       v-if="notice"
@@ -473,41 +466,6 @@ function owed(type: Connection['accounts'][number]['type'], balance: string) {
 </template>
 
 <style scoped>
-.connect-steps {
-  list-style: none;
-}
-
-.connect-steps__step {
-  min-width: 0;
-  padding-bottom: 10px;
-  border-bottom: 3px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
-}
-
-.connect-steps__number {
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  font-size: 0.75rem;
-  font-weight: 700;
-  background: rgba(var(--v-theme-on-surface), 0.08);
-}
-
-.connect-steps__step--current,
-.connect-steps__step--done {
-  color: rgb(var(--v-theme-on-surface));
-  border-bottom-color: rgb(var(--v-theme-primary));
-}
-
-.connect-steps__step--current .connect-steps__number,
-.connect-steps__step--done .connect-steps__number {
-  color: rgb(var(--v-theme-on-primary));
-  background: rgb(var(--v-theme-primary));
-}
-
 .connect-done__account + .connect-done__account {
   border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }

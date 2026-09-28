@@ -18,6 +18,7 @@ import { notify } from '@/composables/notify'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
+import { useImportsStore } from '@/stores/imports'
 import type { PeriodKey } from '@/utils/dates'
 import BulkBar from '@/views/transactions/BulkBar.vue'
 import CategorizeDialog from '@/views/transactions/CategorizeDialog.vue'
@@ -39,6 +40,7 @@ import {
 const auth = useAuthStore()
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
+const imports = useImportsStore()
 const { mdAndUp } = useDisplay()
 const { view, update, filter, clear } = useTransactionView()
 
@@ -73,6 +75,15 @@ onMounted(() => {
   void categories.ensureLoaded()
   void load()
 })
+
+// Names the file of an import the list is narrowed to.
+watch(
+  () => view.value.filters.importId,
+  (id) => {
+    if (id) void imports.ensureLoaded()
+  },
+  { immediate: true },
+)
 
 const selected = ref<string[]>([])
 watch(view, () => {

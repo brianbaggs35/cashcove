@@ -134,6 +134,16 @@ export interface ImportBalance {
   suggested: BalanceChoice
 }
 
+/**
+ * The days of an account's transactions that came from its bank through Plaid. A file fills in
+ * the account's history before them, and after them once the bank stopped.
+ */
+export interface BankHistory {
+  start: string
+  /** Null while the bank still keeps the account up to date. */
+  end: string | null
+}
+
 export interface ImportSummary {
   rows: number
   new: number
@@ -157,6 +167,7 @@ export interface ImportPreview {
   new_account: AccountSuggestion
   /** The account the rows were compared with: the one asked for, or the likeliest one. */
   account_id: string | null
+  bank_history: BankHistory | null
   rows: PreviewRow[]
   summary: ImportSummary
   balance: ImportBalance | null
