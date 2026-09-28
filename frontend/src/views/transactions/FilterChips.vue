@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { CalendarRange, CircleDashed, Landmark, Scale, type LucideIcon } from '@lucide/vue'
+import { CalendarRange, CircleDashed, FileUp, Landmark, Scale, type LucideIcon } from '@lucide/vue'
 import { computed } from 'vue'
 
 import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { useCategoriesStore } from '@/stores/categories'
+import { useImportsStore } from '@/stores/imports'
 import { formatDateRange } from '@/utils/dates'
 import type { TransactionFilters } from '@/views/transactions/view'
 
@@ -14,6 +15,7 @@ const emit = defineEmits<{ change: [changes: Partial<TransactionFilters>]; clear
 
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
+const imports = useImportsStore()
 const { locale, money } = useHousehold()
 
 interface Chip {
@@ -95,6 +97,19 @@ function sourceChips({ sources }: TransactionFilters): Chip[] {
   }))
 }
 
+function importChips({ importId }: TransactionFilters): Chip[] {
+  if (!importId) return []
+  const record = imports.findImport(importId)
+  return [
+    {
+      key: 'import',
+      label: record ? `From ${record.file_name}` : 'From an import',
+      icon: FileUp,
+      remove: { importId: null },
+    },
+  ]
+}
+
 /** The amount range, from whichever ends are set. */
 function amountLabel(min: string | null, max: string | null): string {
   if (min && max) return `${money(min)} to ${money(max)}`
@@ -115,6 +130,7 @@ const chips = computed<Chip[]>(() => [
   ...dateChips(props.filters),
   ...choiceChips(props.filters),
   ...sourceChips(props.filters),
+  ...importChips(props.filters),
   ...amountChips(props.filters),
 ])
 </script>

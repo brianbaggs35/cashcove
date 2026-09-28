@@ -109,6 +109,7 @@ export function makeTransaction(changes: Partial<Transaction> = {}): Transaction
     notes: null,
     pending: false,
     source: 'manual',
+    import_id: null,
     created_at: '2026-09-18T15:00:00Z',
     updated_at: '2026-09-18T15:00:00Z',
     ...changes,

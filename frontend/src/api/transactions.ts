@@ -18,6 +18,8 @@ export interface Transaction {
   /** The bank hasn't settled it yet, so it may still change. */
   pending: boolean
   source: TransactionSource
+  /** The file it was imported from, while that import can still be undone. */
+  import_id: string | null
   created_at: string
   updated_at: string
 }
@@ -40,6 +42,8 @@ export interface TransactionQuery {
   direction?: 'in' | 'out'
   status?: 'pending' | 'posted'
   source?: TransactionSource[]
+  /** Only the transactions one import added. */
+  import_id?: string
   /** However the money went, e.g. `50` matches both 50.00 in and 50.00 out. */
   min_amount?: string
   max_amount?: string

@@ -23,6 +23,8 @@ export interface TransactionFilters {
   direction: Direction | null
   status: Status | null
   sources: TransactionSource[]
+  /** Only what one import added, e.g. from the Import tab's list of imports. */
+  importId: string | null
   /** However the money went, e.g. 50 matches both 50.00 in and 50.00 out. */
   min: string | null
   max: string | null
@@ -54,6 +56,7 @@ export function emptyFilters(): TransactionFilters {
     direction: null,
     status: null,
     sources: [],
+    importId: null,
     min: null,
     max: null,
   }
@@ -122,6 +125,7 @@ export function viewFromQuery(query: LocationQuery): TransactionView {
       sources: list(query.source).filter((source): source is TransactionSource =>
         SOURCES.has(source as TransactionSource),
       ),
+      importId: one(query.import),
       min: amount(query.min),
       max: amount(query.max),
     },
@@ -156,6 +160,7 @@ export function queryFromView({
   set('direction', filters.direction)
   set('status', filters.status)
   set('source', filters.sources)
+  set('import', filters.importId)
   set('min', filters.min)
   set('max', filters.max)
   set('sort', sort, '-date')
@@ -189,6 +194,7 @@ export function apiQuery(
     direction: filters.direction ?? undefined,
     status: filters.status ?? undefined,
     source: filters.sources,
+    import_id: filters.importId ?? undefined,
     min_amount: min ?? undefined,
     max_amount: max ?? undefined,
     sort,
@@ -205,6 +211,7 @@ export function filterCount(filters: TransactionFilters): number {
     Number(filters.direction !== null) +
     Number(filters.status !== null) +
     filters.sources.length +
+    Number(filters.importId !== null) +
     Number(filters.min !== null || filters.max !== null)
   )
 }

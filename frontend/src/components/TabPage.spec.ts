@@ -4,10 +4,10 @@ import { mountWithPlugins } from '@/test/mount'
 
 describe('TabPage', () => {
   it('shows the header and the planned features by default', async () => {
-    const { wrapper } = await mountWithPlugins(TabPage, { props: { name: 'import' } })
-    expect(wrapper.find('h1').text()).toBe('Import')
+    const { wrapper } = await mountWithPlugins(TabPage, { props: { name: 'subscriptions' } })
+    expect(wrapper.find('h1').text()).toBe('Subscriptions')
     expect(wrapper.text()).toContain('Coming soon')
-    for (const feature of findNavItem('import').planned ?? []) {
+    for (const feature of findNavItem('subscriptions').planned ?? []) {
       expect(wrapper.text()).toContain(feature)
     }
     wrapper.unmount()
