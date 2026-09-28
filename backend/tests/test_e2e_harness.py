@@ -31,6 +31,8 @@ from app.models import (
     AuditEvent,
     Category,
     CategoryGroup,
+    Connection,
+    ConnectionSync,
     Invitation,
     LoginThrottle,
     Passkey,
@@ -42,6 +44,7 @@ from app.models import (
 from e2e.api import current_coverage
 from e2e.baseline import SAVED_SIGN_INS
 from e2e.main import create_e2e_app
+from e2e.plaid import FakePlaid
 from tests.authenticator import Authenticator
 from tests.helpers import ORIGIN, add_user, error, sign_in, totp_code, use_session
 
@@ -663,3 +666,132 @@ def test_coverage_comes_back_as_an_html_report_and_lcov(
     assert "html/index.html" in files
     assert b"tokens.py" in files["lcov.info"]
     assert 0 < report["percent_covered"] < 100
+
+
+# ---- Bank connections and the stand-in for Plaid ------------------------------------------
+
+
+def test_the_baseline_has_a_healthy_bank_and_one_that_wants_a_new_sign_in(
+    e2e: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("e2e.api.utcnow", lambda: RESET_AT)
+    baseline = e2e.post("/api/e2e/reset").json()
+    connections = baseline["connections"]
+
+    assert connections["tartan"] | {"id": None} == {
+        "id": None,
+        "institution": "Tartan Bank",
+        "status": "healthy",
+        "error_code": None,
+        "accounts": ["card"],
+        "skipped": ["Tartan Checking"],
+        "last_synced_hours_ago": 3,
+    }
+    assert connections["fidelity"] | {"id": None} == {
+        "id": None,
+        "institution": "Fidelity",
+        "status": "login_required",
+        "error_code": "ITEM_LOGIN_REQUIRED",
+        "accounts": ["retirement"],
+        "skipped": [],
+        "last_synced_hours_ago": 50,
+    }
+    for key, connection in connections.items():
+        stored = session.get(Connection, uuid.UUID(connection["id"]))
+        assert stored is not None
+        assert stored.institution_name == connection["institution"]
+        for account in connection["accounts"]:
+            linked = session.get(Account, uuid.UUID(baseline["accounts"][account]["id"]))
+            assert linked is not None
+            assert linked.connection_id == stored.id, key
+    assert count(session, ConnectionSync) == 7
+    tartan = session.get_one(Connection, uuid.UUID(connections["tartan"]["id"]))
+    assert tartan.last_synced_at == RESET_AT - timedelta(hours=3)
+
+    use_saved_sign_in(e2e, "viewer")
+    listed = {item["institution_name"]: item for item in e2e.get("/api/connections").json()}
+
+    assert {account["name"]: account["state"] for account in listed["Tartan Bank"]["accounts"]} == {
+        "Rewards Visa": "imported",
+        "Tartan Checking": "skipped",
+    }
+    assert listed["Tartan Bank"]["last_sync"]["added"] == 1
+    assert "sign in again" in listed["Fidelity"]["error_message"]
+    assert e2e.get("/api/system").json()["plaid"] == {"configured": True, "environment": "sandbox"}
+
+
+def test_the_baseline_banks_sync_and_reconnect_through_the_stand_in(e2e: TestClient) -> None:
+    baseline = e2e.post("/api/e2e/reset").json()
+    tartan = baseline["connections"]["tartan"]["id"]
+    fidelity = baseline["connections"]["fidelity"]["id"]
+    use_saved_sign_in(e2e, "admin")
+
+    added = e2e.post(
+        "/api/e2e/plaid/tartan/transactions",
+        json={
+            "account_id": "e2e-card",
+            "amount": "12.34",
+            "merchant": "Corner Bakery",
+            "category": "FOOD_AND_DRINK_RESTAURANT",
+        },
+    )
+    synced = e2e.post(f"/api/connections/{tartan}/sync", json={}).json()
+
+    assert added.status_code == 200
+    assert synced["last_sync"]["added"] == 1
+    bakery = e2e.get("/api/transactions", params={"q": "Corner Bakery"}).json()["items"]
+    assert [(item["amount"], item["category_id"]) for item in bakery] == [
+        ("-12.34", baseline["categories"]["Restaurants"]["id"])
+    ]
+
+    assert e2e.post(f"/api/connections/{fidelity}/sync", json={}).json()["status"] == (
+        "login_required"
+    )
+    assert e2e.post(f"/api/connections/{fidelity}/link-token", json={}).status_code == 200
+    reconnected = e2e.post(
+        f"/api/connections/{fidelity}/sync", json={"reason": "reconnected"}
+    ).json()
+    assert reconnected["status"] == "healthy"
+
+
+def test_a_bank_can_be_made_to_want_a_new_sign_in(e2e: TestClient) -> None:
+    baseline = e2e.post("/api/e2e/reset").json()
+    tartan = baseline["connections"]["tartan"]["id"]
+    use_saved_sign_in(e2e, "admin")
+
+    response = e2e.post("/api/e2e/plaid/tartan/error", json={"code": "ITEM_LOGIN_REQUIRED"})
+
+    assert response.status_code == 204
+    assert e2e.post(f"/api/connections/{tartan}/sync", json={}).json()["status"] == (
+        "login_required"
+    )
+    e2e.post("/api/e2e/plaid/tartan/error", json={"code": None})
+    assert e2e.post(f"/api/connections/{tartan}/sync", json={}).json()["status"] == "healthy"
+
+
+def test_the_stand_in_only_knows_the_banks_it_has(e2e: TestClient) -> None:
+    e2e.post("/api/e2e/reset")
+
+    unknown_bank = e2e.post("/api/e2e/plaid/nowhere/error", json={"code": None})
+    unknown_account = e2e.post(
+        "/api/e2e/plaid/tartan/transactions",
+        json={"account_id": "nope", "amount": "1.00", "merchant": "Shop"},
+    )
+
+    assert (unknown_bank.status_code, unknown_account.status_code) == (404, 404)
+
+
+def test_resets_put_the_stand_in_back_to_the_baseline_banks(
+    e2e: TestClient, harness: FastAPI
+) -> None:
+    e2e.post("/api/e2e/reset")
+    use_saved_sign_in(e2e, "admin")
+    connected = e2e.post("/api/connections", json={"public_token": "public-sandbox-platypus-1"})
+    fake: FakePlaid = harness.state.fake_plaid
+
+    assert connected.status_code == 201
+    assert len(fake.items) == 3
+
+    e2e.post("/api/e2e/reset")
+
+    assert {item.bank.key for item in fake.items.values()} == {"tartan", "fidelity"}

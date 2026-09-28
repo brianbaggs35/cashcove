@@ -7,6 +7,7 @@ from app.api import (
     accounts,
     auth,
     categories,
+    connections,
     health,
     settings,
     system,
@@ -26,5 +27,6 @@ api_router.include_router(system.router)
 api_router.include_router(accounts.router)
 api_router.include_router(transactions.router)
 api_router.include_router(categories.router)
+api_router.include_router(connections.router)
 
 __all__ = ["api_router"]

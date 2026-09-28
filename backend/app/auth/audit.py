@@ -36,6 +36,9 @@ class Event(StrEnum):
     PASSWORD_RESET_CREATED = auto()
     PASSWORD_RESET = auto()
     TWO_FACTOR_RESET = auto()
+    # Bank connections give Cashcove access to a bank's data, so they're on record too.
+    BANK_CONNECTED = auto()
+    BANK_DISCONNECTED = auto()
 
 
 def client_address(request: Request) -> str | None:

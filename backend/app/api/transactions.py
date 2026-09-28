@@ -171,8 +171,16 @@ def update_transaction(
     account_id = body.account_id or transaction.account_id
     amount = transaction.amount if body.amount is None else body.amount
     moved = account_id != transaction.account_id
-    if transaction.from_bank and (
-        moved or amount != transaction.amount or (body.date or transaction.date) != transaction.date
+    # Only while its account is still linked: once the bank stops keeping it up to date, the
+    # household does.
+    if (
+        transaction.from_bank
+        and get_account(db, transaction.account_id).is_linked
+        and (
+            moved
+            or amount != transaction.amount
+            or (body.date or transaction.date) != transaction.date
+        )
     ):
         raise ApiError(
             status.HTTP_409_CONFLICT,

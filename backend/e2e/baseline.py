@@ -27,7 +27,7 @@ from app.auth import sessions, totp
 from app.auth.audit import Event
 from app.auth.passkeys import provider_name
 from app.auth.passwords import get_passwords
-from app.auth.service import one_time_link, totp_box
+from app.auth.service import one_time_link, plaid_box, totp_box
 from app.auth.tokens import hash_token, new_token
 from app.auth.useragent import describe as describe_device
 from app.config import Settings
@@ -42,17 +42,27 @@ from app.models import (
     Category,
     CategoryGroup,
     CategoryKind,
+    Connection,
+    ConnectionProvider,
+    ConnectionStatus,
+    ConnectionSync,
+    HistoryStatus,
     Invitation,
     Passkey,
     RecoveryCode,
     Role,
+    SyncTrigger,
     Transaction,
     TransactionSource,
     User,
     UserSession,
 )
 from app.models.app_settings import SINGLETON_ID
+from app.plaid.accounts import SharedAccount
+from app.plaid.client import PlaidError
+from app.plaid.errors import diagnose
 from app.schemas.preferences import GeneralPreferences, Preferences
+from e2e.plaid import BANKS, FIDELITY_ACCESS, FIDELITY_ITEM, LOGO, TARTAN_ACCESS, TARTAN_ITEM
 
 HOUSEHOLD_NAME = "The Rivera household"
 # Every baseline account signs in with this password. It's made-up test data that only
@@ -617,7 +627,8 @@ RETIREMENT = SeedAccount(
     institution="Fidelity",
     mask="8812",
     balance="48210.55",
-    updated_hours_ago=3,
+    # Fidelity has wanted a new sign-in since the sync after this one.
+    updated_hours_ago=50,
     source=AccountSource.PLAID,
     official_name="Fidelity 401(k) Plan",
     subtype="401k",
@@ -633,6 +644,110 @@ CLOSED = SeedAccount(
     closed_days_ago=20,
 )
 ACCOUNTS = (CHECKING, SAVINGS, CARD, LOAN, RETIREMENT, CLOSED)
+
+
+@dataclass(frozen=True)
+class SkippedAccount:
+    """An account a bank shares that the household chose not to import."""
+
+    plaid_id: str
+    name: str
+    type: AccountType
+    subtype: str
+    mask: str
+    balance: str
+
+
+@dataclass(frozen=True)
+class SeedSync:
+    hours_ago: int
+    trigger: SyncTrigger
+    added: int = 0
+    updated: int = 0
+    removed: int = 0
+    # Plaid's error code, for one that failed.
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class SeedConnection:
+    # Its key in ``Baseline.connections``, which is also the stand-in Plaid's key for its bank
+    # (e2e/plaid.py), e.g. for adding a transaction for the next sync to bring in.
+    key: str
+    item_id: str
+    access_token: str
+    connected_days_ago: int
+    # The accounts it keeps up to date.
+    accounts: tuple[SeedAccount, ...]
+    skipped: tuple[SkippedAccount, ...]
+    # Newest first.
+    syncs: tuple[SeedSync, ...]
+
+    @property
+    def id(self) -> uuid.UUID:
+        return stable_id("connection", self.key)
+
+    @property
+    def institution(self) -> str:
+        return BANKS[self.key].name
+
+    @property
+    def error(self) -> str | None:
+        """Why its latest sync failed, if it did."""
+        return self.syncs[0].error
+
+    @property
+    def status(self) -> ConnectionStatus:
+        return diagnose(_plaid_error(self.error)).status if self.error else ConnectionStatus.HEALTHY
+
+    @property
+    def last_synced_hours_ago(self) -> int | None:
+        return next((sync.hours_ago for sync in self.syncs if sync.error is None), None)
+
+
+def _plaid_error(code: str) -> PlaidError:
+    return PlaidError("ITEM_ERROR", code, "The bank needs attention")
+
+
+# Tartan Bank shares a checking account the household doesn't import, and syncs every six
+# hours. Fidelity wants someone to sign in again, so it's waiting on a reconnect.
+TARTAN = SeedConnection(
+    key="tartan",
+    item_id=TARTAN_ITEM,
+    access_token=TARTAN_ACCESS,
+    connected_days_ago=110,
+    accounts=(CARD,),
+    skipped=(
+        SkippedAccount(
+            "e2e-tartan-checking",
+            "Tartan Checking",
+            AccountType.CHECKING,
+            "checking",
+            "0042",
+            "2310.55",
+        ),
+    ),
+    syncs=(
+        SeedSync(3, SyncTrigger.SCHEDULED, added=1, updated=1),
+        SeedSync(9, SyncTrigger.SCHEDULED),
+        SeedSync(15, SyncTrigger.SCHEDULED, added=2),
+        SeedSync(21, SyncTrigger.MANUAL, removed=1),
+    ),
+)
+FIDELITY = SeedConnection(
+    key="fidelity",
+    item_id=FIDELITY_ITEM,
+    access_token=FIDELITY_ACCESS,
+    connected_days_ago=100,
+    accounts=(RETIREMENT,),
+    skipped=(),
+    syncs=(
+        SeedSync(2, SyncTrigger.SCHEDULED, error="ITEM_LOGIN_REQUIRED"),
+        SeedSync(26, SyncTrigger.SCHEDULED, error="ITEM_LOGIN_REQUIRED"),
+        SeedSync(50, SyncTrigger.SCHEDULED, updated=1),
+    ),
+)
+CONNECTIONS = (TARTAN, FIDELITY)
 
 # The ones specs act on: the newest, each on its own day and the only transaction with its
 # payee, so every sort order is stable and a spec can find one by its payee.
@@ -982,6 +1097,19 @@ class BaselineAccount(BaseModel):
     closed: bool
 
 
+class BaselineConnection(BaseModel):
+    id: uuid.UUID
+    institution: str
+    status: ConnectionStatus
+    # Plaid's error code, while the bank needs attention.
+    error_code: str | None
+    # The keys in ``accounts`` of the accounts it keeps up to date.
+    accounts: list[str]
+    # What the bank calls the accounts it shares that aren't imported.
+    skipped: list[str]
+    last_synced_hours_ago: int | None
+
+
 class BaselineCategoryGroup(BaseModel):
     id: uuid.UUID
     name: str
@@ -1024,6 +1152,8 @@ class Baseline(BaseModel):
     # Accounts and transactions by their keys ("checking", "groceries"), and every suggested
     # category and group by name ("Groceries", "Food & drink").
     accounts: dict[str, BaselineAccount]
+    # Banks connected through Plaid, by key ("tartan", "fidelity").
+    connections: dict[str, BaselineConnection]
     category_groups: dict[str, BaselineCategoryGroup]
     categories: dict[str, BaselineCategory]
     transactions: dict[str, BaselineTransaction]
@@ -1117,6 +1247,18 @@ def describe(settings: Settings) -> Baseline:
         ),
         activity=sorted(activity, key=lambda entry: entry.hours_ago),
         accounts={account.key: _account(account) for account in ACCOUNTS},
+        connections={
+            connection.key: BaselineConnection(
+                id=connection.id,
+                institution=connection.institution,
+                status=connection.status,
+                error_code=connection.error,
+                accounts=[account.key for account in connection.accounts],
+                skipped=[account.name for account in connection.skipped],
+                last_synced_hours_ago=connection.last_synced_hours_ago,
+            )
+            for connection in CONNECTIONS
+        },
         category_groups={
             group.name: BaselineCategoryGroup(
                 id=stable_id("group", group.name), name=group.name, kind=group.kind
@@ -1211,6 +1353,7 @@ def seed(db: Session, settings: Settings, now: datetime) -> None:
     # Users first: the rows below refer to them.
     db.flush()
     _seed_sign_ins(db, settings, now)
+    _seed_connections(db, settings, now)
     _seed_money(db, now)
 
 
@@ -1320,6 +1463,89 @@ def _money(amount: str | None) -> Decimal | None:
     return None if amount is None else Decimal(amount)
 
 
+def _shared(connection: SeedConnection) -> list[dict[str, Any]]:
+    """What the connection remembers of the accounts its bank shares."""
+    shared = [
+        SharedAccount(
+            id=account.external_id or "",
+            name=account.name,
+            official_name=account.official_name,
+            mask=account.mask,
+            type=account.type,
+            subtype=account.subtype,
+            balance=Decimal(account.balance),
+            available_balance=_money(account.available_balance),
+            credit_limit=_money(account.credit_limit),
+            currency=CURRENCY,
+        )
+        for account in connection.accounts
+    ] + [
+        SharedAccount(
+            id=account.plaid_id,
+            name=account.name,
+            mask=account.mask,
+            type=account.type,
+            subtype=account.subtype,
+            balance=Decimal(account.balance),
+            currency=CURRENCY,
+        )
+        for account in connection.skipped
+    ]
+    return [account.model_dump(mode="json") for account in shared]
+
+
+def _seed_connections(db: Session, settings: Settings, now: datetime) -> None:
+    box = plaid_box(settings)
+    for connection in CONNECTIONS:
+        error = connection.error
+        bank = BANKS[connection.key]
+        db.add(
+            Connection(
+                id=connection.id,
+                provider=ConnectionProvider.PLAID,
+                external_id=connection.item_id,
+                access_token=box.encrypt(connection.access_token),
+                institution_id=bank.institution_id,
+                institution_name=bank.name,
+                institution_url=bank.url,
+                institution_color=bank.color,
+                institution_logo=LOGO,
+                status=connection.status,
+                error_code=error,
+                error_message=diagnose(_plaid_error(error)).message if error else None,
+                available_accounts=_shared(connection),
+                skipped_accounts=[account.plaid_id for account in connection.skipped],
+                history=HistoryStatus.COMPLETE,
+                last_synced_at=_hours_before(now, connection.last_synced_hours_ago),
+                last_attempt_at=now - timedelta(hours=connection.syncs[0].hours_ago),
+                created_by_id=ADMIN.id,
+                created_at=now - timedelta(days=connection.connected_days_ago),
+                updated_at=now - timedelta(hours=connection.syncs[0].hours_ago),
+            )
+        )
+        for index, sync in enumerate(connection.syncs):
+            started = now - timedelta(hours=sync.hours_ago)
+            db.add(
+                ConnectionSync(
+                    id=stable_id("sync", f"{connection.key}:{index}"),
+                    connection_id=connection.id,
+                    trigger=sync.trigger,
+                    started_at=started,
+                    finished_at=started + timedelta(seconds=4),
+                    succeeded=sync.error is None,
+                    added=sync.added,
+                    updated=sync.updated,
+                    removed=sync.removed,
+                    error_code=sync.error,
+                    error_message=(
+                        diagnose(_plaid_error(sync.error)).message if sync.error else None
+                    ),
+                )
+            )
+    # Before the accounts, which refer to them.
+    db.flush()
+
+
 def _seed_money(db: Session, now: datetime) -> None:
     # The categories a new household starts with, as setup adds them.
     for suggested in SUGGESTED:
@@ -1331,6 +1557,9 @@ def _seed_money(db: Session, now: datetime) -> None:
             Category(id=stable_id("category", name), group=group, name=name, emoji=emoji)
             for emoji, name in suggested.categories
         )
+    connected = {
+        account.key: connection.id for connection in CONNECTIONS for account in connection.accounts
+    }
     for account in ACCOUNTS:
         db.add(
             Account(
@@ -1346,6 +1575,7 @@ def _seed_money(db: Session, now: datetime) -> None:
                 balance_updated_at=now - timedelta(hours=account.updated_hours_ago),
                 notes=account.notes,
                 source=account.source,
+                connection_id=connected.get(account.key),
                 external_id=account.external_id,
                 official_name=account.official_name,
                 subtype=account.subtype,
