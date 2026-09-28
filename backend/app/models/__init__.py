@@ -13,6 +13,7 @@ from app.models.auth import (
     UserSession,
 )
 from app.models.base import Base, TimestampMixin
+from app.models.budget import Budget, BudgetAmount, BudgetPeriod
 from app.models.category import Category, CategoryGroup, CategoryKind
 from app.models.connection import (
     Connection,
@@ -36,6 +37,9 @@ __all__ = [
     "AuditEvent",
     "AuthChallenge",
     "Base",
+    "Budget",
+    "BudgetAmount",
+    "BudgetPeriod",
     "Category",
     "CategoryGroup",
     "CategoryKind",
