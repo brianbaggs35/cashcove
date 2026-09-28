@@ -31,6 +31,7 @@ from app.plaid.deps import plaid_transport
 from e2e.plaid import KEYS, FakePlaid
 from tests.helpers import error
 from tests.plaid import (
+    LOGO,
     accounts_of,
     choose,
     connect,
@@ -184,7 +185,7 @@ def test_connecting_lists_the_banks_accounts_to_choose_from(
     assert connection["institution_name"] == "First Platypus Bank"
     assert connection["institution_color"] == "#1f6f5c"
     assert connection["institution_url"] == "https://plaid.com"
-    assert connection["institution_logo"]
+    assert connection["institution_logo"] is None
     assert (connection["status"], connection["history"]) == ("healthy", "pending")
     assert connection["syncing"] is False
     assert connection["next_sync_at"] is None
@@ -303,6 +304,21 @@ def test_a_bank_without_its_details_still_connects(
     unnamed = connect(admin_client, "gingham")
 
     assert unnamed["institution_name"] == "Your bank"
+
+
+def test_a_banks_logo_comes_with_it(
+    admin_client: TestClient, app: FastAPI, fake: FakePlaid
+) -> None:
+    def with_logo(body: dict[str, Any]) -> None:
+        body["institution"]["logo"] = LOGO
+
+    app.dependency_overrides[plaid_transport] = lambda: rewriting(
+        fake, "/institutions/get_by_id", with_logo
+    )
+
+    connection = connect(admin_client)
+
+    assert connection["institution_logo"] == LOGO
 
 
 def test_bank_details_that_dont_look_right_are_left_out(
