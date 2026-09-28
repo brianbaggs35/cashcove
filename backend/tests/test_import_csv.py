@@ -18,10 +18,10 @@ CREDIT,09/24/2026,"NORTHWIND HEALTH PAYROLL PPD ID: 123",1875.00,ACH_CREDIT,1277
 CHECK,09/23/2026,"CHECK 1043",-100.00,CHECK_PAID,-597.94,1043,
 """
 
-AMEX = """Date,Description,Amount,Extended Details,Appears On Your Statement As,Category
-09/26/2026,UBER TRIP,23.10,UBER TRIP HELP.UBER.COM,UBER TRIP,Transportation-Taxis & Limousines
-09/25/2026,AUTOPAY PAYMENT - THANK YOU,-500.00,,AUTOPAY PAYMENT,
-09/24/2026,WHOLE FOODS,86.10,WHOLE FOODS,WHOLE FOODS,Merchandise & Supplies-Groceries
+AMEX = """Date,Description,Amount,Extended Details,Appears On Your Statement As,Category,Reference
+09/26/2026,UBER TRIP,23.10,HELP.UBER.COM,UBER TRIP,Transportation-Taxis & Limousines,'320262690123'
+09/25/2026,AUTOPAY PAYMENT - THANK YOU,-500.00,,AUTOPAY PAYMENT,,'320262680456'
+09/24/2026,WHOLE FOODS,86.10,WHOLE FOODS,WHOLE FOODS,Merchandise & Supplies-Groceries,'320262670789'
 """
 
 # A summary of the account above the transactions.
@@ -54,7 +54,7 @@ CARD_PAYMENT\tCurrent\t2026-09-26 10:00:00\t2026-09-27 08:00:00\tTesco\t-12.40\t
 TOPUP\tCurrent\t2026-09-25 09:00:00\t2026-09-25 09:00:01\tTop-up\t500.00\tGBP\t825.00
 """
 
-PIPES = """Posted|Payee|Amount (USD)|Ref No
+PIPES = """Posted|Payee|Amount (USD)|Ref #
 2026-09-26|CORNER MARKET|-12.00|R1
 2026-09-25|CITY WATER|-30.00|R2
 """
@@ -93,7 +93,14 @@ PIPES = """Posted|Payee|Amount (USD)|Ref No
             AMEX,
             {
                 "flip": True,
-                "columns": {"date": 0, "payee": 1, "amount": 2, "memo": 3, "category": 5},
+                "columns": {
+                    "date": 0,
+                    "payee": 1,
+                    "amount": 2,
+                    "memo": 3,
+                    "category": 5,
+                    "id": 6,
+                },
             },
         ),
         (
