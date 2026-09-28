@@ -2,7 +2,13 @@
 import { BookmarkCheck, CircleAlert, Sparkles } from '@lucide/vue'
 import { computed, ref, useId } from 'vue'
 
-import type { ColumnField, CsvLayout, CsvPreview, ImportOptions } from '@/api/imports'
+import type {
+  ColumnField,
+  CsvLayout,
+  CsvPreview,
+  ImportOptions,
+  ImportPreview,
+} from '@/api/imports'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
 import { useHousehold } from '@/composables/useHousehold'
 import { useImportWizard } from '@/stores/importWizard'
@@ -28,11 +34,12 @@ const choices = [{ value: 'skip', title: 'Not imported' }, ...columnFields]
 /** How many of the first rows show how the file reads. */
 const FIRST_ROWS = 6
 
+const preview = computed(() => wizard.preview as ImportPreview)
 const options = computed(() => wizard.options as ImportOptions)
 const layout = computed(() => options.value.csv as CsvLayout)
-const csv = computed(() => wizard.preview?.csv as CsvPreview)
-const firstRows = computed(() => wizard.preview?.rows.slice(0, FIRST_ROWS) ?? [])
-const summary = computed(() => wizard.preview?.summary)
+const csv = computed(() => preview.value.csv as CsvPreview)
+const firstRows = computed(() => preview.value.rows.slice(0, FIRST_ROWS))
+const summary = computed(() => preview.value.summary)
 /** The file's own lines are only worth a look when the transactions don't start at the top. */
 const layoutOpen = ref(layout.value.skip_rows > 0 || !layout.value.header ? [0] : [])
 
@@ -54,6 +61,12 @@ function skipRows(value: number | null) {
   changeLayout({ skip_rows: Math.min(Math.max(Math.round(value ?? 0), 0), 100) })
 }
 
+/** The direction column's values that mean money in, as the file writes them. */
+const moneyIn = computed(() => {
+  const chosen = new Set(layout.value.money_in_values.map((value) => value.toLowerCase()))
+  return csv.value.direction_values.filter((value) => chosen.has(value.toLowerCase()))
+})
+
 const missing = computed(() => {
   const fields = csv.value.missing
   if (!fields.length) return null
@@ -61,7 +74,7 @@ const missing = computed(() => {
 })
 
 const unreadable = computed(() => {
-  const count = summary.value?.invalid ?? 0
+  const count = summary.value.invalid
   if (!count || missing.value) return null
   return count === 1 ? '1 row can’t be read' : `${count.toLocaleString('en-US')} rows can’t be read`
 })
@@ -184,7 +197,7 @@ function lineClass(index: number): string | undefined {
     <div v-else-if="layout.amounts === 'direction'" class="mb-2" data-test="columns-direction">
       <div :id="directionLabel" class="text-label-large mb-1">Which of these mean money in?</div>
       <v-chip-group
-        :model-value="layout.money_in_values"
+        :model-value="moneyIn"
         multiple
         column
         selected-class="text-primary"
@@ -269,9 +282,9 @@ function lineClass(index: number): string | undefined {
     <div class="d-flex align-center flex-wrap ga-2 mb-2">
       <div class="text-title-small font-weight-bold">How the first rows read</div>
       <v-spacer />
-      <span v-if="summary" class="text-body-small text-medium-emphasis" data-test="columns-count">
+      <span class="text-body-small text-medium-emphasis" data-test="columns-count">
         {{ transactionCount(summary.rows) }}
-        <span v-if="unreadable" class="text-error"> · {{ unreadable }}</span>
+        <span v-if="unreadable" class="text-error">· {{ unreadable }}</span>
       </span>
     </div>
     <div class="first-rows" data-test="columns-rows">

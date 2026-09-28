@@ -3,6 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import * as accountsApi from '@/api/accounts'
 import type { Account } from '@/api/accounts'
 import { ApiError } from '@/api/client'
+import * as importsApi from '@/api/imports'
 import * as api from '@/api/transactions'
 import { confirmRequest } from '@/composables/confirm'
 import { notices } from '@/composables/notify'
@@ -19,6 +20,7 @@ import {
   wholeFoods,
 } from '@/test/finance'
 import { makeSessionState, makeUser } from '@/test/fixtures'
+import { checkingImport } from '@/test/imports'
 import { mountWithPlugins } from '@/test/mount'
 import TransactionsView from '@/views/TransactionsView.vue'
 import { emptyFilters } from '@/views/transactions/view'
@@ -96,6 +98,16 @@ describe('TransactionsView', () => {
     })
     expect(find(`filter-chip-account-${savings.id}`).text()).toContain('Rainy day fund')
     expect(find('transaction-filters').text()).toContain('Filters')
+  })
+
+  it('shows what one import added, by its file’s name', async () => {
+    const fetch = vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage([wholeFoods]))
+    const imports = vi.spyOn(importsApi, 'fetchImports').mockResolvedValue([checkingImport])
+    vi.spyOn(importsApi, 'fetchSavedFormats').mockResolvedValue([])
+    const { find } = await render({ route: `/transactions?import=${checkingImport.id}` })
+    expect(fetch.mock.calls[0]![0]).toMatchObject({ import_id: checkingImport.id })
+    expect(imports).toHaveBeenCalledOnce()
+    expect(find('filter-chip-import').text()).toContain('From harbor-checking.csv')
   })
 
   it.each([

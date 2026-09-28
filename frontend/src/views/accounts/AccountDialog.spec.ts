@@ -10,20 +10,26 @@ import { checking, makeAccount, seedFinance, visa } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
 import AccountDialog from '@/views/accounts/AccountDialog.vue'
 
-async function render(account: api.Account | null = null) {
+async function render(
+  account: api.Account | null = null,
+  draft: Partial<api.AccountInput> | null = null,
+) {
   const open = ref(false)
+  const saved = vi.fn()
   const Host = defineComponent({
     render: () =>
       h(AccountDialog, {
         account,
+        draft,
         modelValue: open.value,
         'onUpdate:modelValue': (value: boolean) => (open.value = value),
+        onSaved: saved,
       }),
   })
   await mountWithPlugins(Host, { width: 1280, beforeMount: () => seedFinance({ accounts: [] }) })
   open.value = true
   await flushPromises()
-  return { open }
+  return { open, saved }
 }
 
 const dialog = () => page().find('.v-overlay--active .app-dialog')
@@ -79,6 +85,49 @@ describe('AccountDialog', () => {
     expect(useAccountsStore().find('account-new')).toEqual(saved)
     expect(notices.value.at(-1)?.text).toBe('Added Rainy day fund')
     expect(open.value).toBe(false)
+  })
+
+  it('starts a new account from a draft, and says which it added', async () => {
+    const added = makeAccount({ id: 'account-new', name: 'Harbor savings', type: 'savings' })
+    const create = vi.spyOn(api, 'createAccount').mockResolvedValue(added)
+    const { saved } = await render(null, {
+      name: 'Harbor savings',
+      type: 'savings',
+      institution: 'Harbor Credit Union',
+      mask: '7781',
+      currency: 'EUR',
+      balance: '2781.88',
+    })
+    expect(field('type-savings').attributes('aria-checked')).toBe('true')
+    expect(value('name-field')).toBe('Harbor savings')
+    expect(value('institution')).toBe('Harbor Credit Union')
+    expect(value('mask')).toBe('7781')
+    expect(field('currency').text()).toContain('EUR')
+    expect(value('balance-field')).toBe('2,781.88')
+
+    await submit()
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Harbor savings', currency: 'EUR', balance: '2781.88' }),
+    )
+    expect(saved).toHaveBeenCalledWith(added)
+  })
+
+  it('shows a drafted card’s balance as what’s owed', async () => {
+    await render(null, { type: 'credit_card', balance: '-600.00' })
+    expect(value('balance-field')).toBe('600.00')
+  })
+
+  it('takes a drafted balance without a kind of account as a checking account’s', async () => {
+    await render(null, { balance: '100.00' })
+    expect(field('type-checking').attributes('aria-checked')).toBe('true')
+    expect(value('balance-field')).toBe('100.00')
+    expect(value('name-field')).toBe('')
+  })
+
+  it('edits an account as it is, whatever the draft says', async () => {
+    await render(checking, { name: 'Harbor savings', type: 'savings', balance: '1.00' })
+    expect(value('name-field')).toBe('Everyday checking')
+    expect(value('balance-field')).toBe('2,450.18')
   })
 
   it('takes what is owed on a card as a positive amount, with its limit', async () => {

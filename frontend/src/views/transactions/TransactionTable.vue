@@ -87,6 +87,13 @@ function changed(options: Options) {
 function account(transaction: Transaction) {
   return accounts.find(transaction.account_id)
 }
+
+/** Under the payee: the notes, or what the bank calls it when that's more than the payee. */
+function detail(transaction: Transaction): string | null {
+  const described = transaction.original_description
+  if (transaction.notes || !described) return transaction.notes
+  return described.toLowerCase() === transaction.payee.toLowerCase() ? null : described
+}
 </script>
 
 <template>
@@ -133,11 +140,8 @@ function account(transaction: Transaction) {
             >Pending</v-chip
           >
         </div>
-        <div
-          v-if="item.notes || item.original_description"
-          class="text-body-small text-medium-emphasis text-truncate"
-        >
-          {{ item.notes ?? item.original_description }}
+        <div v-if="detail(item)" class="text-body-small text-medium-emphasis text-truncate">
+          {{ detail(item) }}
         </div>
       </div>
     </template>

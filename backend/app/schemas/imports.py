@@ -83,7 +83,7 @@ class CsvLayout(BaseModel):
     header: bool = True
     columns: CsvColumns = Field(default_factory=CsvColumns)
     amounts: AmountColumns = "one"
-    # With a direction column, the values in it that mean money came in, in lowercase.
+    # With a direction column, the values in it that mean money came in, whatever their case.
     money_in_values: Annotated[list[DirectionValue], Field(max_length=20)] = []
 
 
@@ -185,7 +185,8 @@ class CsvPreview(BaseModel):
     lines: list[list[str]]
     # The fields no column has been chosen for yet, which the file needs to be read.
     missing: list[NeededField]
-    # The values of the direction column, for choosing which ones mean money in.
+    # The values of the direction column as the file writes them, for choosing which ones
+    # mean money in.
     direction_values: list[str]
 
 

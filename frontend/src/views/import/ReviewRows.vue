@@ -2,7 +2,7 @@
 import { CircleAlert, CopyCheck } from '@lucide/vue'
 import { computed, ref, useId, watch } from 'vue'
 
-import type { PreviewRow, RowStatus } from '@/api/imports'
+import type { ImportPreview, PreviewRow, RowStatus } from '@/api/imports'
 import type { TransactionSource } from '@/api/transactions'
 import CategoryChip from '@/components/finance/CategoryChip.vue'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
@@ -37,7 +37,8 @@ const SOURCES: Record<TransactionSource, string> = {
   file: 'imported',
 }
 
-const rows = computed(() => wizard.preview?.rows ?? [])
+const preview = computed(() => wizard.preview as ImportPreview)
+const rows = computed(() => preview.value.rows)
 const chosen = computed(() => new Set(wizard.selected))
 const accountName = computed(() => wizard.account?.name ?? 'the account')
 
@@ -92,7 +93,7 @@ function note(row: PreviewRow): string | null {
         ? `Might be ${match.payee} on ${day(match.date)}, ${SOURCES[match.source]}`
         : `Might already be in ${accountName.value}`
     default:
-      if (coveredByBank(row, wizard.preview?.bank_history ?? null))
+      if (coveredByBank(row, preview.value.bank_history))
         return 'On a day the bank already shared through Plaid'
       return row.description && row.description !== row.payee ? row.description : null
   }
@@ -107,6 +108,7 @@ const name = (row: PreviewRow) => row.payee ?? row.description ?? 'Unknown payee
     <v-chip-group
       v-model="filter"
       mandatory
+      column
       selected-class="text-primary"
       class="mb-2"
       :aria-labelledby="filterLabel"
@@ -135,6 +137,7 @@ const name = (row: PreviewRow) => row.payee ?? row.description ?? 'Unknown payee
           :indeterminate="chosenCount > 0 && !allChosen"
           :disabled="!choosable.length"
           density="compact"
+          class="flex-grow-0"
           :aria-label="allChosen ? 'Untick every row shown' : 'Tick every row shown'"
           data-test="review-choose-all"
           @update:model-value="chooseAll"
@@ -161,6 +164,7 @@ const name = (row: PreviewRow) => row.payee ?? row.description ?? 'Unknown payee
           v-if="importable(row)"
           :model-value="chosen.has(row.line)"
           density="compact"
+          class="flex-grow-0"
           data-test="review-row-check"
           @update:model-value="(on: unknown) => wizard.select([row.line], !!on)"
         />
@@ -182,7 +186,7 @@ const name = (row: PreviewRow) => row.payee ?? row.description ?? 'Unknown payee
           </span>
           <span
             v-if="note(row)"
-            class="review-rows__note d-block text-body-small text-truncate"
+            class="review-rows__note text-body-small"
             data-test="review-row-note"
           >
             {{ note(row) }}
@@ -253,12 +257,19 @@ label.review-rows__row:hover {
   color: rgb(var(--v-theme-warning));
 }
 
+/* Notes say why a row is ticked or not, so they get a second line on phones. */
 .review-rows__note {
+  display: -webkit-box;
+  overflow: hidden;
   color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
+/* Wide enough for a date in another year, "Sep 23, 2025". */
 .review-rows__date {
-  flex: 0 0 72px;
+  flex: 0 0 84px;
 }
 
 .review-rows__count {

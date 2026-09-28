@@ -5,6 +5,7 @@ import * as accounts from '@/api/accounts'
 import * as auth from '@/api/auth'
 import * as categories from '@/api/categories'
 import * as connections from '@/api/connections'
+import * as imports from '@/api/imports'
 import * as preferences from '@/api/preferences'
 import * as system from '@/api/system'
 import * as transactions from '@/api/transactions'
@@ -29,6 +30,24 @@ const transactionInput: transactions.TransactionInput = {
   payee: 'Corner Market',
   category_id: null,
   notes: null,
+}
+
+const importRequest: imports.ImportRequest = {
+  file_name: 'a.csv',
+  content: 'YQ==',
+  profile_id: null,
+  statement: 0,
+  options: {
+    date_order: 'mdy',
+    decimal_mark: '.',
+    flip: false,
+    payee_field: 'name',
+    csv: null,
+  },
+  account_id: 'a1',
+  lines: [2, 3],
+  balance: 'move',
+  save_profile: { id: null, name: 'Harbor checking' },
 }
 
 // Each API function, the request it should make, and the body it should send.
@@ -465,6 +484,31 @@ const endpoints: [string, () => Promise<unknown>, string, string, unknown][] = [
     () => connections.deleteConnection('c1', false),
     'DELETE',
     '/connections/c1?keep_accounts=false',
+    undefined,
+  ],
+  [
+    'previewImport',
+    () => imports.previewImport({ file_name: 'a.csv', content: 'YQ==', account_id: 'a1' }),
+    'POST',
+    '/imports/preview',
+    { file_name: 'a.csv', content: 'YQ==', account_id: 'a1' },
+  ],
+  ['createImport', () => imports.createImport(importRequest), 'POST', '/imports', importRequest],
+  ['fetchImports', () => imports.fetchImports(), 'GET', '/imports', undefined],
+  ['undoImport', () => imports.undoImport('i1'), 'DELETE', '/imports/i1', undefined],
+  ['fetchSavedFormats', () => imports.fetchSavedFormats(), 'GET', '/imports/profiles', undefined],
+  [
+    'renameSavedFormat',
+    () => imports.renameSavedFormat('p1', 'Harbor checking'),
+    'PATCH',
+    '/imports/profiles/p1',
+    { name: 'Harbor checking' },
+  ],
+  [
+    'deleteSavedFormat',
+    () => imports.deleteSavedFormat('p1'),
+    'DELETE',
+    '/imports/profiles/p1',
     undefined,
   ],
 ]

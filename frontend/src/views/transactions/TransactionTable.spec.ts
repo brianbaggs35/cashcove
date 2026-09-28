@@ -16,6 +16,16 @@ const noted = makeTransaction({
   notes: 'Snacks for the trip',
 })
 
+// Imported from a file that named it the way it's shown.
+const imported = makeTransaction({
+  id: 'transaction-imported',
+  date: '2025-12-30',
+  amount: '-15.49',
+  payee: 'NETFLIX.COM',
+  original_description: 'Netflix.com',
+  source: 'file',
+})
+
 async function render(props: Record<string, unknown> = {}) {
   const mounted = await mountWithPlugins(TransactionTable, {
     width: 1280,
@@ -50,9 +60,9 @@ describe('TransactionTable', () => {
   })
 
   it('shows each transaction with its category, account and signed amount', async () => {
-    const { wrapper, rows } = await render()
+    const { wrapper, rows } = await render({ items: [latte, wholeFoods, salary, noted, imported] })
 
-    expect(wrapper.findAll('[data-test="transaction-row"]')).toHaveLength(4)
+    expect(wrapper.findAll('[data-test="transaction-row"]')).toHaveLength(5)
     expect(wrapper.findAll('thead th').map((cell) => cell.text())).toEqual([
       '',
       'Date',
@@ -81,6 +91,8 @@ describe('TransactionTable', () => {
       'Uncategorized',
       'Deleted account',
     ])
+    // What the bank calls it goes unsaid when it's the payee.
+    expect(cells(4)[2]).toBe('NETFLIX.COM')
     expect(rows()[0]!.find('.money').classes()).toContain('text-medium-emphasis')
     expect(rows()[1]!.find('.money').classes()).not.toContain('text-medium-emphasis')
     expect(wrapper.find('[data-test="transaction-open"]').attributes('aria-label')).toBe(

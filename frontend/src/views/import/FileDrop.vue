@@ -17,6 +17,8 @@ function choose() {
   input.value?.click()
 }
 
+defineExpose({ choose })
+
 function chosen(event: Event) {
   const field = event.target as HTMLInputElement
   const file = field.files?.[0]

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, useTemplateRef } from 'vue'
 
 import TabPage from '@/components/TabPage.vue'
 import ReadOnlyNotice from '@/components/ui/ReadOnlyNotice.vue'
@@ -18,10 +18,17 @@ const accounts = useAccountsStore()
 const wizard = useImportWizard()
 
 const importing = ref(false)
+const drop = useTemplateRef<{ choose: () => void }>('drop')
 
 function start(file: File) {
   void wizard.start(file)
   importing.value = true
+}
+
+/** Opens the file picker again, when the chosen file couldn't be read. */
+function chooseAgain() {
+  const picker = drop.value as { choose: () => void }
+  picker.choose()
 }
 
 // Someone else may have imported or undone something since the tab was last open.
@@ -38,7 +45,7 @@ onMounted(() => {
       text="You can see what’s been imported and the saved formats. Only an admin can import files or change them."
     />
 
-    <FileDrop v-if="auth.isAdmin" @file="start" />
+    <FileDrop v-if="auth.isAdmin" ref="drop" @file="start" />
 
     <v-alert
       v-if="store.error && !store.loaded"
@@ -67,6 +74,6 @@ onMounted(() => {
       </v-col>
     </v-row>
 
-    <ImportDialog v-if="auth.isAdmin" v-model="importing" />
+    <ImportDialog v-if="auth.isAdmin" v-model="importing" @choose-file="chooseAgain" />
   </TabPage>
 </template>

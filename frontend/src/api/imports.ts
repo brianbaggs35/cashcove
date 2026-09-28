@@ -50,7 +50,7 @@ export interface CsvLayout {
   header: boolean
   columns: CsvColumns
   amounts: AmountColumns
-  /** With a direction column, the values in it that mean money came in, in lowercase. */
+  /** With a direction column, the values in it that mean money came in, whatever their case. */
   money_in_values: string[]
 }
 
@@ -102,7 +102,7 @@ export interface CsvPreview {
   lines: string[][]
   /** What no column has been chosen for yet, which the file needs to be read. */
   missing: NeededField[]
-  /** What the direction column says, for choosing which values mean money in. */
+  /** What the direction column says, as the file writes it, for choosing which mean money in. */
   direction_values: string[]
 }
 
