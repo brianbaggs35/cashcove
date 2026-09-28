@@ -33,6 +33,8 @@ from app.models import (
     CategoryGroup,
     Connection,
     ConnectionSync,
+    FileImport,
+    ImportProfile,
     Invitation,
     LoginThrottle,
     Passkey,
@@ -404,6 +406,77 @@ def test_people_see_the_baseline_money_through_the_api(e2e: TestClient) -> None:
     ]
     assert len(groups) == len(SUGGESTED)
     assert sum(len(group["categories"]) for group in groups) == 37
+
+
+def test_the_baseline_has_the_imports_that_brought_in_the_older_history(
+    e2e: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("e2e.api.utcnow", lambda: RESET_AT)
+
+    baseline = e2e.post("/api/e2e/reset").json()
+
+    imports = baseline["imports"]
+    assert list(imports) == ["savings_history", "checking_history"]
+    assert count(session, FileImport) == 2
+    history = baseline["history"]
+    for key, described in imports.items():
+        stored = session.get(FileImport, uuid.UUID(described["id"]))
+        assert stored is not None
+        assert str(stored.account_id) == described["account_id"]
+        assert described["account_id"] == baseline["accounts"][described["account"]]["id"]
+        assert (stored.file_name, stored.format.value, stored.added, stored.skipped) == (
+            described["file_name"],
+            described["format"],
+            described["added"],
+            described["skipped"],
+        )
+        assert stored.created_at == RESET_AT - timedelta(hours=described["hours_ago"])
+        mine = [item for item in history if item["file_import"] == key]
+        assert len(mine) == described["added"]
+        assert (
+            stored.total
+            == sum(Decimal(item["amount"]) for item in mine)
+            == Decimal(described["total"])
+        )
+        assert stored.first_date == (RESET_AT - timedelta(days=described["first_days_ago"])).date()
+        assert stored.last_date == (RESET_AT - timedelta(days=described["last_days_ago"])).date()
+        rows = session.scalars(select(Transaction).where(Transaction.import_id == stored.id))
+        assert sorted(str(row.id) for row in rows) == sorted(item["id"] for item in mine)
+    # Every imported transaction came in with one of them.
+    assert all(item["file_import"] for item in history if item["source"] == "file")
+    assert not [item for item in history if item["source"] != "file" and item["file_import"]]
+    saved = baseline["saved_formats"]
+    assert list(saved) == ["harbor_checking", "maple_card"]
+    assert imports["checking_history"]["saved_format"] == "harbor_checking"
+    for described in saved.values():
+        profile = session.get(ImportProfile, uuid.UUID(described["id"]))
+        assert profile is not None
+        assert (profile.name, profile.headers) == (described["name"], described["headers"])
+        account = baseline["accounts"][described["account"]]["id"]
+        assert str(profile.account_id) == account
+
+
+def test_people_see_the_baseline_imports_through_the_api(e2e: TestClient) -> None:
+    baseline = e2e.post("/api/e2e/reset").json()
+    viewer = baseline["users"]["viewer"]
+    sign_in(e2e, viewer["email"], viewer["password"])
+
+    imports = e2e.get("/api/imports").json()
+    profiles = e2e.get("/api/imports/profiles").json()
+
+    assert [item["file_name"] for item in imports] == [
+        item["file_name"] for item in baseline["imports"].values()
+    ]
+    assert [item["created_by"] for item in imports] == ["Alex Rivera"] * 2
+    assert [profile["name"] for profile in profiles] == [
+        "Harbor Credit Union checking",
+        "Maple store card",
+    ]
+    # The checking account's saved format reads its files.
+    harbor = profiles[0]
+    assert harbor["options"]["csv"]["columns"]["id"] == 4
+    assert harbor["last_used_at"] is not None
+    assert profiles[1]["last_used_at"] is None
 
 
 def test_resets_reuse_the_hashed_password(e2e: TestClient, session: Session) -> None:
