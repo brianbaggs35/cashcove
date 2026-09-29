@@ -34,8 +34,9 @@ from app.plaid import sync as sync_module
 from app.plaid import worker
 from app.plaid.accounts import import_account, shared_accounts
 from app.plaid.client import PlaidClient
+from app.plaid.errors import UNAVAILABLE
 from app.plaid.sync import KEPT_SYNCS, MUTATED, sync_connection
-from e2e.plaid import KEYS, FakePlaid
+from e2e.plaid import BANKS, KEYS, FakePlaid
 from tests.plaid import rewriting, seeded, transactions_in
 
 
@@ -333,6 +334,257 @@ def test_a_sync_that_breaks_lets_the_next_one_run(
 
     assert refreshed(session, connection).sync_started_at is None
     assert session.scalar(select(func.count()).select_from(Transaction)) == 0
+
+
+# ---- Banks that share nothing ------------------------------------------------------------
+
+
+def test_a_bank_plaid_cant_get_transactions_from_says_so(
+    session: Session, settings: Settings, fake: FakePlaid, caplog: pytest.LogCaptureFixture
+) -> None:
+    connection = linked(session, settings, fake)
+    fake.item("platypus").feed_down = True
+
+    with caplog.at_level(logging.INFO, logger="app.plaid.sync"):
+        assert run(session, settings, connection, fake.transport, SyncTrigger.LINKED)
+
+    down = refreshed(session, connection)
+    assert (down.status, down.error_code) == (ConnectionStatus.ERROR, UNAVAILABLE)
+    assert down.error_message is not None
+    assert "First Platypus Bank" in down.error_message
+    assert "Import tab" in down.error_message
+    # Nothing came in, so it hasn't synced; the balances Plaid gave were kept.
+    assert down.last_synced_at is None
+    assert down.last_attempt_at is not None
+    sync = session.scalars(select(ConnectionSync)).one()
+    assert (sync.succeeded, sync.added, sync.error_code) == (False, 0, UNAVAILABLE)
+    assert session.scalar(select(func.count()).select_from(Transaction)) == 0
+    # What Plaid said is in the log, so it's plain when a bank says "complete" and sends nothing.
+    assert "Plaid says HISTORICAL_UPDATE_COMPLETE" in caplog.text
+    assert "Plaid can't get transactions from First Platypus Bank" in caplog.text
+
+
+def test_history_out_of_reach_is_read_from_the_start_once_the_bank_shares_it(
+    session: Session, settings: Settings, fake: FakePlaid
+) -> None:
+    connection = linked(session, settings, fake)
+    fake.item("platypus").feed_down = True
+    run(session, settings, connection, fake.transport)
+    run(session, settings, connection, fake.transport)
+    # The bank handed Plaid a cursor at the end of a history it wasn't sharing yet, but none
+    # was kept, since nothing had ever come in.
+    assert set(session.scalars(select(Account.sync_cursor))) == {None}
+
+    fake.item("platypus").feed_down = False
+    run(session, settings, connection, fake.transport)
+
+    healthy = refreshed(session, connection)
+    assert (healthy.status, healthy.error_code, healthy.error_message) == (
+        ConnectionStatus.HEALTHY,
+        None,
+        None,
+    )
+    assert healthy.last_synced_at is not None
+    assert session.scalar(select(func.count()).select_from(Transaction)) == 15
+
+
+def test_a_bank_plaid_cant_get_transactions_from_isnt_asked_again_every_few_minutes(
+    session: Session, sessions: sessionmaker[Session], settings: Settings, fake: FakePlaid
+) -> None:
+    connection = linked(session, settings, fake)
+    connection.history = HistoryStatus.PENDING
+    session.commit()
+    fake.item("platypus").feed_down = True
+
+    def not_ready(body: dict[str, Any]) -> None:
+        body["transactions_update_status"] = "NOT_READY"
+
+    run(session, settings, connection, rewriting(fake, "/transactions/sync", not_ready))
+
+    down = refreshed(session, connection)
+    assert (down.history, down.error_code) == (HistoryStatus.PENDING, UNAVAILABLE)
+    down.last_attempt_at = utcnow() - dt.timedelta(minutes=3)
+    session.commit()
+    with sessions() as db:
+        assert worker.due(db) == []
+    down.last_attempt_at = utcnow() - dt.timedelta(hours=7)
+    session.commit()
+    with sessions() as db:
+        assert worker.due(db) == [(connection.id, SyncTrigger.SCHEDULED)]
+
+
+def test_a_bank_plaid_reports_as_down_is_named_when_nothing_has_come_in(
+    session: Session, settings: Settings, fake: FakePlaid
+) -> None:
+    connection = linked(session, settings, fake, "tartan")
+    fake.health[BANKS["tartan"].institution_id] = "DOWN"
+
+    run(session, settings, connection, fake.transport)
+
+    down = refreshed(session, connection)
+    assert (down.status, down.error_code) == (ConnectionStatus.ERROR, UNAVAILABLE)
+    assert down.error_message is not None
+    assert "(it's down)" in down.error_message
+
+
+@pytest.mark.parametrize("health", [None, "HEALTHY", "DEGRADED"])
+def test_a_first_sync_with_nothing_yet_isnt_blamed_on_the_bank(
+    session: Session, settings: Settings, fake: FakePlaid, health: str | None
+) -> None:
+    connection = linked(session, settings, fake, "tartan")
+    if health is not None:
+        fake.health[BANKS["tartan"].institution_id] = health
+
+    run(session, settings, connection, fake.transport)
+
+    quiet = refreshed(session, connection)
+    assert (quiet.status, quiet.error_code) == (ConnectionStatus.HEALTHY, None)
+    assert quiet.last_synced_at is not None
+
+
+@pytest.mark.parametrize(
+    ("failed", "succeeded", "blamed"),
+    [
+        # Plaid has never got through since it last failed.
+        ("2026-09-29T02:11:00Z", None, True),
+        ("2026-09-29T03:00:00Z", "2026-09-29T02:11:00Z", True),
+        # It got through after failing, or never failed.
+        ("2026-09-29T02:11:00Z", "2026-09-29T03:00:00Z", False),
+        (None, "2026-09-29T02:11:00Z", False),
+        (None, None, False),
+        # Times without a zone are Plaid's, so UTC.
+        ("2026-09-29T03:00:00", "2026-09-29T02:11:00Z", True),
+        ("2026-09-29T02:11:00", "2026-09-29T03:00:00", False),
+    ],
+)
+def test_a_bank_is_only_blamed_while_the_latest_update_failed(
+    session: Session,
+    settings: Settings,
+    fake: FakePlaid,
+    failed: str | None,
+    succeeded: str | None,
+    blamed: bool,
+) -> None:
+    connection = linked(session, settings, fake, "tartan")
+
+    def status(body: dict[str, Any]) -> None:
+        body["status"]["transactions"] = {
+            "last_successful_update": succeeded,
+            "last_failed_update": failed,
+        }
+
+    run(session, settings, connection, rewriting(fake, "/item/get", status))
+
+    assert (refreshed(session, connection).error_code == UNAVAILABLE) is blamed
+
+
+def test_a_status_missing_from_plaid_isnt_blamed_on_the_bank(
+    session: Session, settings: Settings, fake: FakePlaid
+) -> None:
+    connection = linked(session, settings, fake, "tartan")
+
+    def nothing(body: dict[str, Any]) -> None:
+        body.pop("status")
+
+    run(session, settings, connection, rewriting(fake, "/item/get", nothing))
+
+    assert refreshed(session, connection).status == ConnectionStatus.HEALTHY
+
+
+def test_asking_plaid_about_trouble_never_fails_a_sync(
+    session: Session, settings: Settings, fake: FakePlaid, caplog: pytest.LogCaptureFixture
+) -> None:
+    connection = linked(session, settings, fake, "tartan")
+    fake.failures["/item/get"] = ("API_ERROR", "INTERNAL_SERVER_ERROR")
+    fake.failures["/institutions/get_by_id"] = ("API_ERROR", "INTERNAL_SERVER_ERROR")
+
+    with caplog.at_level(logging.INFO, logger="app.plaid.sync"):
+        run(session, settings, connection, fake.transport)
+
+    assert refreshed(session, connection).status == ConnectionStatus.HEALTHY
+    assert "Couldn't ask Plaid how updating a bank is going: INTERNAL_SERVER_ERROR" in caplog.text
+    assert "Couldn't ask Plaid how a bank is doing: INTERNAL_SERVER_ERROR" in caplog.text
+
+
+def test_only_banks_that_have_never_sent_anything_are_asked_about_trouble(
+    session: Session, settings: Settings, fake: FakePlaid
+) -> None:
+    connection = linked(session, settings, fake)
+    run(session, settings, connection, fake.transport)
+    fake.item("platypus").feed_down = True
+    asked: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        return fake.handle(request)
+
+    run(session, settings, connection, httpx.MockTransport(handle))
+
+    assert "/item/get" not in asked
+    assert "/institutions/get_by_id" not in asked
+    assert refreshed(session, connection).status == ConnectionStatus.HEALTHY
+
+
+def test_a_bank_without_an_institution_isnt_asked_how_it_is_doing(
+    session: Session, settings: Settings, fake: FakePlaid
+) -> None:
+    connection = linked(session, settings, fake, "tartan")
+    connection.institution_id = None
+    session.commit()
+    asked: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        return fake.handle(request)
+
+    run(session, settings, connection, httpx.MockTransport(handle))
+
+    assert "/item/get" in asked
+    assert "/institutions/get_by_id" not in asked
+    assert refreshed(session, connection).status == ConnectionStatus.HEALTHY
+
+
+def test_accounts_a_bank_has_sent_nothing_for_are_read_from_the_start_next_time(
+    session: Session, settings: Settings, fake: FakePlaid
+) -> None:
+    connection = linked(session, settings, fake)
+
+    def cursors() -> dict[str, str | None]:
+        session.expire_all()
+        return {
+            name: cursor
+            for name, cursor in session.execute(select(Account.name, Account.sync_cursor))
+        }
+
+    run(session, settings, connection, fake.transport)
+
+    # Plaid handed back a cursor for the savings account, but there's nothing behind it yet.
+    assert cursors()["Plaid Saving"] is None
+    assert cursors()["Plaid Checking"] is not None
+
+    savings = session.scalars(select(Account).where(Account.name == "Plaid Saving")).one()
+    fake.add_transaction(
+        "platypus", str(savings.external_id), "-10.00", "Interest", "INCOME_INTEREST"
+    )
+    run(session, settings, connection, fake.transport)
+
+    assert cursors()["Plaid Saving"] == f"{savings.external_id}:1"
+    # An account with a cursor keeps moving it, changes or not.
+    checking = cursors()["Plaid Checking"]
+    run(session, settings, connection, fake.transport)
+    assert cursors()["Plaid Checking"] == checking
+
+
+def test_syncing_a_bank_with_no_accounts_imported_reads_nothing(
+    session: Session, settings: Settings, fake: FakePlaid, caplog: pytest.LogCaptureFixture
+) -> None:
+    connection = seeded(session, settings, fake, "tartan")
+
+    with caplog.at_level(logging.INFO, logger="app.plaid.sync"):
+        assert run(session, settings, connection, fake.transport)
+
+    assert refreshed(session, connection).status == ConnectionStatus.HEALTHY
+    assert "Plaid says nothing to read" in caplog.text
 
 
 # ---- The schedule's worker ---------------------------------------------------------------

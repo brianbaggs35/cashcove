@@ -4,6 +4,7 @@ Plaid lists its errors at https://plaid.com/docs/errors/. Cashcove words its own
 since Plaid's are written for developers, and keeps Plaid's error_code alongside for support.
 """
 
+import datetime as dt
 from dataclasses import dataclass
 
 from fastapi import status
@@ -93,6 +94,23 @@ _NEEDS_ATTENTION = _by_code(
 # The connection is already gone at Plaid, so there's nothing left to remove there.
 GONE = frozenset({"ITEM_NOT_FOUND", "INVALID_ACCESS_TOKEN"})
 
+# Cashcove's own code, not Plaid's. Plaid answered every request, so nothing looks wrong, but
+# it says it can't get the bank's transactions, as when a bank changes how it shares them.
+UNAVAILABLE = "BANK_DATA_UNAVAILABLE"
+
+
+def unavailable(bank: str, failed: dt.datetime | None) -> PlaidError:
+    """The sync error for a bank Plaid can't get transactions from: its last failed attempt
+    at the Item, or else that Plaid reports the bank as down."""
+    why = f"its last attempt failed on {failed:%b} {failed.day}" if failed else "it's down"
+    return PlaidError(
+        "BANK_ERROR",
+        UNAVAILABLE,
+        f"Plaid can't get transactions from {bank} right now ({why}). That's on the bank's or "
+        "Plaid's side, not Cashcove's, and Cashcove keeps checking. Meanwhile, download a "
+        "statement from the bank's website and import it on the Import tab.",
+    )
+
 
 @dataclass(frozen=True)
 class Problem:
@@ -102,6 +120,8 @@ class Problem:
 
 def diagnose(error: PlaidError) -> Problem:
     """What a failed sync means for the connection, and what to tell people."""
+    if error.code == UNAVAILABLE:
+        return Problem(ConnectionStatus.ERROR, error.message)
     if error.code in _LOGIN_REQUIRED:
         return Problem(ConnectionStatus.LOGIN_REQUIRED, _LOGIN_REQUIRED[error.code])
     if error.code in _NEEDS_ATTENTION:

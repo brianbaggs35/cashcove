@@ -7,6 +7,7 @@ Plaid for changes on the schedule chosen in Settings > Sync instead.
 import datetime as dt
 
 from app.models import Connection, ConnectionStatus, HistoryStatus, SyncTrigger
+from app.plaid.errors import UNAVAILABLE
 from app.schemas.preferences import SyncPreferences
 
 # While a new connection's history comes in, it's checked this often, whatever the schedule,
@@ -27,7 +28,12 @@ def next_sync(
     a schedule is turned off."""
     if not has_accounts or connection.status == ConnectionStatus.LOGIN_REQUIRED:
         return None
-    if connection.history != HistoryStatus.COMPLETE and now - connection.created_at < IMPORT_WINDOW:
+    # A bank Plaid can't get transactions from is checked on the usual schedule: asking every
+    # couple of minutes wouldn't bring them any sooner.
+    importing = (
+        connection.history != HistoryStatus.COMPLETE and connection.error_code != UNAVAILABLE
+    )
+    if importing and now - connection.created_at < IMPORT_WINDOW:
         interval, trigger = IMPORT_INTERVAL, SyncTrigger.LINKED
     elif preferences.auto_sync:
         interval, trigger = dt.timedelta(hours=preferences.interval_hours), SyncTrigger.SCHEDULED

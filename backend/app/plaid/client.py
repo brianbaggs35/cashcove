@@ -126,6 +126,51 @@ class _InstitutionResponse(_Model):
     institution: Institution
 
 
+class TransactionsStatus(_Model):
+    # When Plaid last got through to the bank for an Item's transactions, and when it last
+    # failed to. Either can be missing, e.g. before the first attempt.
+    last_successful_update: dt.datetime | None = None
+    last_failed_update: dt.datetime | None = None
+
+
+class ItemStatus(_Model):
+    transactions: TransactionsStatus | None = None
+
+
+class _ItemDetails(_Model):
+    status: ItemStatus | None = None
+
+
+class ItemResponse(_Model):
+    # Plaid puts the status beside the Item; older versions of its API put it inside.
+    item: _ItemDetails | None = None
+    status: ItemStatus | None = None
+
+    @property
+    def transactions(self) -> TransactionsStatus | None:
+        """How Plaid's attempts to update the Item's transactions have gone."""
+        status = self.status or (self.item.status if self.item else None)
+        return status.transactions if status else None
+
+
+class _Health(_Model):
+    # HEALTHY, DEGRADED or DOWN.
+    status: str | None = None
+
+
+class _InstitutionStatus(_Model):
+    transactions_updates: _Health | None = None
+
+
+class _InstitutionWithStatus(_Model):
+    # Plaid leaves it out where it doesn't know, like in the sandbox.
+    status: _InstitutionStatus | None = None
+
+
+class _InstitutionStatusResponse(_Model):
+    institution: _InstitutionWithStatus
+
+
 class PersonalFinanceCategory(_Model):
     primary: str
     detailed: str
@@ -265,6 +310,26 @@ class PlaidClient:
             _InstitutionResponse,
         )
         return response.institution
+
+    def get_item(self, access_token: str) -> ItemResponse:
+        """How Plaid's attempts to update the Item's transactions have gone."""
+        return self._post("/item/get", {"access_token": access_token}, ItemResponse)
+
+    def transactions_health(self, institution_id: str) -> str | None:
+        """How well Plaid is getting transactions from a bank right now for everyone: HEALTHY,
+        DEGRADED or DOWN, or None where Plaid doesn't say."""
+        response = self._post(
+            "/institutions/get_by_id",
+            {
+                "institution_id": institution_id,
+                "country_codes": self.country_codes,
+                "options": {"include_status": True},
+            },
+            _InstitutionStatusResponse,
+        )
+        status = response.institution.status
+        updates = status.transactions_updates if status else None
+        return updates.status if updates else None
 
     def sync_transactions(
         self, access_token: str, account_id: str, cursor: str | None

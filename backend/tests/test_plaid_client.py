@@ -242,3 +242,58 @@ def test_plaid_being_unreachable_raises_a_plaid_error(plaid_settings: Settings) 
         plaid.get_accounts("access-1")
 
     assert raised.value.code == "PLAID_UNREACHABLE"
+
+
+def test_an_items_transaction_updates_are_read_from_its_status(plaid_settings: Settings) -> None:
+    beside = {
+        "item": {"item_id": "item-1"},
+        "status": {
+            "transactions": {
+                "last_successful_update": "2026-09-01T10:00:00Z",
+                "last_failed_update": "2026-09-29T02:11:00Z",
+            },
+            "last_webhook": None,
+        },
+    }
+    # Where older versions of Plaid's API put it.
+    inside = {"item": {"item_id": "item-1", "status": beside["status"]}}
+    recorder = Recorder(ok(beside), ok(inside), ok({"item": {"item_id": "item-1"}}), ok({}))
+    with client(plaid_settings, recorder) as plaid:
+        found = [plaid.get_item("access-1").transactions for _ in range(4)]
+
+    assert str(recorder.requests[0].url) == "https://sandbox.plaid.com/item/get"
+    assert recorder.body == {"access_token": "access-1"}
+    assert found[0] == found[1]
+    assert found[0] is not None
+    assert found[0].last_successful_update is not None
+    assert found[0].last_failed_update is not None
+    assert found[0].last_failed_update.isoformat() == "2026-09-29T02:11:00+00:00"
+    # Plaid says nothing about how updates are going, e.g. before the first.
+    assert found[2:] == [None, None]
+
+
+@pytest.mark.parametrize(
+    ("institution", "health"),
+    [
+        ({"status": {"transactions_updates": {"status": "DOWN"}}}, "DOWN"),
+        ({"status": {"transactions_updates": {"status": "HEALTHY", "breakdown": {}}}}, "HEALTHY"),
+        # Plaid leaves the status out where it doesn't know, like in the sandbox.
+        ({}, None),
+        ({"status": {"item_logins": {"status": "DOWN"}}}, None),
+        ({"status": {"transactions_updates": {}}}, None),
+    ],
+)
+def test_how_well_plaid_gets_a_banks_transactions_is_asked_for_with_its_status(
+    plaid_settings: Settings, institution: dict[str, Any], health: str | None
+) -> None:
+    recorder = Recorder(ok({"institution": {"institution_id": "ins_41", **institution}}))
+    with client(plaid_settings, recorder) as plaid:
+        found = plaid.transactions_health("ins_41")
+
+    assert found == health
+    assert str(recorder.requests[0].url) == "https://sandbox.plaid.com/institutions/get_by_id"
+    assert recorder.body == {
+        "institution_id": "ins_41",
+        "country_codes": ["US", "CA"],
+        "options": {"include_status": True},
+    }

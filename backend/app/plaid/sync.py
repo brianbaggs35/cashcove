@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.crypto import DecryptionError, SecretBox
@@ -32,7 +32,7 @@ from app.models.base import utcnow
 from app.plaid.accounts import cents, linked_accounts, refresh, share, unlink
 from app.plaid.categories import CategoryChooser
 from app.plaid.client import AccountsResponse, PlaidClient, PlaidError, PlaidTransaction
-from app.plaid.errors import diagnose
+from app.plaid.errors import diagnose, unavailable
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +71,10 @@ class Counts:
     added: int = 0
     updated: int = 0
     removed: int = 0
+
+
+def _changed(changes: AccountChanges) -> bool:
+    return bool(changes.added or changes.modified or changes.removed)
 
 
 def claim(db: Session, connection_id: uuid.UUID, now: dt.datetime) -> bool:
@@ -209,6 +213,60 @@ def _apply_account(
         counts.removed += len(gone)
 
 
+def _next_cursor(account: Account, changes: AccountChanges) -> str | None:
+    """Where the account's next sync picks up. An account the bank has never sent a change
+    for is read from the start again, whatever cursor Plaid handed back, so history that
+    only turns up later can't be skipped."""
+    if account.sync_cursor is None and not _changed(changes):
+        return None
+    return changes.cursor or None
+
+
+def _statuses(changes: dict[str, AccountChanges]) -> str:
+    """What Plaid said about the history's progress, for the log."""
+    return ", ".join(sorted({change.history for change in changes.values()})) or "nothing to read"
+
+
+def _utc(moment: dt.datetime) -> dt.datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=dt.UTC)
+
+
+def _failing(plaid: PlaidClient, token: str) -> dt.datetime | None:
+    """When Plaid's latest attempt to update the Item's transactions failed, if it did."""
+    try:
+        status = plaid.get_item(token).transactions
+    except PlaidError as error:
+        log.info("Couldn't ask Plaid how updating a bank is going: %s", error.code)
+        return None
+    if status is None or status.last_failed_update is None:
+        return None
+    failed = _utc(status.last_failed_update)
+    succeeded = status.last_successful_update
+    return failed if succeeded is None or _utc(succeeded) < failed else None
+
+
+def _down(plaid: PlaidClient, institution_id: str | None) -> bool:
+    """Whether Plaid says it can't get transactions from the bank for anyone right now."""
+    if institution_id is None:
+        return False
+    try:
+        return plaid.transactions_health(institution_id) == "DOWN"
+    except PlaidError as error:
+        log.info("Couldn't ask Plaid how a bank is doing: %s", error.code)
+        return False
+
+
+def _trouble(
+    plaid: PlaidClient, token: str, institution_id: str | None, bank: str
+) -> PlaidError | None:
+    """Whether the reason no transactions have come in is that Plaid can't get them from the
+    bank. Otherwise the first ones are likely still on their way."""
+    failed = _failing(plaid, token)
+    if failed is None and not _down(plaid, institution_id):
+        return None
+    return unavailable(bank, failed)
+
+
 def _history(statuses: Sequence[str], current: HistoryStatus) -> HistoryStatus:
     """How much history has arrived: as little as the least complete account has."""
     known = [_HISTORY[status] for status in statuses if status in _HISTORY]
@@ -286,7 +344,7 @@ def _apply(
         # An account imported while this sync ran waits for the next one.
         if account_changes is not None:
             _apply_account(db, account, account_changes, chooser, counts)
-            account.sync_cursor = account_changes.cursor or None
+            account.sync_cursor = _next_cursor(account, account_changes)
             statuses.append(account_changes.history)
     connection.history = _history(statuses, connection.history)
     return counts
@@ -306,11 +364,19 @@ def sync_connection(
     if not claim(db, connection_id, started):
         return False
     connection = db.get_one(Connection, connection_id)
+    linked = linked_accounts(db, connection)
     cursors = {
-        account.external_id: account.sync_cursor
-        for account in linked_accounts(db, connection)
-        if account.external_id
+        account.external_id: account.sync_cursor for account in linked if account.external_id
     }
+    # Whether the bank has ever sent a transaction for them.
+    had_any = db.scalar(
+        select(
+            exists().where(
+                Transaction.account_id.in_([account.id for account in linked]),
+                Transaction.source == TransactionSource.PLAID,
+            )
+        )
+    )
     # Nothing is locked while Plaid is asked, which can take a while.
     db.commit()
     try:
@@ -324,6 +390,9 @@ def sync_connection(
             for account_id, cursor in cursors.items()
             if account_id in available
         }
+        trouble = None
+        if changes and not had_any and not any(_changed(item) for item in changes.values()):
+            trouble = _trouble(plaid, token, connection.institution_id, connection.institution_name)
     except (PlaidError, DecryptionError) as error:
         failure = error if isinstance(error, PlaidError) else _undecryptable()
         log.warning(
@@ -346,19 +415,22 @@ def sync_connection(
         if synced is None:
             return True
         counts = _apply(db, synced, shared, changes, default_currency)
-        _finish(db, synced, trigger, started, counts)
+        _finish(db, synced, trigger, started, counts, trouble)
         db.commit()
     except BaseException:
         db.rollback()
         release(db, connection_id)
         raise
     log.info(
-        "Synced %s: %d added, %d updated, %d removed",
+        "Synced %s: %d added, %d updated, %d removed (Plaid says %s)",
         connection.institution_name,
         counts.added,
         counts.updated,
         counts.removed,
+        _statuses(changes),
     )
+    if trouble is not None:
+        log.warning("Plaid can't get transactions from %s", connection.institution_name)
     return True
 
 

@@ -93,6 +93,9 @@ class FakeItem:
     error: str | None = None
     # Accounts the person unshared through Link's account selection.
     hidden: set[str] = field(default_factory=set[str])
+    # Whether Plaid can't get the bank's transactions, as when the bank changes how it shares
+    # them. Plaid still answers every request, though: the Item's syncs come back empty.
+    feed_down: bool = False
 
     def shared(self) -> list[FakeAccount]:
         return [account for account in self.accounts if account.account_id not in self.hidden]
@@ -238,6 +241,9 @@ class FakePlaid:
         self.link_tokens: list[dict[str, Any]] = []
         # Errors to answer the next request to a path with: path -> (error_type, code).
         self.failures: dict[str, tuple[str, str]] = {}
+        # How well Plaid says it gets each bank's transactions (HEALTHY, DEGRADED or DOWN), by
+        # institution ID. Like Plaid's Sandbox, it says nothing about the banks left out.
+        self.health: dict[str, str] = {}
         self._exchanged: set[str] = set()
         self.reset()
 
@@ -246,6 +252,7 @@ class FakePlaid:
         self.items = {}
         self.link_tokens = []
         self.failures = {}
+        self.health = {}
         self._exchanged = set()
         tartan = FakeItem(
             TARTAN_ITEM,
@@ -334,6 +341,7 @@ class FakePlaid:
                 "/item/public_token/exchange": self._exchange,
                 "/accounts/get": self._accounts,
                 "/institutions/get_by_id": self._institution,
+                "/item/get": self._item_status,
                 "/transactions/sync": self._sync,
                 "/item/remove": self._remove,
             }.get(request.url.path)
@@ -416,15 +424,32 @@ class FakePlaid:
         )
         if bank is None:
             raise PlaidError(400, "INVALID_INPUT", "INVALID_INSTITUTION", "Unknown institution")
+        institution: dict[str, Any] = {
+            "institution_id": bank.institution_id,
+            "name": bank.name,
+            "url": bank.url,
+            "primary_color": bank.color,
+            # Like most of Plaid's Sandbox banks, these have no logo.
+            "logo": None,
+        }
+        options: dict[str, Any] = body.get("options") or {}
+        health = self.health.get(bank.institution_id)
+        if health is not None and options.get("include_status"):
+            institution["status"] = {"transactions_updates": {"status": health}}
+        return {"institution": institution}
+
+    def _item_status(self, body: dict[str, Any]) -> dict[str, Any]:
+        item = self._item(body, healthy=False)
+        now = utcnow().isoformat()
         return {
-            "institution": {
-                "institution_id": bank.institution_id,
-                "name": bank.name,
-                "url": bank.url,
-                "primary_color": bank.color,
-                # Like most of Plaid's Sandbox banks, these have no logo.
-                "logo": None,
-            }
+            "item": {"item_id": item.item_id, "institution_id": item.bank.institution_id},
+            "status": {
+                "transactions": {
+                    "last_successful_update": None if item.feed_down else now,
+                    "last_failed_update": now if item.feed_down else None,
+                },
+                "last_webhook": None,
+            },
         }
 
     def _sync(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -436,6 +461,18 @@ class FakePlaid:
         )
         if account is None:
             raise PlaidError(400, "INVALID_INPUT", "INVALID_ACCOUNT_ID", "Unknown account")
+        if item.feed_down:
+            # The worst a client can meet: nothing, called complete, with a cursor at the end
+            # of the history that's there, so one that keeps it never sees that history.
+            return {
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "next_cursor": f"{account.account_id}:{len(account.events)}",
+                "has_more": False,
+                "transactions_update_status": "HISTORICAL_UPDATE_COMPLETE",
+                "accounts": [],
+            }
         cursor = str(body.get("cursor") or f"{account.account_id}:0")
         seen = int(cursor.rpartition(":")[2])
         count = int(body.get("count", 100))
