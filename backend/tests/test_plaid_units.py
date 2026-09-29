@@ -22,7 +22,7 @@ from app.plaid.accounts import account_type, share
 from app.plaid.categories import RULES, CategoryChooser, suggested_name
 from app.plaid.client import PlaidAccount, PlaidError, PlaidTransaction
 from app.plaid.connections import link_language, valid_logo
-from app.plaid.errors import diagnose, plaid_failed
+from app.plaid.errors import UNAVAILABLE, diagnose, plaid_failed, unavailable
 from app.plaid.schedule import IMPORT_INTERVAL, next_sync
 from app.schemas.preferences import SyncPreferences
 from tests.finance import add_account, add_transaction
@@ -72,6 +72,28 @@ def test_passing_problems_are_tried_again(error_type: str, code: str) -> None:
 
     assert problem.status == ConnectionStatus.ERROR
     assert "try again at the next sync" in problem.message
+
+
+@pytest.mark.parametrize(
+    ("failed", "says"),
+    [
+        (dt.datetime(2026, 9, 2, 14, 30, tzinfo=dt.UTC), "its last attempt failed on Sep 2"),
+        (None, "it's down"),
+    ],
+)
+def test_a_bank_plaid_cant_get_transactions_from_says_what_to_do(
+    failed: dt.datetime | None, says: str
+) -> None:
+    problem = diagnose(unavailable("BMO Bank of Montreal", failed))
+
+    assert problem.status == ConnectionStatus.ERROR
+    assert problem.message.startswith("Plaid can't get transactions from BMO Bank of Montreal")
+    assert says in problem.message
+    assert "not Cashcove's" in problem.message
+    assert "Import tab" in problem.message
+    # What people read is cut at 500 characters, so a long bank name mustn't push it off.
+    assert len(unavailable("B" * 120, failed).message) < 500
+    assert unavailable("BMO", failed).code == UNAVAILABLE
 
 
 def test_other_errors_name_plaids_code() -> None:
@@ -352,6 +374,29 @@ def test_new_connections_are_checked_often_while_their_history_comes_in() -> Non
     assert next_sync(old, SyncPreferences(), has_accounts=True, now=NOW) == (
         NOW + dt.timedelta(hours=5),
         SyncTrigger.SCHEDULED,
+    )
+
+
+def test_a_bank_plaid_cant_get_transactions_from_is_checked_on_the_usual_schedule() -> None:
+    unavailable = connection(
+        history=HistoryStatus.PENDING,
+        created_at=NOW - dt.timedelta(hours=1),
+        error_code=UNAVAILABLE,
+    )
+
+    assert next_sync(unavailable, SyncPreferences(), has_accounts=True, now=NOW) == (
+        NOW + dt.timedelta(hours=5),
+        SyncTrigger.SCHEDULED,
+    )
+    # Other problems don't slow the checks down while the history comes in.
+    other = connection(
+        history=HistoryStatus.PENDING,
+        created_at=NOW - dt.timedelta(hours=1),
+        error_code="PLAID_UNREACHABLE",
+    )
+    assert next_sync(other, SyncPreferences(), has_accounts=True, now=NOW) == (
+        NOW - dt.timedelta(hours=1) + IMPORT_INTERVAL,
+        SyncTrigger.LINKED,
     )
 
 

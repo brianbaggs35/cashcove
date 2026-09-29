@@ -114,6 +114,15 @@ bank fetches right away. When a bank wants you to sign in again, the Connect tab
 in the menu say so, as does a bank's card a month before it stops sharing, and **Reconnect**
 opens Plaid to fix it.
 
+Now and then a bank connects fine and Plaid still can't get its transactions, as when the bank
+changes how it shares them. Plaid answers every request, so nothing looks broken: the accounts
+are there, with no transactions. When a bank has never sent any, Cashcove asks Plaid whether
+its updates for the bank are failing, and if so the bank's card says so and Cashcove checks
+again on the usual schedule rather than every few minutes. Only the bank and Plaid can fix it.
+Until they do, [import statement files](#importing-statement-files) from the bank's website.
+When the bank does start sharing, the next sync brings in everything from the start. Undo those
+file imports then (**Recent imports** on the Import tab), or the days they cover show twice.
+
 Plaid's keys and each bank's access token stay on the server, the tokens encrypted with the
 app secret key. The browser only loads Plaid Link from `cdn.plaid.com`, which the Content
 Security Policy allows along with the matching Plaid API host. Removing a bank in Cashcove

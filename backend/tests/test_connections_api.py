@@ -674,6 +674,44 @@ def test_a_bank_that_wants_a_new_sign_in_waits_for_a_reconnect(
     assert fixed["last_sync"]["trigger"] == "reconnected"
 
 
+def test_a_bank_plaid_cant_get_transactions_from_says_so_and_recovers_by_itself(
+    admin_client: TestClient, session: Session, fake: FakePlaid
+) -> None:
+    """Some banks connect fine and then share nothing: Plaid answers every request, says the
+    history is complete, and has no transactions. Cashcove says what's wrong rather than that
+    it's up to date, and brings the history in once the bank shares it."""
+    connection = connect(admin_client)
+    ids = plaid_ids(connection)
+    fake.item("platypus").feed_down = True
+
+    chosen = choose(admin_client, connection, ids["Plaid Checking"], ids["Plaid Credit Card"])
+
+    assert chosen.status_code == 200
+    down = chosen.json()
+    assert (down["status"], down["error_code"]) == ("error", "BANK_DATA_UNAVAILABLE")
+    assert "Plaid can't get transactions from First Platypus Bank" in down["error_message"]
+    assert "Import tab" in down["error_message"]
+    assert down["last_sync"]["succeeded"] is False
+    assert down["last_sync"]["error_message"] == down["error_message"]
+    assert down["last_synced_at"] is None
+    assert session.scalar(select(func.count()).select_from(Transaction)) == 0
+
+    # It stays connected, and keeps checking on the usual schedule.
+    assert {account["state"] for account in down["accounts"]} == {"imported", "skipped"}
+    assert down["next_sync_at"] is not None
+
+    fake.item("platypus").feed_down = False
+    recovered = sync(admin_client, connection)
+
+    assert (recovered["status"], recovered["error_code"], recovered["error_message"]) == (
+        "healthy",
+        None,
+        None,
+    )
+    assert recovered["last_sync"]["added"] == 15
+    assert session.scalar(select(func.count()).select_from(Transaction)) == 15
+
+
 def test_link_can_change_which_accounts_a_bank_shares(
     admin_client: TestClient, fake: FakePlaid
 ) -> None:

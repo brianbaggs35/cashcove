@@ -6,7 +6,7 @@ import httpx2 as httpx
 import pytest
 
 from app.plaid.deps import plaid_transport
-from e2e.plaid import FIDELITY_ACCESS, KEYS, TARTAN_ACCESS, FakePlaid
+from e2e.plaid import BANKS, FIDELITY_ACCESS, KEYS, TARTAN_ACCESS, FakePlaid
 
 
 def ask(
@@ -65,6 +65,57 @@ def test_requests_plaid_would_turn_down_are(
     response = ask(FakePlaid(), path, body)
 
     assert (response.status_code, code(response)) == (status, expected)
+
+
+def test_an_items_status_says_whether_its_transactions_update() -> None:
+    fake = FakePlaid()
+    body = {"access_token": TARTAN_ACCESS}
+
+    working = ask(fake, "/item/get", body).json()["status"]["transactions"]
+    fake.item("tartan").feed_down = True
+    broken = ask(fake, "/item/get", body).json()["status"]["transactions"]
+
+    assert (working["last_successful_update"] is None, working["last_failed_update"]) == (
+        False,
+        None,
+    )
+    assert (broken["last_successful_update"], broken["last_failed_update"] is None) == (None, False)
+    # A bank that wants someone to sign in again has a status too.
+    assert ask(fake, "/item/get", {"access_token": FIDELITY_ACCESS}).status_code == 200
+
+
+def test_a_banks_health_is_only_given_when_asked_for_and_known() -> None:
+    fake = FakePlaid()
+    ask_for = {"institution_id": BANKS["tartan"].institution_id}
+    fake.health[BANKS["tartan"].institution_id] = "DEGRADED"
+
+    asked = ask(fake, "/institutions/get_by_id", {**ask_for, "options": {"include_status": True}})
+    not_asked = ask(fake, "/institutions/get_by_id", ask_for)
+    unknown = ask(
+        fake,
+        "/institutions/get_by_id",
+        {"institution_id": BANKS["fidelity"].institution_id, "options": {"include_status": True}},
+    )
+
+    assert asked.json()["institution"]["status"] == {"transactions_updates": {"status": "DEGRADED"}}
+    assert "status" not in not_asked.json()["institution"]
+    assert "status" not in unknown.json()["institution"]
+    fake.reset()
+    assert fake.health == {}
+
+
+def test_a_bank_plaid_cant_get_transactions_from_answers_with_nothing_but_a_cursor() -> None:
+    fake = FakePlaid()
+    fake.item("tartan").feed_down = True
+    body = {"access_token": TARTAN_ACCESS, "options": {"account_id": "e2e-card"}}
+
+    answer = ask(fake, "/transactions/sync", body).json()
+
+    assert (answer["added"], answer["has_more"]) == ([], False)
+    assert answer["transactions_update_status"] == "HISTORICAL_UPDATE_COMPLETE"
+    # A cursor past everything the bank has, so a client that keeps it never sees the history.
+    events = len(fake.item("tartan").accounts[0].events)
+    assert answer["next_cursor"] == f"e2e-card:{events}"
 
 
 def test_a_public_token_is_exchanged_only_once() -> None:
