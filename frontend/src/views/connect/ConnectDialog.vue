@@ -265,8 +265,20 @@ watch(
   { immediate: true },
 )
 
+/** Why the first sync went wrong, when it did: better told than "Imported 0 transactions". */
+const problem = computed(() => {
+  const target = current.value as Connection
+  return target.status === 'healthy' ? null : target.error_message
+})
+
+const historyTone = computed(() => {
+  if (problem.value) return 'warning'
+  return (current.value as Connection).history === 'complete' ? 'success' : 'info'
+})
+
 /** What a newly connected bank's history looks like so far. */
 const historyNote = computed(() => {
+  if (problem.value) return problem.value
   const target = current.value as Connection
   const added = target.last_sync?.added ?? 0
   if (target.history === 'pending')
@@ -414,7 +426,7 @@ function owed(type: Connection['accounts'][number]['type'], balance: string) {
         />
       </div>
       <v-alert
-        :type="current.history === 'complete' ? 'success' : 'info'"
+        :type="historyTone"
         variant="tonal"
         density="compact"
         class="mt-5"

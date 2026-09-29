@@ -255,6 +255,30 @@ describe('ConnectDialog', () => {
     expect(find('connect-history-note').text()).toContain('Imported 40 transactions from the last')
   })
 
+  it('says why nothing came in when the bank could not share its transactions', async () => {
+    const why =
+      'Plaid can’t get transactions from Tartan Bank right now (it’s down). Meanwhile, import a statement file.'
+    vi.spyOn(api, 'createLinkToken').mockResolvedValue(token)
+    linkWith()
+    vi.spyOn(api, 'createConnection').mockResolvedValue(linked)
+    vi.spyOn(api, 'chooseAccounts').mockResolvedValue(
+      makeConnection({
+        status: 'error',
+        error_code: 'BANK_DATA_UNAVAILABLE',
+        error_message: why,
+        last_sync: makeSync({ succeeded: false, added: 0, updated: 0 }),
+      }),
+    )
+    await render()
+    await press('connect-continue')
+    await press('connect-import')
+
+    const note = find('connect-history-note')
+    expect(note.text()).toBe(why)
+    expect(note.classes()).toContain('text-warning')
+    expect(note.classes()).not.toContain('text-success')
+  })
+
   it('goes back to the accounts when importing fails, and can be left for later', async () => {
     vi.spyOn(api, 'createLinkToken').mockResolvedValue(token)
     linkWith()
