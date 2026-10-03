@@ -372,8 +372,10 @@ def test_weekly_budgets_without_a_cycle_anchor_are_rejected() -> None:
         amounts=[BudgetAmount(starts_on=dt.date(2026, 9, 1), amount=Decimal("10.00"))],
     )
 
+    month = dt.date(2026, 9, 1)
+
     with pytest.raises(RuntimeError, match="must have a cycle anchor"):
-        monthly_budgeted(malformed, dt.date(2026, 9, 1))
+        monthly_budgeted(malformed, month)
 
 
 def test_budget_account_scope_filters_category_progress_but_not_household_actuals(
