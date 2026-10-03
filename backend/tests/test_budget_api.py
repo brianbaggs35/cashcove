@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.orm import Session
 
 from app.auth.deps import ApiError
+from app.config import Settings
 from app.finance.budget import (
     add_months,
     amount_at,
@@ -39,6 +40,7 @@ from app.models import (
 from app.models.app_settings import SINGLETON_ID
 from tests.finance import add_account, add_category, add_group, add_transaction
 from tests.helpers import error
+from tests.rates import FakeRates
 
 SEPTEMBER = dt.date(2026, 9, 1)
 
@@ -219,7 +221,8 @@ def test_a_household_without_categories_has_nothing_budgeted(viewer_client: Test
         "spending": {"budgeted": "0.00", "carried": "0.00", "actual": "0.00"},
         "groups": [],
         "uncategorized": {"received": "0.00", "spent": "0.00", "count": 0},
-        "other_currencies": [],
+        "converted_currencies": [],
+        "unconverted_currencies": [],
     }
 
 
@@ -288,23 +291,141 @@ def test_the_month_counts_what_was_spent_and_received(
     assert body["spending"]["actual"] == "188.00"
 
 
-def test_only_the_households_currency_counts(
-    viewer_client: TestClient, session: Session, checking: Account, categories: dict[str, Category]
+def test_accounts_in_other_currencies_count_at_each_days_rate(
+    viewer_client: TestClient,
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+    rates: FakeRates,
 ) -> None:
     euros = add_account(session, "Paris account", currency="EUR")
     pounds = add_account(session, "London account", currency="GBP")
     groceries = categories["Groceries"]
+    rates.rate("EUR", "1.10")
+    rates.rate("GBP", {day("2026-09"): "1.30", day("2026-08"): "1.20"})
     spend(session, checking, groceries, "-10.00", day("2026-09"))
     spend(session, euros, groceries, "-20.00", day("2026-09"))
+    spend(session, euros, groceries, "5.00", day("2026-09", 20))
     spend(session, pounds, None, "-30.00", day("2026-09"))
     spend(session, pounds, None, "-30.00", day("2026-08"))
 
     body = get_month(viewer_client)
 
+    # 20 euros out and 5 back in, at 1.10, and the 30 pounds at September's 1.30.
+    assert lines(body)["Groceries"]["actual"] == "26.50"
+    assert lines(body)["Groceries"]["count"] == 3
+    assert body["uncategorized"] == {"received": "0.00", "spent": "39.00", "count": 1}
+    assert body["spending"]["actual"] == "65.50"
+    assert (body["converted_currencies"], body["unconverted_currencies"]) == (["EUR", "GBP"], [])
+    august = get_month(viewer_client, "2026-08")
+    assert august["uncategorized"]["spent"] == "36.00"
+    assert (august["converted_currencies"], august["unconverted_currencies"]) == (["GBP"], [])
+
+
+def test_money_that_cant_be_converted_is_left_out_and_said_so(
+    viewer_client: TestClient,
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+    rates: FakeRates,
+) -> None:
+    pounds = add_account(session, "London account", currency="GBP")
+    francs = add_account(session, "Zurich account", currency="CHF")
+    groceries = categories["Groceries"]
+    # The server only has pounds from the 10th, and doesn't know the franc.
+    rates.rate("GBP", {day("2026-09", 10): "1.30"})
+    spend(session, checking, groceries, "-10.00", day("2026-09"))
+    spend(session, pounds, groceries, "-20.00", day("2026-09", 5))
+    spend(session, francs, groceries, "-30.00", day("2026-09"))
+
+    body = get_month(viewer_client)
+
     assert lines(body)["Groceries"]["actual"] == "10.00"
-    assert body["uncategorized"]["count"] == 0
-    assert body["other_currencies"] == ["EUR", "GBP"]
-    assert get_month(viewer_client, "2026-08")["other_currencies"] == ["GBP"]
+    assert lines(body)["Groceries"]["count"] == 1
+    assert (body["converted_currencies"], body["unconverted_currencies"]) == ([], ["CHF", "GBP"])
+
+
+def test_without_a_rate_server_other_currencies_are_left_out(
+    viewer_client: TestClient,
+    session: Session,
+    settings: Settings,
+    checking: Account,
+    categories: dict[str, Category],
+    rates: FakeRates,
+) -> None:
+    settings.exchange_rate_url = ""
+    euros = add_account(session, "Paris account", currency="EUR")
+    rates.rate("EUR", "1.10")
+    spend(session, euros, categories["Groceries"], "-20.00", day("2026-09"))
+
+    body = get_month(viewer_client)
+
+    assert lines(body)["Groceries"]["actual"] == "0.00"
+    assert (body["converted_currencies"], body["unconverted_currencies"]) == ([], ["EUR"])
+    assert rates.requests == []
+
+
+def test_foreign_accounts_can_scope_a_budget_and_have_their_transactions_linked(
+    admin_client: TestClient,
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+    rates: FakeRates,
+) -> None:
+    paycheck, groceries = categories["Paycheck"], categories["Groceries"]
+    euros = add_account(session, "Paris account", currency="EUR")
+    rates.rate("EUR", "1.10")
+    budget(session, paycheck, {"2026-01": "4800.00"})
+    spend(session, checking, groceries, "-10.00", day("2026-09"))
+    spend(session, euros, groceries, "-20.00", day("2026-09"))
+    income = add_transaction(session, euros, "100.00", date=day("2026-09"))
+    expense = add_transaction(session, euros, "-40.00", date=day("2026-09", 20))
+
+    scoped = put_budget(
+        admin_client,
+        groceries,
+        month="2026-09",
+        amount="500",
+        account_ids=[str(euros.id)],
+    )
+    linked_income = admin_client.put(
+        f"/api/budget/categories/{paycheck.id}/transactions/{income.id}"
+    )
+    linked_expense = admin_client.put(
+        f"/api/budget/categories/{groceries.id}/transactions/{expense.id}"
+    )
+    body = get_month(admin_client)
+
+    assert lines(scoped)["Groceries"]["actual"] == "22.00"
+    assert (linked_income.status_code, linked_expense.status_code) == (204, 204)
+    # Only the Paris account counts toward Groceries: 20 and 40 euros, at 1.10. Paychecks
+    # include the 100 euros linked to them.
+    assert lines(body)["Groceries"]["actual"] == "66.00"
+    assert lines(body)["Paycheck"]["actual"] == "110.00"
+    assert body["spending"]["actual"] == "76.00"
+
+
+def test_a_categorys_history_converts_other_currencies(
+    viewer_client: TestClient,
+    session: Session,
+    categories: dict[str, Category],
+    rates: FakeRates,
+) -> None:
+    euros = add_account(session, "Paris account", currency="EUR")
+    groceries = categories["Groceries"]
+    rates.rate("EUR", "1.10")
+    spend(session, euros, groceries, "-20.00", day("2026-09"))
+
+    response = viewer_client.get(
+        f"/api/budget/categories/{groceries.id}/history", params={"month": "2026-09"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["months"][-1] == {
+        "month": "2026-09",
+        "budgeted": None,
+        "actual": "22.00",
+    }
 
 
 def test_weekly_and_biweekly_budgets_count_cycles_in_each_month_and_year(
@@ -433,7 +554,7 @@ def test_budget_account_scope_filters_category_progress_but_not_household_actual
     assert error(invalid_scope) == "linked_transaction_outside_accounts"
 
 
-def test_account_scopes_reject_missing_foreign_and_duplicate_accounts(
+def test_account_scopes_reject_missing_and_duplicate_accounts(
     admin_client: TestClient,
     session: Session,
     categories: dict[str, Category],
@@ -449,14 +570,6 @@ def test_account_scopes_reject_missing_foreign_and_duplicate_accounts(
             "account_ids": [str(uuid.uuid4())],
         },
     )
-    foreign = admin_client.put(
-        f"/api/budget/categories/{groceries.id}",
-        json={
-            "month": "2026-09",
-            "amount": "500",
-            "account_ids": [str(euros.id)],
-        },
-    )
     duplicate = admin_client.put(
         f"/api/budget/categories/{groceries.id}",
         json={
@@ -467,7 +580,6 @@ def test_account_scopes_reject_missing_foreign_and_duplicate_accounts(
     )
 
     assert error(missing) == "unknown_account"
-    assert error(foreign) == "budget_currency"
     assert duplicate.status_code == 422
 
 
@@ -511,7 +623,7 @@ def test_linked_income_transactions_are_idempotently_attributed_and_unlinked(
     assert unlinked_body["uncategorized"]["received"] == "2400.00"
 
 
-def test_linked_transactions_must_match_budget_currency_direction_and_scope(
+def test_linked_transactions_must_match_budget_direction_and_scope(
     admin_client: TestClient,
     session: Session,
     checking: Account,
@@ -523,8 +635,6 @@ def test_linked_transactions_must_match_budget_currency_direction_and_scope(
     budget(session, groceries, {"2026-01": "500.00"})
     income = add_transaction(session, checking, "100.00", date=day("2026-09"))
     expense = add_transaction(session, checking, "-100.00", date=day("2026-09"))
-    foreign = add_account(session, "Euro account", currency="EUR")
-    euro_income = add_transaction(session, foreign, "100.00", date=day("2026-09"))
     put_budget(
         admin_client,
         groceries,
@@ -540,16 +650,12 @@ def test_linked_transactions_must_match_budget_currency_direction_and_scope(
     wrong_expense_sign = admin_client.put(
         f"/api/budget/categories/{groceries.id}/transactions/{income.id}"
     )
-    wrong_currency = admin_client.put(
-        f"/api/budget/categories/{paycheck.id}/transactions/{euro_income.id}"
-    )
     wrong_account = admin_client.put(
         f"/api/budget/categories/{groceries.id}/transactions/{out_of_scope.id}"
     )
 
     assert error(wrong_income_sign) == "budget_transaction_direction"
     assert error(wrong_expense_sign) == "budget_transaction_direction"
-    assert error(wrong_currency) == "budget_currency"
     assert error(wrong_account) == "budget_account"
 
 
@@ -765,7 +871,6 @@ def test_subscription_links_validate_budget_kind_account_and_access(
 ) -> None:
     paycheck, groceries = categories["Paycheck"], categories["Groceries"]
     savings = add_account(session, "Savings")
-    euro_account = add_account(session, "Euro account", currency="EUR")
     budget(session, paycheck, {"2026-01": "4800.00"})
     budget(session, groceries, {"2026-01": "500.00"})
 
@@ -783,7 +888,6 @@ def test_subscription_links_validate_budget_kind_account_and_access(
         return result
 
     from_savings = subscription(savings, "Savings bill")
-    from_euros = subscription(euro_account, "Euro bill")
     in_scope = subscription(checking, "Internet bill")
     put_budget(
         admin_client,
@@ -805,14 +909,10 @@ def test_subscription_links_validate_budget_kind_account_and_access(
     wrong_account = admin_client.put(
         f"/api/budget/categories/{groceries.id}/subscriptions/{from_savings.id}"
     )
-    wrong_currency = admin_client.put(
-        f"/api/budget/categories/{groceries.id}/subscriptions/{from_euros.id}"
-    )
     assert error(income_budget) == "subscription_not_expense"
     assert error(missing_budget) == "budget_not_found"
     assert error(missing_subscription) == "subscription_not_found"
     assert error(wrong_account) == "budget_account"
-    assert error(wrong_currency) == "budget_currency"
     linked = admin_client.put(f"/api/budget/categories/{groceries.id}/subscriptions/{in_scope.id}")
     account_change = admin_client.put(
         f"/api/budget/categories/{groceries.id}",
@@ -855,9 +955,13 @@ def test_viewers_cannot_delete_or_link_budgets(
 
 
 def test_the_households_currency_comes_from_its_settings(
-    viewer_client: TestClient, session: Session, categories: dict[str, Category]
+    viewer_client: TestClient,
+    session: Session,
+    categories: dict[str, Category],
+    rates: FakeRates,
 ) -> None:
     set_general(session, currency="EUR")
+    rates.rate("USD", "0.90")
     euros = add_account(session, "Paris account", currency="EUR")
     dollars = add_account(session, "Chicago account")
     spend(session, euros, categories["Groceries"], "-20.00", day("2026-09"))
@@ -866,8 +970,9 @@ def test_the_households_currency_comes_from_its_settings(
     body = get_month(viewer_client)
 
     assert body["currency"] == "EUR"
-    assert lines(body)["Groceries"]["actual"] == "20.00"
-    assert body["other_currencies"] == ["USD"]
+    assert lines(body)["Groceries"]["actual"] == "29.00"
+    assert body["converted_currencies"] == ["USD"]
+    assert "quotes=EUR" in str(rates.requests[0].url)
 
 
 def test_monthly_budgets_add_up_by_kind(
@@ -1181,7 +1286,8 @@ def test_the_year_shows_each_month(
         "20.00",
         "45.00",
     )
-    assert body["other_currencies"] == ["EUR"]
+    # The server doesn't know the euro, so the 5 euros spent in August aren't counted.
+    assert (body["converted_currencies"], body["unconverted_currencies"]) == ([], ["EUR"])
 
 
 def test_a_year_without_categories_is_empty(viewer_client: TestClient) -> None:

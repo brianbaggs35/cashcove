@@ -3,6 +3,8 @@ went out, and changing budgets from a month on.
 
 Totals are worked out from the transactions every time they're asked for, never stored, so
 they're always up to date, whatever synced, was imported, undone or recategorized since.
+Accounts in other currencies count too, converted into the household's at each transaction's
+day's exchange rate.
 """
 
 import datetime as dt
@@ -10,15 +12,27 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, NamedTuple
 
 from fastapi import status
-from sqlalchemy import Date, case, cast, delete, func, select
+from sqlalchemy import (
+    ColumnElement,
+    Date,
+    Select,
+    SQLColumnExpression,
+    case,
+    cast,
+    delete,
+    func,
+    select,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.auth.deps import ApiError
 from app.auth.service import load_preferences
 from app.finance.categories import KIND_ORDER
+from app.finance.exchange_rates import ExchangeRateClient, RateBook
 from app.models import (
     Account,
     Budget,
@@ -125,17 +139,29 @@ _NONE = Flow()
 FlowKey = tuple[uuid.UUID | None, dt.date]
 
 
-def _flows(
-    db: Session,
-    currency: str,
+class _FlowRow(NamedTuple):
+    """What a category's transactions in one account came to in a month, or on a day."""
+
+    category: uuid.UUID | None
+    period: dt.date
+    account_id: uuid.UUID
+    currency: str
+    net: Decimal
+    received: Decimal
+    spent: Decimal
+    transactions: int
+
+
+def _flow_statement(
+    period: SQLColumnExpression[dt.date],
+    currency: ColumnElement[bool],
     start: dt.date,
     end: dt.date,
-    category_id: uuid.UUID | None = None,
-    account_scopes: dict[uuid.UUID, set[uuid.UUID]] | None = None,
-) -> dict[FlowKey, Flow]:
-    """What each budget category's transactions came to each month, respecting its account
-    scope. An explicitly linked transaction belongs to that budget's category."""
-    month = cast(func.date_trunc("month", Transaction.date), Date)
+    category_id: uuid.UUID | None,
+) -> Select[*tuple[Any, ...]]:
+    """What the transactions of accounts in `currency` came to in each `period` (a month or a
+    day), by category and account. An explicitly linked transaction belongs to that budget's
+    category."""
     received = func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0))
     spent = func.sum(case((Transaction.amount < 0, -Transaction.amount), else_=0))
     transaction_links = budget_transactions.alias("budget_transaction_links")
@@ -150,8 +176,9 @@ def _flows(
     statement = (
         select(
             effective_category,
-            month,
+            period,
             Transaction.account_id,
+            Account.currency,
             func.sum(Transaction.amount),
             received,
             spent,
@@ -171,25 +198,64 @@ def _flows(
             subscription_budget,
             subscription_budget.id == subscription_links.c.budget_id,
         )
-        .where(Account.currency == currency, Transaction.date >= start, Transaction.date < end)
-        .group_by(effective_category, month, Transaction.account_id)
+        .where(currency, Transaction.date >= start, Transaction.date < end)
+        .group_by(effective_category, period, Transaction.account_id, Account.currency)
     )
     if category_id is not None:
         statement = statement.where(effective_category == category_id)
+    return statement
+
+
+def _flows(
+    db: Session,
+    rates: RateBook,
+    start: dt.date,
+    end: dt.date,
+    category_id: uuid.UUID | None = None,
+    account_scopes: dict[uuid.UUID, set[uuid.UUID]] | None = None,
+) -> dict[FlowKey, Flow]:
+    """What each budget category's transactions came to each month, respecting its account
+    scope. Accounts in other currencies are converted into the household's (`rates.quote`)
+    a day at a time, at each day's rate; those without rates are left out."""
     flows: dict[FlowKey, Flow] = {}
-    for category, current, account_id, net, money_in, money_out, count in db.execute(statement):
-        if (
-            account_scopes
-            and category in account_scopes
-            and account_scopes[category]
-            and account_id not in account_scopes[category]
-        ):
-            continue
-        flow = flows.setdefault((category, current), Flow())
-        flow.net += net
-        flow.received += money_in
-        flow.spent += money_out
-        flow.count += count
+
+    def add(row: _FlowRow, month: dt.date, flow: Flow) -> None:
+        scope = account_scopes.get(row.category) if account_scopes and row.category else None
+        if scope and row.account_id not in scope:
+            return
+        total = flows.setdefault((row.category, month), Flow())
+        total.net += flow.net
+        total.received += flow.received
+        total.spent += flow.spent
+        total.count += flow.count
+
+    month = cast(func.date_trunc("month", Transaction.date), Date)
+    at_home = Account.currency == rates.quote
+    for row in map(
+        _FlowRow._make, db.execute(_flow_statement(month, at_home, start, end, category_id))
+    ):
+        add(row, row.period, Flow(row.net, row.received, row.spent, row.transactions))
+
+    abroad = list(
+        map(
+            _FlowRow._make,
+            db.execute(_flow_statement(Transaction.date, ~at_home, start, end, category_id)),
+        )
+    )
+    days: dict[str, tuple[dt.date, dt.date]] = {}
+    for row in abroad:
+        first, last = days.get(row.currency, (row.period, row.period))
+        days[row.currency] = (min(first, row.period), max(last, row.period))
+    rates.prepare(days)
+    for row in abroad:
+        received = rates.convert(row.currency, row.period, row.received)
+        spent = rates.convert(row.currency, row.period, row.spent)
+        if received is not None and spent is not None:
+            add(
+                row,
+                row.period.replace(day=1),
+                Flow(received - spent, received, spent, row.transactions),
+            )
     return flows
 
 
@@ -203,7 +269,7 @@ def _net(
     )
 
 
-def _other_currencies(db: Session, currency: str, start: dt.date, end: dt.date) -> list[str]:
+def _foreign_currencies(db: Session, currency: str, start: dt.date, end: dt.date) -> list[str]:
     """The currencies of other accounts with transactions from `start` until `end`."""
     return list(
         db.scalars(
@@ -258,11 +324,7 @@ class Household:
                 .order_by(Budget.category_id)
             )
         )
-        earliest = db.scalar(
-            select(func.min(Transaction.date))
-            .join(Account, Account.id == Transaction.account_id)
-            .where(Account.currency == general.currency)
-        )
+        earliest = db.scalar(select(func.min(Transaction.date)))
         return cls(
             currency=general.currency,
             first_month=general.fiscal_year_start_month,
@@ -394,8 +456,21 @@ def _month_totals(
     )
 
 
-def budget_month(db: Session, month: dt.date) -> BudgetMonth:
+def _currency_notes(
+    db: Session, rates: RateBook, start: dt.date, end: dt.date
+) -> tuple[list[str], list[str]]:
+    """The other currencies with transactions from `start` until `end`, split into those that
+    were converted and those that couldn't be, which are left out."""
+    abroad = _foreign_currencies(db, rates.quote, start, end)
+    return (
+        [currency for currency in abroad if currency not in rates.unavailable],
+        [currency for currency in abroad if currency in rates.unavailable],
+    )
+
+
+def budget_month(db: Session, month: dt.date, client: ExchangeRateClient | None) -> BudgetMonth:
     household = Household.load(db)
+    rates = RateBook(db, client, household.currency)
     start = year_start(month, household.first_month)
     rollovers = [
         budget.rollover_since
@@ -404,12 +479,8 @@ def budget_month(db: Session, month: dt.date) -> BudgetMonth:
     ]
     after = add_months(month, 1)
     flow_start = min(start, add_months(month, -AVERAGE_MONTHS), *rollovers)
-    flows = _flows(
-        db, household.currency, flow_start, after, account_scopes=household.account_scopes
-    )
-    all_flows = (
-        _flows(db, household.currency, flow_start, after) if household.account_scopes else flows
-    )
+    flows = _flows(db, rates, flow_start, after, account_scopes=household.account_scopes)
+    all_flows = _flows(db, rates, flow_start, after) if household.account_scopes else flows
     groups = [
         BudgetGroup(
             id=group.id,
@@ -423,6 +494,7 @@ def budget_month(db: Session, month: dt.date) -> BudgetMonth:
         for group in household.groups
     ]
     loose = flows.get((None, month), _NONE)
+    converted, unconverted = _currency_notes(db, rates, month, after)
     return BudgetMonth(
         month=month,
         currency=household.currency,
@@ -433,7 +505,8 @@ def budget_month(db: Session, month: dt.date) -> BudgetMonth:
         spending=_month_totals(groups, CategoryKind.EXPENSE, loose.spent, all_flows, month),
         groups=groups,
         uncategorized=Uncategorized(received=loose.received, spent=loose.spent, count=loose.count),
-        other_currencies=_other_currencies(db, household.currency, month, after),
+        converted_currencies=converted,
+        unconverted_currencies=unconverted,
     )
 
 
@@ -496,13 +569,14 @@ def _year_totals(
     return budgeted, actual
 
 
-def budget_year(db: Session, year: int) -> BudgetYear:
+def budget_year(db: Session, year: int, client: ExchangeRateClient | None) -> BudgetYear:
     household = Household.load(db)
+    rates = RateBook(db, client, household.currency)
     start = dt.date(year, household.first_month, 1)
     months = [add_months(start, index) for index in range(MONTHS_IN_YEAR)]
     after = add_months(start, MONTHS_IN_YEAR)
-    flows = _flows(db, household.currency, start, after, account_scopes=household.account_scopes)
-    all_flows = _flows(db, household.currency, start, after) if household.account_scopes else flows
+    flows = _flows(db, rates, start, after, account_scopes=household.account_scopes)
+    all_flows = _flows(db, rates, start, after) if household.account_scopes else flows
     groups = [
         BudgetYearGroup(
             id=group.id,
@@ -545,6 +619,7 @@ def budget_year(db: Session, year: int) -> BudgetYear:
             actual=actual + (extra.received if kind == CategoryKind.INCOME else extra.spent),
         )
 
+    converted, unconverted = _currency_notes(db, rates, start, after)
     return BudgetYear(
         year=year,
         start=start,
@@ -567,7 +642,8 @@ def budget_year(db: Session, year: int) -> BudgetYear:
             count=sum(flow.count for flow in loose),
             months=[UncategorizedMonth(received=flow.received, spent=flow.spent) for flow in loose],
         ),
-        other_currencies=_other_currencies(db, household.currency, start, after),
+        converted_currencies=converted,
+        unconverted_currencies=unconverted,
     )
 
 
@@ -589,7 +665,9 @@ def _budgetable(category: Category | None) -> Category:
     return category
 
 
-def category_history(db: Session, category_id: uuid.UUID, month: dt.date) -> CategoryHistory:
+def category_history(
+    db: Session, category_id: uuid.UUID, month: dt.date, client: ExchangeRateClient | None
+) -> CategoryHistory:
     category = _budgetable(db.get(Category, category_id))
     kind = category.group.kind
     general = load_preferences(db).general
@@ -606,7 +684,7 @@ def category_history(db: Session, category_id: uuid.UUID, month: dt.date) -> Cat
     )
     flows = _flows(
         db,
-        general.currency,
+        RateBook(db, client, general.currency),
         start,
         add_months(month, 1),
         category.id,
@@ -696,13 +774,6 @@ def link_budget_transaction(db: Session, category_id: uuid.UUID, transaction_id:
             status.HTTP_404_NOT_FOUND,
             "transaction_not_found",
             "That transaction doesn't exist anymore.",
-        )
-    account = db.get(Account, transaction.account_id)
-    if account is None or account.currency != load_preferences(db).general.currency:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "budget_currency",
-            "Only transactions in the household's budget currency can be linked.",
         )
     if budget.accounts and transaction.account_id not in {item.id for item in budget.accounts}:
         raise ApiError(
@@ -797,13 +868,6 @@ def link_budget_subscription(
             status.HTTP_404_NOT_FOUND,
             "subscription_not_found",
             "That subscription doesn't exist anymore.",
-        )
-    account = db.get(Account, subscription.account_id)
-    if account is None or account.currency != load_preferences(db).general.currency:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "budget_currency",
-            "Only subscriptions from accounts in the household's budget currency can be linked.",
         )
     if budget.accounts and subscription.account_id not in {item.id for item in budget.accounts}:
         raise ApiError(
@@ -905,13 +969,6 @@ def _set_budget_accounts(db: Session, budget: Budget, account_ids: Sequence[uuid
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "unknown_account",
             "Choose accounts that still exist.",
-        )
-    currency = load_preferences(db).general.currency
-    if any(account.currency != currency for account in accounts):
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "budget_currency",
-            "Choose accounts in the household's budget currency.",
         )
     if account_ids:
         linked_account = db.scalar(

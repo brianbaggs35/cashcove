@@ -42,7 +42,10 @@ export interface BudgetMonth {
   spending: BudgetTotals
   groups: BudgetGroup[]
   uncategorized: { received: string; spent: string; count: number }
-  other_currencies: string[]
+  // Other currencies' transactions count in `currency` at each day's exchange rate, unless
+  // there are no rates to convert them with.
+  converted_currencies: string[]
+  unconverted_currencies: string[]
 }
 
 export interface BudgetYear {
@@ -57,6 +60,8 @@ export interface BudgetYear {
     income: { budgeted: string; actual: string }
     spending: { budgeted: string; actual: string }
   }[]
+  converted_currencies: string[]
+  unconverted_currencies: string[]
 }
 
 export interface BudgetConfiguration {
