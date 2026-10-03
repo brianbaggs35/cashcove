@@ -100,11 +100,12 @@ describe('TransactionTable', () => {
     )
   })
 
-  it('opens a transaction from its row or its button', async () => {
+  it('opens details from a row and editing from the pencil button', async () => {
     const { wrapper, rows } = await render()
     await rows()[1]!.trigger('click')
     await rows()[2]!.find('[data-test="transaction-open"]').trigger('click')
-    expect(wrapper.emitted('open')).toEqual([[wholeFoods], [salary]])
+    expect(wrapper.emitted('open')).toEqual([[wholeFoods]])
+    expect(wrapper.emitted('edit')).toEqual([[salary]])
   })
 
   it('lets admins select transactions', async () => {
@@ -140,6 +141,9 @@ describe('TransactionTable', () => {
     expect(wrapper.find('[data-test="transaction-open"]').attributes('aria-label')).toBe(
       'See Blue Bottle',
     )
+    await wrapper.find('[data-test="transaction-open"]').trigger('click')
+    expect(wrapper.emitted('open')).toEqual([[latte]])
+    expect(wrapper.emitted('edit')).toBeUndefined()
   })
 
   it('sorts by a column from the first page', async () => {

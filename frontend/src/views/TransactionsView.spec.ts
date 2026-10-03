@@ -301,22 +301,30 @@ describe('TransactionsView', () => {
     const fetch = vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
     const fetchAccounts = vi.spyOn(accountsApi, 'fetchAccounts').mockResolvedValue([checking])
     const { component } = await render()
+    const infoDialog = () => component('TransactionInfoDialog')
     const dialog = () => component('TransactionDialog')
 
     component('TransactionTable').vm.$emit('open', wholeFoods)
     await flushPromises()
-    expect(dialog().props()).toMatchObject({
+    expect(infoDialog().props()).toMatchObject({
       modelValue: true,
       transaction: wholeFoods,
-      readonly: false,
+      editable: true,
     })
+
+    infoDialog().vm.$emit('saved', wholeFoods)
+    await flushPromises()
+    infoDialog().vm.$emit('edit', wholeFoods)
+    await flushPromises()
+    expect(infoDialog().props('modelValue')).toBe(false)
+    expect(dialog().props()).toMatchObject({ modelValue: true, transaction: wholeFoods })
 
     dialog().vm.$emit('saved', wholeFoods)
     await flushPromises()
     dialog().vm.$emit('deleted', wholeFoods)
     await flushPromises()
-    expect(fetch).toHaveBeenCalledTimes(3)
-    expect(fetchAccounts).toHaveBeenCalledTimes(2)
+    expect(fetch).toHaveBeenCalledTimes(4)
+    expect(fetchAccounts).toHaveBeenCalledTimes(3)
 
     dialog().vm.$emit('update:modelValue', false)
     await flushPromises()
@@ -333,7 +341,14 @@ describe('TransactionsView', () => {
     expect(component('CategorizeDialog').exists()).toBe(false)
     component('TransactionTable').vm.$emit('open', latte)
     await flushPromises()
-    expect(component('TransactionDialog').props('readonly')).toBe(true)
+    expect(component('TransactionInfoDialog').props()).toMatchObject({
+      modelValue: true,
+      transaction: latte,
+      editable: false,
+    })
+    component('TransactionInfoDialog').vm.$emit('update:modelValue', false)
+    await flushPromises()
+    expect(component('TransactionInfoDialog').props('modelValue')).toBe(false)
   })
 
   it('tells viewers when there are no transactions yet', async () => {
