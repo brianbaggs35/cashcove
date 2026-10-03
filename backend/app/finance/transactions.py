@@ -46,19 +46,24 @@ def _search(text: str) -> ColumnElement[bool]:
     return or_(*matches)
 
 
+def _category_conditions(query: TransactionQuery) -> list[ColumnElement[bool]]:
+    if query.category_id and query.uncategorized:
+        return [
+            or_(Transaction.category_id.in_(query.category_id), Transaction.category_id.is_(None))
+        ]
+    if query.category_id:
+        return [Transaction.category_id.in_(query.category_id)]
+    if query.uncategorized:
+        return [Transaction.category_id.is_(None)]
+    return []
+
+
 def conditions(query: TransactionQuery) -> list[ColumnElement[bool]]:
     """What a transaction has to match to be listed."""
     where: list[ColumnElement[bool]] = []
     if query.account_id:
         where.append(Transaction.account_id.in_(query.account_id))
-    if query.category_id and query.uncategorized:
-        where.append(
-            or_(Transaction.category_id.in_(query.category_id), Transaction.category_id.is_(None))
-        )
-    elif query.category_id:
-        where.append(Transaction.category_id.in_(query.category_id))
-    elif query.uncategorized:
-        where.append(Transaction.category_id.is_(None))
+    where.extend(_category_conditions(query))
     if query.start is not None:
         where.append(Transaction.date >= query.start)
     if query.end is not None:
