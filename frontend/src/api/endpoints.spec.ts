@@ -3,6 +3,7 @@ import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simp
 import * as account from '@/api/account'
 import * as accounts from '@/api/accounts'
 import * as auth from '@/api/auth'
+import * as budget from '@/api/budget'
 import * as categories from '@/api/categories'
 import * as connections from '@/api/connections'
 import * as imports from '@/api/imports'
@@ -31,6 +32,15 @@ const transactionInput: transactions.TransactionInput = {
   category_id: null,
   notes: null,
 }
+const budgetChange: budget.BudgetChange = {
+  month: '2026-09',
+  period: 'monthly',
+  amount: '500.00',
+  scope: 'onward',
+  rollover: false,
+  cycle_anchor: null,
+  account_ids: ['a1'],
+}
 
 const importRequest: imports.ImportRequest = {
   file_name: 'a.csv',
@@ -53,6 +63,63 @@ const importRequest: imports.ImportRequest = {
 // Each API function, the request it should make, and the body it should send.
 const endpoints: [string, () => Promise<unknown>, string, string, unknown][] = [
   ['fetchSession', () => auth.fetchSession(), 'GET', '/auth/session', undefined],
+  [
+    'fetchBudgetMonth',
+    () => budget.fetchBudgetMonth('2026-09'),
+    'GET',
+    '/budget/months/2026-09',
+    undefined,
+  ],
+  ['fetchBudgetYear', () => budget.fetchBudgetYear(2026), 'GET', '/budget/years/2026', undefined],
+  [
+    'fetchBudgetConfigurations',
+    () => budget.fetchBudgetConfigurations('2026-09'),
+    'GET',
+    '/budget/configurations?month=2026-09',
+    undefined,
+  ],
+  [
+    'saveCategoryBudget',
+    () => budget.saveCategoryBudget('c1', budgetChange),
+    'PUT',
+    '/budget/categories/c1',
+    budgetChange,
+  ],
+  [
+    'deleteCategoryBudget',
+    () => budget.deleteCategoryBudget('c1'),
+    'DELETE',
+    '/budget/categories/c1',
+    undefined,
+  ],
+  [
+    'linkBudgetTransaction',
+    () => budget.linkBudgetTransaction('c1', 't1'),
+    'PUT',
+    '/budget/categories/c1/transactions/t1',
+    {},
+  ],
+  [
+    'unlinkBudgetTransaction',
+    () => budget.unlinkBudgetTransaction('c1', 't1'),
+    'DELETE',
+    '/budget/categories/c1/transactions/t1',
+    undefined,
+  ],
+  [
+    'linkBudgetSubscription',
+    () => budget.linkBudgetSubscription('c1', 's1'),
+    'PUT',
+    '/budget/categories/c1/subscriptions/s1',
+    {},
+  ],
+  [
+    'unlinkBudgetSubscription',
+    () => budget.unlinkBudgetSubscription('c1', 's1'),
+    'DELETE',
+    '/budget/categories/c1/subscriptions/s1',
+    undefined,
+  ],
   [
     'checkSetupCode',
     () => auth.checkSetupCode('ABCD'),

@@ -3,6 +3,8 @@
 Playwright drives the real app in Chromium, on a computer-sized screen (`desktop`) and a
 phone (`mobile`, a Pixel 7), against a test server built from the production image. Every
 spec starts from the same **baseline** data, so you always know what's in the database.
+The Budget spec exercises weekly account-scoped targets, paycheck and bill transaction
+links, recurring subscription links, and progress reporting on both screen sizes.
 
 ## Running them
 

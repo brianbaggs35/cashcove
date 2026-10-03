@@ -4,11 +4,15 @@ import uuid
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Date, ForeignKey, String, Uuid
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, Money, TimestampMixin, enum_type
+
+if TYPE_CHECKING:
+    from app.models.budget import Budget
 
 
 class PaymentFrequency(StrEnum):
@@ -40,3 +44,7 @@ class Subscription(TimestampMixin, Base):
     )
     notes: Mapped[str | None] = mapped_column(String(1000))
     active: Mapped[bool] = mapped_column(Boolean(), default=True)
+    budgets: Mapped[list["Budget"]] = relationship(
+        secondary="budget_subscriptions",
+        back_populates="subscriptions",
+    )
