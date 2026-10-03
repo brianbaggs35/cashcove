@@ -49,6 +49,11 @@ import { fromCents, toCents } from '@/utils/money'
 import BudgetProgress from '@/views/budget/BudgetProgress.vue'
 import BudgetYearChart from '@/views/budget/BudgetYearChart.vue'
 
+// The months the API will budget: a cleared or half-typed month field isn't one.
+const FIRST_MONTH = '1970-01'
+const LAST_MONTH = '2199-12'
+const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/
+
 const periods: { title: string; value: BudgetPeriod }[] = [
   { title: 'Weekly', value: 'weekly' },
   { title: 'Every two weeks', value: 'biweekly' },
@@ -71,6 +76,12 @@ const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const preferences = usePreferencesStore()
 const selectedMonth = ref(todayIso().slice(0, 7))
+const monthField = computed({
+  get: () => selectedMonth.value,
+  set: (value: string | null) => {
+    if (isBudgetMonth(value)) selectedMonth.value = value
+  },
+})
 const monthBudget = ref<BudgetMonth | null>(null)
 const budgetYear = ref<BudgetYear | null>(null)
 const configurations = ref<BudgetConfiguration[]>([])
@@ -114,6 +125,10 @@ const subscriptionAction = ref<string | null>(null)
 let request = 0
 let transactionRequest = 0
 let subscriptionRequest = 0
+
+function isBudgetMonth(value: string | null): value is string {
+  return !!value && MONTH_PATTERN.test(value) && value >= FIRST_MONTH && value <= LAST_MONTH
+}
 
 function monthOffset(month: string, offset: number): string {
   const date = new Date(`${month}-01T00:00:00.000Z`)
@@ -256,7 +271,8 @@ watch(selectedMonth, () => {
 })
 
 function moveMonth(offset: number) {
-  selectedMonth.value = monthOffset(selectedMonth.value, offset)
+  const month = monthOffset(selectedMonth.value, offset)
+  if (isBudgetMonth(month)) selectedMonth.value = month
 }
 
 function openEditor(line: BudgetLine, kind: CategoryKind) {
@@ -537,8 +553,10 @@ function accountScopeLabel(categoryId: string): string {
             @click="moveMonth(-1)"
           />
           <v-text-field
-            v-model="selectedMonth"
+            v-model="monthField"
             type="month"
+            :min="FIRST_MONTH"
+            :max="LAST_MONTH"
             hide-details
             density="compact"
             variant="outlined"
