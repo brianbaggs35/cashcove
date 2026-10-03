@@ -30,6 +30,7 @@ describe('BudgetYearChart', () => {
     expect(wrapper.find('[data-test="budget-year-chart"]').find('figcaption').text()).toContain(
       '2026',
     )
+    expect(wrapper.find('.budget-chart__months').attributes('tabindex')).toBe('0')
     expect(wrapper.find('[data-test="chart-month-2026-01"]').attributes('aria-label')).toContain(
       '$75.00 spent',
     )
