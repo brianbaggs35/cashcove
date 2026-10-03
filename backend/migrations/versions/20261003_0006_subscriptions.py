@@ -71,9 +71,7 @@ def upgrade() -> None:
     op.create_index(op.f("ix_subscriptions_category_id"), SUBSCRIPTIONS, ["category_id"])
     op.create_index(op.f("ix_subscriptions_payee"), SUBSCRIPTIONS, ["payee"])
     op.add_column(TRANSACTIONS, sa.Column("subscription_id", sa.Uuid(), nullable=True))
-    op.create_index(
-        op.f("ix_transactions_subscription_id"), TRANSACTIONS, ["subscription_id"]
-    )
+    op.create_index(op.f("ix_transactions_subscription_id"), TRANSACTIONS, ["subscription_id"])
     op.create_foreign_key(
         op.f("fk_transactions_subscription_id_subscriptions"),
         TRANSACTIONS,

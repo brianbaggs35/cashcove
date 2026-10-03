@@ -25,7 +25,8 @@ def payload(account: Account, **changes: Any) -> dict[str, Any]:
 def create(client: TestClient, body: dict[str, Any]) -> dict[str, Any]:
     response = client.post("/api/subscriptions", json=body)
     assert response.status_code == 201, response.text
-    return response.json()
+    result: dict[str, Any] = response.json()
+    return result
 
 
 def test_signing_in_is_required_to_see_subscriptions(client: TestClient) -> None:
@@ -52,9 +53,7 @@ def test_viewers_can_read_subscriptions_but_cannot_manage_them(
     assert error(viewer_client.post("/api/subscriptions", json=payload(account))) == "admin_only"
     assert (
         error(
-            viewer_client.patch(
-                f"/api/subscriptions/{subscription_id}", json={"name": "Changed"}
-            )
+            viewer_client.patch(f"/api/subscriptions/{subscription_id}", json={"name": "Changed"})
         )
         == "admin_only"
     )
@@ -68,9 +67,7 @@ def test_linking_a_payment_backfills_only_the_matching_outgoing_account_payee(
     other = add_account(session, "Rewards card")
     category = add_category(session, "Streaming", add_group(session, "Entertainment"))
     chosen = add_transaction(session, account, "-14.99", " Streamflix ")
-    same = add_transaction(
-        session, account, "-15.49", "STREAMFLIX", category_id=category.id
-    )
+    same = add_transaction(session, account, "-15.49", "STREAMFLIX", category_id=category.id)
     add_transaction(session, account, "14.99", "Streamflix")
     add_transaction(session, other, "-14.99", "Streamflix")
 
@@ -123,7 +120,7 @@ def test_creating_a_subscription_without_a_seed_uses_its_name_and_can_be_paused(
     ).json()
     assert changed_matcher["payment_count"] == 0
     session.expire_all()
-    assert session.get(Transaction, paused_payment.id).subscription_id is None
+    assert session.get_one(Transaction, paused_payment.id).subscription_id is None
     added = admin_client.post(
         "/api/transactions",
         json={
@@ -157,9 +154,12 @@ def test_manual_transactions_match_and_are_categorized_automatically(
     ).json()
     assert payment["subscription_id"] == subscription["id"]
     assert payment["category_id"] == str(category.id)
-    assert admin_client.get(
-        "/api/transactions", params={"subscription_id": subscription["id"]}
-    ).json()["total"] == 1
+    assert (
+        admin_client.get(
+            "/api/transactions", params={"subscription_id": subscription["id"]}
+        ).json()["total"]
+        == 1
+    )
 
     income = admin_client.post(
         "/api/transactions",
@@ -209,8 +209,8 @@ def test_changing_a_matcher_detaches_old_payments_and_tracks_the_new_account(
     assert updated["notes"] == "Family plan"
     assert updated["payment_count"] == 1
     session.expire_all()
-    assert session.get(Transaction, old_payment.id).subscription_id is None
-    linked = session.get(Transaction, new_payment.id)
+    assert session.get_one(Transaction, old_payment.id).subscription_id is None
+    linked = session.get_one(Transaction, new_payment.id)
     assert linked.subscription_id == uuid.UUID(subscription["id"])
     assert linked.category_id == new_category.id
 
@@ -231,7 +231,7 @@ def test_updating_category_clears_it_on_linked_transactions_and_seed_can_change_
     ).json()
     assert cleared["category_id"] is None
     session.expire_all()
-    assert session.get(Transaction, old.id).category_id is None
+    assert session.get_one(Transaction, old.id).category_id is None
 
     changed = admin_client.patch(
         f"/api/subscriptions/{subscription['id']}",
@@ -240,8 +240,10 @@ def test_updating_category_clears_it_on_linked_transactions_and_seed_can_change_
     assert changed["payee"] == "New channel"
     assert changed["payment_count"] == 1
     session.expire_all()
-    assert session.get(Transaction, old.id).subscription_id is None
-    assert session.get(Transaction, replacement.id).subscription_id == uuid.UUID(subscription["id"])
+    assert session.get_one(Transaction, old.id).subscription_id is None
+    assert session.get_one(Transaction, replacement.id).subscription_id == uuid.UUID(
+        subscription["id"]
+    )
 
 
 def test_duplicate_invalid_missing_and_closed_subscription_inputs_are_rejected(
@@ -260,9 +262,7 @@ def test_duplicate_invalid_missing_and_closed_subscription_inputs_are_rejected(
         "/api/subscriptions", json=payload(account, account_id=str(uuid.uuid4()))
     )
     assert error(bad_account) == "unknown_account"
-    bad_closed = admin_client.post(
-        "/api/subscriptions", json=payload(closed, name="Closed")
-    )
+    bad_closed = admin_client.post("/api/subscriptions", json=payload(closed, name="Closed"))
     assert error(bad_closed) == "closed_account"
     bad_category = admin_client.post(
         "/api/subscriptions",
@@ -328,5 +328,5 @@ def test_subscription_deletion_unlinks_but_keeps_transaction_history(
 
     assert response.status_code == 204
     session.expire_all()
-    assert session.get(Transaction, transaction.id).subscription_id is None
+    assert session.get_one(Transaction, transaction.id).subscription_id is None
     assert session.scalar(select(Subscription).where(Subscription.id == subscription["id"])) is None

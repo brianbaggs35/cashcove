@@ -84,9 +84,9 @@ def _seed(
 
 def _out(db: Session, subscription: Subscription) -> SubscriptionOut:
     count = db.scalar(
-        select(func.count()).select_from(Transaction).where(
-            Transaction.subscription_id == subscription.id
-        )
+        select(func.count())
+        .select_from(Transaction)
+        .where(Transaction.subscription_id == subscription.id)
     )
     return SubscriptionOut.model_validate(subscription).model_copy(
         update={"payment_count": count or 0}
@@ -107,9 +107,7 @@ def list_subscriptions(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_subscription(
-    body: SubscriptionCreate, auth: AdminAuth, db: Db
-) -> SubscriptionOut:
+def create_subscription(body: SubscriptionCreate, auth: AdminAuth, db: Db) -> SubscriptionOut:
     _account(db, body.account_id)
     find_category(db, body.category_id)
     _, payee = _seed(db, body.account_id, body.payee or body.name, body.seed_transaction_id)
