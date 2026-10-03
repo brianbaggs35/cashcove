@@ -1,9 +1,13 @@
-import { defineConfig, devices } from '@playwright/test'
+import { defineConfig, devices, type ReporterDescription } from '@playwright/test'
 
 // End-to-end tests run against the e2e image: the production container plus a test harness
 // that resets its database (`make e2e`, or `make e2e-up` to keep it running). See e2e/README.md.
 const baseURL = process.env.CASHCOVE_E2E_URL ?? 'https://localhost:9443'
 const ci = !!process.env.CI
+const reporters: ReporterDescription[] = [['list']]
+
+if (ci) reporters.push(['github'])
+reporters.push(['html', { outputFolder: './e2e-results/report', open: 'never' }])
 
 export default defineConfig({
   testDir: './e2e/specs',
@@ -16,10 +20,7 @@ export default defineConfig({
   retries: ci ? 1 : 0,
   timeout: 30_000,
   expect: { timeout: 7_500 },
-  reporter: [
-    [ci ? 'github' : 'list'],
-    ['html', { outputFolder: './e2e-results/report', open: 'never' }],
-  ],
+  reporter: reporters,
   globalSetup: './e2e/support/global-setup.ts',
   globalTeardown: './e2e/support/global-teardown.ts',
   use: {
