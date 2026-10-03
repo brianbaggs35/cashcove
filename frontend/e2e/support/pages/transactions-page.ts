@@ -35,6 +35,8 @@ export class TransactionsPage {
   readonly rows: Locator
   /** The add, edit or view dialog, while it's open. */
   readonly dialog: Locator
+  /** The transaction details shown before editing on phones. */
+  readonly infoDialog: Locator
   readonly filterDialog: Locator
   /** What to do with the selected transactions. Computers only. */
   readonly bulkBar: Locator
@@ -52,6 +54,7 @@ export class TransactionsPage {
     this.totals = page.getByTestId('transaction-totals')
     this.rows = page.getByTestId('transaction-row').or(page.getByTestId('transaction-item'))
     this.dialog = page.getByRole('dialog').filter({ has: page.getByTestId('transaction-notes') })
+    this.infoDialog = page.getByTestId('transaction-info-dialog')
     this.filterDialog = page.getByRole('dialog').filter({ has: page.getByTestId('filter-apply') })
     this.bulkBar = page.getByTestId('bulk-bar')
     this.noneMatch = page.getByTestId('transactions-none-match')
@@ -72,6 +75,14 @@ export class TransactionsPage {
     return this.rows.filter({ hasText: payee })
   }
 
+  /** Opens a transaction's details dialog, as a phone does when tapping its list item. */
+  async openDetails(payee: string | RegExp): Promise<void> {
+    const row = this.row(payee)
+    await expect(row).toBeVisible()
+    await row.click()
+    await expect(this.infoDialog).toBeVisible()
+  }
+
   /** Opens a transaction's dialog: to edit it as an admin, or to see it as a viewer. */
   async open(payee: string | RegExp): Promise<void> {
     const row = this.row(payee)
@@ -79,6 +90,9 @@ export class TransactionsPage {
     // A table row has its own button; a phone's list item opens when tapped.
     const button = row.getByTestId('transaction-open')
     await ((await button.count()) ? button : row).click()
+    if (await this.infoDialog.isVisible()) {
+      await this.infoDialog.getByTestId('transaction-info-edit').click()
+    }
     await expect(this.dialog).toBeVisible()
   }
 
