@@ -1,14 +1,26 @@
 import datetime as dt
 import uuid
+from collections.abc import Callable
 from decimal import Decimal
+from functools import partial
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.orm import Session
 
-from app.finance.budget import add_months, amount_at, months_between, year_start
+from app.auth.deps import ApiError
+from app.finance.budget import (
+    add_months,
+    amount_at,
+    link_budget_subscription,
+    link_budget_transaction,
+    monthly_budgeted,
+    months_between,
+    year_start,
+)
 from app.models import (
     Account,
     AppSettings,
@@ -18,6 +30,11 @@ from app.models import (
     Category,
     CategoryGroup,
     CategoryKind,
+    PaymentFrequency,
+    Subscription,
+    Transaction,
+    budget_subscriptions,
+    budget_transactions,
 )
 from app.models.app_settings import SINGLETON_ID
 from tests.finance import add_account, add_category, add_group, add_transaction
@@ -226,6 +243,7 @@ def test_everyone_sees_income_then_spending_and_no_transfers(
         "emoji": "🛒",
         "period": None,
         "amount": None,
+        "budgeted": "0.00",
         "rollover": False,
         "carried": "0.00",
         "actual": "0.00",
@@ -287,6 +305,551 @@ def test_only_the_households_currency_counts(
     assert body["uncategorized"]["count"] == 0
     assert body["other_currencies"] == ["EUR", "GBP"]
     assert get_month(viewer_client, "2026-08")["other_currencies"] == ["GBP"]
+
+
+def test_weekly_and_biweekly_budgets_count_cycles_in_each_month_and_year(
+    admin_client: TestClient,
+    session: Session,
+    categories: dict[str, Category],
+) -> None:
+    groceries, restaurants = categories["Groceries"], categories["restaurants"]
+    put_budget(
+        admin_client,
+        groceries,
+        month="2026-09",
+        period="weekly",
+        amount="125",
+        cycle_anchor="2026-09-01",
+    )
+    put_budget(
+        admin_client,
+        restaurants,
+        month="2026-09",
+        period="biweekly",
+        amount="100",
+        cycle_anchor="2026-09-15",
+    )
+
+    september = get_month(admin_client)
+    year = admin_client.get("/api/budget/years/2026").json()
+
+    assert lines(september)["Groceries"]["budgeted"] == "625.00"
+    assert lines(september)["restaurants"]["budgeted"] == "200.00"
+    assert september["spending"]["budgeted"] == "825.00"
+    assert year["spending"]["budgeted"] == "3050.00"
+    stored = stored_budget(session, groceries)
+    assert stored is not None
+    assert stored.cycle_anchor == day("2026-09", 1)
+
+    put_budget(
+        admin_client,
+        groceries,
+        month="2026-09",
+        period="weekly",
+        amount="125",
+        cycle_anchor="2026-09-08",
+    )
+    assert lines(get_month(admin_client))["Groceries"]["budgeted"] == "500.00"
+    updated = stored_budget(session, groceries)
+    assert updated is not None
+    assert updated.cycle_anchor == day("2026-09", 8)
+
+    future = categories["Travel"]
+    put_budget(
+        admin_client,
+        future,
+        month="2026-09",
+        period="weekly",
+        amount="10",
+        cycle_anchor="2026-10-01",
+    )
+    assert lines(get_month(admin_client))["Travel"]["budgeted"] == "0.00"
+
+
+def test_weekly_budgets_without_a_cycle_anchor_are_rejected() -> None:
+    malformed = Budget(
+        period=BudgetPeriod.WEEKLY,
+        amounts=[BudgetAmount(starts_on=dt.date(2026, 9, 1), amount=Decimal("10.00"))],
+    )
+
+    with pytest.raises(RuntimeError, match="must have a cycle anchor"):
+        monthly_budgeted(malformed, dt.date(2026, 9, 1))
+
+
+def test_budget_account_scope_filters_category_progress_but_not_household_actuals(
+    admin_client: TestClient,
+    checking: Account,
+    session: Session,
+    categories: dict[str, Category],
+) -> None:
+    savings = add_account(session, "Savings")
+    groceries = categories["Groceries"]
+    spend(session, checking, groceries, "-40.00", day("2026-09"))
+    spend(session, savings, groceries, "-60.00", day("2026-09"))
+
+    put_budget(
+        admin_client,
+        groceries,
+        month="2026-09",
+        amount="500",
+        account_ids=[str(checking.id)],
+    )
+    body = get_month(admin_client)
+
+    assert lines(body)["Groceries"]["actual"] == "40.00"
+    assert body["spending"]["actual"] == "100.00"
+    configurations = admin_client.get(
+        "/api/budget/configurations", params={"month": "2026-09"}
+    ).json()
+    assert configurations[0]["account_ids"] == [str(checking.id)]
+
+    put_budget(
+        admin_client,
+        groceries,
+        month="2026-09",
+        amount="500",
+        account_ids=[],
+    )
+    out_of_scope_transaction = session.scalar(
+        select(Transaction).where(
+            Transaction.account_id == savings.id,
+            Transaction.category_id == groceries.id,
+        )
+    )
+    assert out_of_scope_transaction is not None
+    admin_client.put(
+        f"/api/budget/categories/{groceries.id}/transactions/{out_of_scope_transaction.id}"
+    )
+    invalid_scope = admin_client.put(
+        f"/api/budget/categories/{groceries.id}",
+        json={
+            "month": "2026-09",
+            "amount": "500",
+            "account_ids": [str(checking.id)],
+        },
+    )
+    assert error(invalid_scope) == "linked_transaction_outside_accounts"
+
+
+def test_account_scopes_reject_missing_foreign_and_duplicate_accounts(
+    admin_client: TestClient,
+    session: Session,
+    categories: dict[str, Category],
+) -> None:
+    euros = add_account(session, "Paris account", currency="EUR")
+    groceries = categories["Groceries"]
+
+    missing = admin_client.put(
+        f"/api/budget/categories/{groceries.id}",
+        json={
+            "month": "2026-09",
+            "amount": "500",
+            "account_ids": [str(uuid.uuid4())],
+        },
+    )
+    foreign = admin_client.put(
+        f"/api/budget/categories/{groceries.id}",
+        json={
+            "month": "2026-09",
+            "amount": "500",
+            "account_ids": [str(euros.id)],
+        },
+    )
+    duplicate = admin_client.put(
+        f"/api/budget/categories/{groceries.id}",
+        json={
+            "month": "2026-09",
+            "amount": "500",
+            "account_ids": [str(euros.id), str(euros.id)],
+        },
+    )
+
+    assert error(missing) == "unknown_account"
+    assert error(foreign) == "budget_currency"
+    assert duplicate.status_code == 422
+
+
+def test_linked_income_transactions_are_idempotently_attributed_and_unlinked(
+    admin_client: TestClient,
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+) -> None:
+    paycheck = categories["Paycheck"]
+    budget(session, paycheck, {"2026-01": "4800.00"})
+    transaction = add_transaction(
+        session, checking, "2400.00", date=day("2026-09"), category_id=None
+    )
+
+    linked = admin_client.put(f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}")
+    repeated = admin_client.put(
+        f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}"
+    )
+    body = get_month(admin_client)
+    configurations = admin_client.get(
+        "/api/budget/configurations", params={"month": "2026-09"}
+    ).json()
+
+    assert linked.status_code == repeated.status_code == 204
+    assert lines(body)["Paycheck"]["actual"] == "2400.00"
+    assert body["income"]["actual"] == "2400.00"
+    assert body["uncategorized"]["received"] == "0.00"
+    assert configurations[0]["linked_transaction_ids"] == [str(transaction.id)]
+
+    unlinked = admin_client.delete(
+        f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}"
+    )
+    repeated_unlink = admin_client.delete(
+        f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}"
+    )
+    unlinked_body = get_month(admin_client)
+
+    assert unlinked.status_code == repeated_unlink.status_code == 204
+    assert unlinked_body["income"]["actual"] == "2400.00"
+    assert unlinked_body["uncategorized"]["received"] == "2400.00"
+
+
+def test_linked_transactions_must_match_budget_currency_direction_and_scope(
+    admin_client: TestClient,
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+) -> None:
+    paycheck, groceries = categories["Paycheck"], categories["Groceries"]
+    savings = add_account(session, "Savings")
+    budget(session, paycheck, {"2026-01": "4800.00"})
+    budget(session, groceries, {"2026-01": "500.00"})
+    income = add_transaction(session, checking, "100.00", date=day("2026-09"))
+    expense = add_transaction(session, checking, "-100.00", date=day("2026-09"))
+    foreign = add_account(session, "Euro account", currency="EUR")
+    euro_income = add_transaction(session, foreign, "100.00", date=day("2026-09"))
+    put_budget(
+        admin_client,
+        groceries,
+        month="2026-09",
+        amount="500",
+        account_ids=[str(checking.id)],
+    )
+    out_of_scope = add_transaction(session, savings, "-25.00", date=day("2026-09"))
+
+    wrong_income_sign = admin_client.put(
+        f"/api/budget/categories/{paycheck.id}/transactions/{expense.id}"
+    )
+    wrong_expense_sign = admin_client.put(
+        f"/api/budget/categories/{groceries.id}/transactions/{income.id}"
+    )
+    wrong_currency = admin_client.put(
+        f"/api/budget/categories/{paycheck.id}/transactions/{euro_income.id}"
+    )
+    wrong_account = admin_client.put(
+        f"/api/budget/categories/{groceries.id}/transactions/{out_of_scope.id}"
+    )
+
+    assert error(wrong_income_sign) == "budget_transaction_direction"
+    assert error(wrong_expense_sign) == "budget_transaction_direction"
+    assert error(wrong_currency) == "budget_currency"
+    assert error(wrong_account) == "budget_account"
+
+
+def test_budget_transaction_links_are_exclusive_and_require_an_existing_budget(
+    admin_client: TestClient,
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+) -> None:
+    paycheck = categories["Paycheck"]
+    other_income = add_category(session, "Side income", paycheck.group)
+    budget(session, paycheck, {"2026-01": "4800.00"})
+    transaction = add_transaction(session, checking, "100.00", date=day("2026-09"))
+
+    missing_budget = admin_client.put(
+        f"/api/budget/categories/{other_income.id}/transactions/{transaction.id}"
+    )
+    missing_transaction = admin_client.put(
+        f"/api/budget/categories/{paycheck.id}/transactions/{uuid.uuid4()}"
+    )
+    assert error(missing_budget) == "budget_not_found"
+    assert error(missing_transaction) == "transaction_not_found"
+    budget(session, other_income, {"2026-01": "100.00"})
+
+    first_link = admin_client.put(
+        f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}"
+    )
+    assert first_link.status_code == 204
+    stored_link = session.scalar(
+        select(budget_transactions.c.budget_id).where(
+            budget_transactions.c.transaction_id == transaction.id
+        )
+    )
+    paycheck_budget = stored_budget(session, paycheck)
+    assert paycheck_budget is not None
+    assert stored_link == paycheck_budget.id
+    conflict = admin_client.put(
+        f"/api/budget/categories/{other_income.id}/transactions/{transaction.id}"
+    )
+    assert conflict.status_code == 409, conflict.text
+    assert error(conflict) == "transaction_already_linked"
+
+
+@pytest.mark.parametrize("link_kind", ["transaction", "subscription"])
+def test_racing_links_cannot_reassign_an_already_linked_record(
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+    monkeypatch: pytest.MonkeyPatch,
+    link_kind: str,
+) -> None:
+    groceries, restaurants = categories["Groceries"], categories["restaurants"]
+    budget(session, groceries, {"2026-01": "500.00"})
+    budget(session, restaurants, {"2026-01": "150.00"})
+    transaction = add_transaction(session, checking, "-25.00", date=day("2026-09"))
+    subscription = Subscription(
+        name="Internet",
+        payee="Internet provider",
+        amount=Decimal("25.00"),
+        frequency=PaymentFrequency.MONTHLY,
+        account_id=checking.id,
+        next_due_date=day("2026-09", 25),
+    )
+    session.add(subscription)
+    session.commit()
+
+    if link_kind == "transaction":
+        table = budget_transactions
+        record_id = transaction.id
+        key = "transaction_id"
+        competing_budget = stored_budget(session, restaurants)
+        operation: Callable[[], None] = partial(
+            link_budget_transaction, session, groceries.id, transaction.id
+        )
+    else:
+        table = budget_subscriptions
+        record_id = subscription.id
+        key = "subscription_id"
+        competing_budget = stored_budget(session, restaurants)
+        operation = partial(link_budget_subscription, session, groceries.id, subscription.id)
+    assert competing_budget is not None
+    execute = session.execute
+    inserted = False
+
+    def race(statement: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal inserted
+        if not inserted and getattr(statement, "table", None) is table:
+            inserted = True
+            execute(
+                postgres_insert(table)
+                .values({key: record_id, "budget_id": competing_budget.id})
+                .on_conflict_do_nothing(index_elements=[key])
+            )
+        return execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(session, "execute", race)
+    with pytest.raises(ApiError) as caught:
+        operation()
+    assert caught.value.status_code == 409
+    assert "already linked to another budget" in str(caught.value.detail)
+    session.rollback()
+
+
+def test_budget_configuration_and_delete_are_household_scoped_and_idempotent(
+    admin_client: TestClient,
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+) -> None:
+    groceries = categories["Groceries"]
+    transaction = add_transaction(
+        session, checking, "-5.00", date=day("2026-09"), category_id=groceries.id
+    )
+    put_budget(
+        admin_client,
+        groceries,
+        month="2026-09",
+        amount="500",
+        account_ids=[str(checking.id)],
+    )
+    linked = admin_client.put(
+        f"/api/budget/categories/{groceries.id}/transactions/{transaction.id}"
+    )
+    assert linked.status_code == 204
+
+    first = admin_client.delete(f"/api/budget/categories/{groceries.id}")
+    second = admin_client.delete(f"/api/budget/categories/{groceries.id}")
+    configurations = admin_client.get(
+        "/api/budget/configurations", params={"month": "2026-09"}
+    ).json()
+
+    assert first.status_code == second.status_code == 204
+    assert configurations == []
+    assert stored_budget(session, groceries) is None
+    missing_transaction = admin_client.delete(
+        f"/api/budget/categories/{categories['restaurants'].id}/transactions/{uuid.uuid4()}"
+    )
+    missing_subscription = admin_client.delete(
+        f"/api/budget/categories/{categories['restaurants'].id}/subscriptions/{uuid.uuid4()}"
+    )
+    assert error(missing_transaction) == "budget_not_found"
+    assert error(missing_subscription) == "budget_not_found"
+
+
+def test_linked_subscriptions_route_bill_payments_into_a_spending_budget(
+    admin_client: TestClient,
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+) -> None:
+    groceries, restaurants = categories["Groceries"], categories["restaurants"]
+    budget(session, groceries, {"2026-01": "500.00"})
+    budget(session, restaurants, {"2026-01": "150.00"})
+    subscription = Subscription(
+        name="Electricity",
+        payee="City Power",
+        amount=Decimal("96.40"),
+        frequency=PaymentFrequency.MONTHLY,
+        account_id=checking.id,
+        next_due_date=day("2026-09", 28),
+    )
+    session.add(subscription)
+    session.commit()
+    payment = add_transaction(
+        session,
+        checking,
+        "-96.40",
+        "City Power",
+        date=day("2026-09", 8),
+        subscription_id=subscription.id,
+        category_id=None,
+    )
+
+    link = admin_client.put(
+        f"/api/budget/categories/{groceries.id}/subscriptions/{subscription.id}"
+    )
+    repeat = admin_client.put(
+        f"/api/budget/categories/{groceries.id}/subscriptions/{subscription.id}"
+    )
+    body = get_month(admin_client)
+    configs = admin_client.get("/api/budget/configurations", params={"month": "2026-09"}).json()
+
+    assert link.status_code == repeat.status_code == 204
+    assert lines(body)["Groceries"]["actual"] == "96.40"
+    assert body["spending"]["actual"] == "96.40"
+    assert body["uncategorized"]["spent"] == "0.00"
+    grocery_config = next(item for item in configs if item["category_id"] == str(groceries.id))
+    assert grocery_config["linked_subscription_ids"] == [str(subscription.id)]
+
+    conflict = admin_client.put(
+        f"/api/budget/categories/{restaurants.id}/subscriptions/{subscription.id}"
+    )
+    assert error(conflict) == "subscription_already_linked"
+
+    removed = admin_client.delete(
+        f"/api/budget/categories/{groceries.id}/subscriptions/{subscription.id}"
+    )
+    repeated_remove = admin_client.delete(
+        f"/api/budget/categories/{groceries.id}/subscriptions/{subscription.id}"
+    )
+    unlinked = get_month(admin_client)
+    assert removed.status_code == repeated_remove.status_code == 204
+    assert lines(unlinked)["Groceries"]["actual"] == "0.00"
+    assert unlinked["uncategorized"]["spent"] == "96.40"
+    assert session.get(Transaction, payment.id) is not None
+
+
+def test_subscription_links_validate_budget_kind_account_and_access(
+    admin_client: TestClient,
+    session: Session,
+    checking: Account,
+    categories: dict[str, Category],
+) -> None:
+    paycheck, groceries = categories["Paycheck"], categories["Groceries"]
+    savings = add_account(session, "Savings")
+    euro_account = add_account(session, "Euro account", currency="EUR")
+    budget(session, paycheck, {"2026-01": "4800.00"})
+    budget(session, groceries, {"2026-01": "500.00"})
+
+    def subscription(account: Account, name: str) -> Subscription:
+        result = Subscription(
+            name=name,
+            payee=name,
+            amount=Decimal("25.00"),
+            frequency=PaymentFrequency.MONTHLY,
+            account_id=account.id,
+            next_due_date=day("2026-09", 25),
+        )
+        session.add(result)
+        session.commit()
+        return result
+
+    from_savings = subscription(savings, "Savings bill")
+    from_euros = subscription(euro_account, "Euro bill")
+    in_scope = subscription(checking, "Internet bill")
+    put_budget(
+        admin_client,
+        groceries,
+        month="2026-09",
+        amount="500",
+        account_ids=[str(checking.id)],
+    )
+
+    income_budget = admin_client.put(
+        f"/api/budget/categories/{paycheck.id}/subscriptions/{in_scope.id}"
+    )
+    missing_budget = admin_client.put(
+        f"/api/budget/categories/{categories['restaurants'].id}/subscriptions/{in_scope.id}"
+    )
+    missing_subscription = admin_client.put(
+        f"/api/budget/categories/{groceries.id}/subscriptions/{uuid.uuid4()}"
+    )
+    wrong_account = admin_client.put(
+        f"/api/budget/categories/{groceries.id}/subscriptions/{from_savings.id}"
+    )
+    wrong_currency = admin_client.put(
+        f"/api/budget/categories/{groceries.id}/subscriptions/{from_euros.id}"
+    )
+    assert error(income_budget) == "subscription_not_expense"
+    assert error(missing_budget) == "budget_not_found"
+    assert error(missing_subscription) == "subscription_not_found"
+    assert error(wrong_account) == "budget_account"
+    assert error(wrong_currency) == "budget_currency"
+    linked = admin_client.put(f"/api/budget/categories/{groceries.id}/subscriptions/{in_scope.id}")
+    account_change = admin_client.put(
+        f"/api/budget/categories/{groceries.id}",
+        json={
+            "month": "2026-09",
+            "period": "monthly",
+            "amount": "500",
+            "account_ids": [str(savings.id)],
+        },
+    )
+    assert linked.status_code == 204
+    assert error(account_change) == "linked_subscription_outside_accounts"
+
+
+def test_viewers_cannot_delete_or_link_budgets(
+    viewer_client: TestClient,
+) -> None:
+    category_id, transaction_id, subscription_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+    removed = viewer_client.delete(f"/api/budget/categories/{category_id}")
+    linked_transaction = viewer_client.put(
+        f"/api/budget/categories/{category_id}/transactions/{transaction_id}"
+    )
+    linked_subscription = viewer_client.put(
+        f"/api/budget/categories/{category_id}/subscriptions/{subscription_id}"
+    )
+
+    assert error(removed) == "admin_only"
+    assert error(linked_transaction) == "admin_only"
+    assert error(linked_subscription) == "admin_only"
+
+    missing_transaction = viewer_client.delete(
+        f"/api/budget/categories/{category_id}/transactions/{transaction_id}"
+    )
+    missing_subscription = viewer_client.delete(
+        f"/api/budget/categories/{category_id}/subscriptions/{subscription_id}"
+    )
+    assert error(missing_transaction) == "admin_only"
+    assert error(missing_subscription) == "admin_only"
 
 
 def test_the_households_currency_comes_from_its_settings(
@@ -361,6 +924,7 @@ def test_yearly_budgets_count_the_year_so_far(
         "emoji": "✈️",
         "period": "yearly",
         "amount": "3000.00",
+        "budgeted": "250.00",
         "rollover": False,
         "carried": "0.00",
         "actual": "486.20",
@@ -597,7 +1161,7 @@ def test_the_year_shows_each_month(
     assert found["Groceries"]["actual"] == "500.00"
     assert found["Groceries"]["months"][0] == {"budgeted": "600.00", "actual": "420.00"}
     assert found["Travel"]["amount"] == "1200.00"
-    assert found["Travel"]["months"][1] == {"budgeted": None, "actual": "612.00"}
+    assert found["Travel"]["months"][1] == {"budgeted": "100.00", "actual": "612.00"}
     assert (found["restaurants"]["period"], found["restaurants"]["amount"]) == (None, None)
     assert found["Paycheck"]["amount"] == "50000.00"
     assert body["income"] == {"budgeted": "50000.00", "actual": "4820.00"}
@@ -908,7 +1472,14 @@ def test_only_monthly_spending_budgets_roll_over(
         {"month": "2026-09"},
         {"month": "September", "amount": "5"},
         {"month": "2026-09", "amount": "5", "scope": "always"},
-        {"month": "2026-09", "amount": "5", "period": "weekly"},
+        {"month": "2026-09", "amount": "5", "period": "quarterly"},
+        {"month": "2026-09", "amount": "5", "period": "weekly", "rollover": True},
+        {"month": "2026-09", "amount": "5", "cycle_anchor": "2026-09-01"},
+        {
+            "month": "2026-09",
+            "amount": "5",
+            "account_ids": [str(uuid.uuid4()), str(uuid.uuid4())],
+        },
         {"month": "2026-09", "amount": "5", "note": "extra"},
     ],
 )
