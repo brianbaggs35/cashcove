@@ -28,3 +28,4 @@ certs/*
 .lego/
 *.log
 .DS_Store
+.vscode/
