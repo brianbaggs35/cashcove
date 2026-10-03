@@ -258,7 +258,7 @@ test.describe('Accessibility', () => {
               .format(baseline.saved_formats.maple_card.name)
               .getByTestId('saved-format-actions')
               .click()
-            await page.getByTestId('saved-format-rename').click()
+            await page.locator(OVERLAY).getByTestId('saved-format-rename').click()
           },
           'undoing an import': () =>
             importPage

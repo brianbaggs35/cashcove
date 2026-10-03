@@ -67,7 +67,7 @@ test.describe('Subscriptions', () => {
       .getByTestId('subscription-due-date')
       .getByRole('textbox')
       .fill(`${month}/${day}/${year}`)
-    await dialog.getByTestId('subscription-due-date').getByRole('textbox').press('Enter')
+    await dialog.getByTestId('subscription-due-date').getByRole('textbox').press('Tab')
     await dialog.getByTestId('subscription-save').click()
     await expect(dialog).toBeHidden()
 
@@ -117,7 +117,7 @@ test.describe('Subscriptions', () => {
     await page.goto('/settings/alerts')
     await expect(page).toHaveURL(/\/settings\/alerts$/)
     const alertRow = page.getByTestId('alert-subscription')
-    await alertRow.getByRole('spinbutton').fill('5')
+    await alertRow.getByRole('textbox', { name: "Days before it's due" }).fill('5')
     await page.getByTestId('save-bar').getByTestId('save').click()
     await expect(page.getByTestId('save-bar')).toHaveCount(0)
     await page.goto('/subscriptions')
@@ -133,7 +133,9 @@ test.describe('Subscriptions', () => {
       .getByRole('link', { name: 'Alert settings' })
       .click()
     await expect(page).toHaveURL(/\/settings\/alerts$/)
-    await expect(page.getByTestId('alert-subscription').getByRole('spinbutton')).toHaveValue('5')
+    await expect(
+      page.getByTestId('alert-subscription').getByRole('textbox', { name: "Days before it's due" }),
+    ).toHaveValue('5')
     await page.goBack()
 
     const finalCard = page.getByTestId('subscription-card').filter({ hasText: 'Netflix Family' })
