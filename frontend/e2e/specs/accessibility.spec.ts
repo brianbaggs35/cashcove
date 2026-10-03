@@ -166,6 +166,7 @@ test.describe('Accessibility', () => {
       })
 
       test('the transaction details dialog', async ({ page, signInAs, transactionsPage }) => {
+        // Desktop admins open the edit form directly; only phones have this details dialog.
         test.skip(test.info().project.name !== 'mobile', 'Phones open transaction details first')
         await signInAs('admin')
         await transactionsPage.goto()
