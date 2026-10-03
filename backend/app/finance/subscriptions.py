@@ -13,9 +13,7 @@ def normalized_payee(payee: str) -> str:
     return payee.strip().lower()
 
 
-def matching_subscription(
-    db: Session, account_id: uuid.UUID, payee: str
-) -> Subscription | None:
+def matching_subscription(db: Session, account_id: uuid.UUID, payee: str) -> Subscription | None:
     key = normalized_payee(payee)
     return db.scalar(
         select(Subscription).where(
