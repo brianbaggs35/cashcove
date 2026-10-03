@@ -11,6 +11,7 @@ from app.api import (
     health,
     imports,
     settings,
+    subscriptions,
     system,
     transactions,
     users,
@@ -27,6 +28,7 @@ api_router.include_router(settings.router)
 api_router.include_router(system.router)
 api_router.include_router(accounts.router)
 api_router.include_router(transactions.router)
+api_router.include_router(subscriptions.router)
 api_router.include_router(categories.router)
 api_router.include_router(connections.router)
 api_router.include_router(imports.router)

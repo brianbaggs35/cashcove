@@ -23,6 +23,7 @@ from app.models.connection import (
     SyncTrigger,
 )
 from app.models.imports import FileFormat, FileImport, ImportProfile
+from app.models.subscription import PaymentFrequency, Subscription
 from app.models.transaction import Transaction, TransactionSource
 from app.models.user import Role, User
 
@@ -50,8 +51,10 @@ __all__ = [
     "LoginThrottle",
     "Passkey",
     "PasswordReset",
+    "PaymentFrequency",
     "RecoveryCode",
     "Role",
+    "Subscription",
     "SyncTrigger",
     "TimestampMixin",
     "Transaction",

@@ -106,6 +106,7 @@ export function makeTransaction(changes: Partial<Transaction> = {}): Transaction
     payee: 'Whole Foods',
     original_description: null,
     category_id: groceries.id,
+    subscription_id: null,
     notes: null,
     pending: false,
     source: 'manual',

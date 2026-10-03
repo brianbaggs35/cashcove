@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.auth.deps import AdminAuth, ApiError, CurrentAuth, Db
 from app.finance.accounts import get_account, move_balance, writable_account
 from app.finance.categories import find_category
+from app.finance.subscriptions import apply_subscription_rule
 from app.finance.transactions import SORT_ORDERS, conditions, like_pattern
 from app.models import Account, Transaction, TransactionSource
 from app.models.base import utcnow
@@ -126,6 +127,7 @@ def create_transaction(body: TransactionCreate, auth: AdminAuth, db: Db) -> Tran
         notes=body.notes,
         source=TransactionSource.MANUAL,
     )
+    apply_subscription_rule(db, transaction)
     db.add(transaction)
     move_balance(account, body.amount, utcnow())
     db.commit()
@@ -182,6 +184,7 @@ def update_transaction(
         transaction.payee = body.payee
     if "notes" in fields:
         transaction.notes = body.notes
+    apply_subscription_rule(db, transaction)
     db.commit()
     return TransactionOut.model_validate(transaction)
 
