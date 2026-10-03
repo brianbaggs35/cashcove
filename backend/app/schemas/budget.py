@@ -54,13 +54,27 @@ class BudgetChange(BaseModel):
     scope: Scope = "onward"
     # Carry what's left of each month into the next. Monthly spending budgets only.
     rollover: bool = False
+    # Optional: for weekly/biweekly budgets, the recurring payday or cycle anchor.
+    cycle_anchor: dt.date | None = None
+    # None leaves the existing account scope alone; an empty list includes every account.
+    account_ids: Annotated[list[uuid.UUID], Field(max_length=100)] | None = None
 
     @model_validator(mode="after")
     def _only_monthly_budgets_roll_over(self) -> Self:
-        if self.rollover and self.period == BudgetPeriod.YEARLY:
+        if self.rollover and self.period != BudgetPeriod.MONTHLY:
             raise PydanticCustomError(
-                "rollover_yearly", "Only monthly budgets can roll over to the next month."
+                "rollover_period", "Only monthly budgets can roll over to the next month."
             )
+        if self.cycle_anchor is not None and self.period not in {
+            BudgetPeriod.WEEKLY,
+            BudgetPeriod.BIWEEKLY,
+        }:
+            raise PydanticCustomError(
+                "cycle_anchor_period",
+                "Choose a cycle anchor only for a weekly or biweekly budget.",
+            )
+        if self.account_ids is not None and len(set(self.account_ids)) != len(self.account_ids):
+            raise PydanticCustomError("duplicate_account", "Each account can only be linked once.")
         return self
 
 
@@ -122,6 +136,8 @@ class BudgetLine(BaseModel):
     # Its budget for the month, or for the budget year when it's yearly. None when nothing's
     # budgeted then.
     amount: AmountOut | None
+    # What is budgeted in this calendar month, including weekly/biweekly cycles.
+    budgeted: AmountOut
     rollover: bool
     # What was left over (or overspent) in the months before, for a budget that rolls over.
     carried: AmountOut
@@ -245,3 +261,17 @@ class CategoryHistory(BaseModel):
     category_id: uuid.UUID
     kind: CategoryKind
     months: list[HistoryMonth]
+
+
+class BudgetConfiguration(BaseModel):
+    """A category budget's editable settings for the month being viewed."""
+
+    id: uuid.UUID
+    category_id: uuid.UUID
+    period: BudgetPeriod
+    amount: AmountOut | None
+    rollover: bool
+    cycle_anchor: dt.date | None
+    account_ids: list[uuid.UUID]
+    linked_transaction_ids: list[uuid.UUID]
+    linked_subscription_ids: list[uuid.UUID]
