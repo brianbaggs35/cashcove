@@ -137,8 +137,8 @@ jobs:
       - name: Tests with 100% coverage
         run: npm run coverage
 
-      - name: Dependency audit
-        run: npm audit
+      - name: Dependency audit (fail on critical)
+        run: npm audit --audit-level=critical
 
       - name: Upload coverage report
         if: ${{ !cancelled() }}
