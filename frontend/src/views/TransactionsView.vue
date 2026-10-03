@@ -26,6 +26,7 @@ import FilterChips from '@/views/transactions/FilterChips.vue'
 import FilterDialog from '@/views/transactions/FilterDialog.vue'
 import TotalsBar from '@/views/transactions/TotalsBar.vue'
 import TransactionDialog from '@/views/transactions/TransactionDialog.vue'
+import TransactionInfoDialog from '@/views/transactions/TransactionInfoDialog.vue'
 import TransactionList from '@/views/transactions/TransactionList.vue'
 import TransactionTable from '@/views/transactions/TransactionTable.vue'
 import TransactionToolbar from '@/views/transactions/TransactionToolbar.vue'
@@ -115,6 +116,8 @@ const emptyText = computed(() => {
 // Adding and editing a transaction.
 const dialog = ref(false)
 const editing = ref<Transaction | null>(null)
+const infoDialog = ref(false)
+const viewing = ref<Transaction | null>(null)
 
 /** A new transaction goes to the account being looked at, when that's one kept by hand. */
 const defaultAccount = computed(() => {
@@ -130,8 +133,18 @@ function add() {
 }
 
 function openTransaction(transaction: Transaction) {
+  viewing.value = transaction
+  infoDialog.value = true
+}
+
+function editTransaction(transaction: Transaction) {
   editing.value = transaction
   dialog.value = true
+}
+
+function editFromInfo(transaction: Transaction) {
+  infoDialog.value = false
+  editTransaction(transaction)
 }
 
 // Filters.
@@ -288,6 +301,7 @@ async function removeSelected() {
           :page-size="view.pageSize"
           :selectable="auth.isAdmin"
           @open="openTransaction"
+          @edit="editTransaction"
           @options="update"
         />
       </v-card>
@@ -317,6 +331,13 @@ async function removeSelected() {
       :filters="view.filters"
       :focus="filtersFocus"
       @apply="applyFilters"
+    />
+    <TransactionInfoDialog
+      v-model="infoDialog"
+      :transaction="viewing"
+      :editable="auth.isAdmin"
+      @edit="editFromInfo"
+      @saved="changed"
     />
     <TransactionDialog
       v-model="dialog"
