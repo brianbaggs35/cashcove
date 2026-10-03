@@ -544,6 +544,45 @@ describe('BudgetView', () => {
     wrapper.unmount()
   })
 
+  it('keeps the page working when the month field is cleared', async () => {
+    const { wrapper, find, monthFetch } = await render()
+    const calls = monthFetch.mock.calls.length
+    await find('budget-month').find('input').setValue('')
+    await flushPromises()
+    expect(monthFetch).toHaveBeenCalledTimes(calls)
+    expect(find('budget-error').exists()).toBe(false)
+    expect(find('budget-year-range').exists()).toBe(true)
+    await find('budget-next').trigger('click')
+    await flushPromises()
+    expect(monthFetch).toHaveBeenCalledTimes(calls + 1)
+    wrapper.unmount()
+  })
+
+  it('stays within the months the API budgets', async () => {
+    const { wrapper, find, monthFetch } = await render()
+    const input = find('budget-month').find('input')
+
+    await input.setValue('1969-12')
+    await flushPromises()
+    expect(monthFetch).not.toHaveBeenCalledWith('1969-12')
+
+    await input.setValue('1970-01')
+    await flushPromises()
+    expect(monthFetch).toHaveBeenLastCalledWith('1970-01')
+    const loads = monthFetch.mock.calls.length
+    await find('budget-previous').trigger('click')
+    await flushPromises()
+    expect(monthFetch).toHaveBeenCalledTimes(loads)
+
+    await input.setValue('2199-12')
+    await flushPromises()
+    expect(monthFetch).toHaveBeenLastCalledWith('2199-12')
+    await find('budget-next').trigger('click')
+    await flushPromises()
+    expect(monthFetch).toHaveBeenCalledTimes(loads + 1)
+    wrapper.unmount()
+  })
+
   it('sets a recurring target with an account scope from the category card', async () => {
     const { wrapper, find } = await render()
     const save = vi.spyOn(budgetApi, 'saveCategoryBudget').mockResolvedValue(makeMonth())
