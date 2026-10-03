@@ -43,6 +43,9 @@ class Transaction(TimestampMixin, Base):
     category_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("categories.id", ondelete="SET NULL"), index=True
     )
+    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="SET NULL"), index=True
+    )
     notes: Mapped[str | None] = mapped_column(String(1000))
     # Authorized but not yet posted by the bank; its date and amount can still change.
     pending: Mapped[bool] = mapped_column(default=False)

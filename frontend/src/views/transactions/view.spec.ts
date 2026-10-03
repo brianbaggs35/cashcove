@@ -36,6 +36,7 @@ describe('the transactions view', () => {
         status: null,
         sources: [],
         importId: null,
+        subscriptionId: null,
         min: null,
         max: null,
       },
@@ -70,6 +71,7 @@ describe('the transactions view', () => {
       status: 'pending',
       source: ['plaid', 'file'],
       import: 'import-harbor',
+      subscription: 'subscription-streamflix',
       min: '10',
       max: '1,250.5',
       sort: 'amount',
@@ -90,6 +92,7 @@ describe('the transactions view', () => {
         status: 'pending',
         sources: ['plaid', 'file'],
         importId: 'import-harbor',
+        subscriptionId: 'subscription-streamflix',
         min: '10.00',
         max: '1250.50',
       },
@@ -168,6 +171,7 @@ describe('the transactions view', () => {
           status: 'posted',
           sources: ['manual'],
           importId: 'import-harbor',
+          subscriptionId: 'subscription-streamflix',
           min: '5.00',
           max: '50.00',
         },
@@ -184,6 +188,7 @@ describe('the transactions view', () => {
       status: 'posted',
       source: ['manual'],
       import: 'import-harbor',
+      subscription: 'subscription-streamflix',
       min: '5.00',
       max: '50.00',
       sort: 'payee',
@@ -213,6 +218,7 @@ describe('the transactions view', () => {
       status: undefined,
       source: [],
       import_id: undefined,
+      subscription_id: undefined,
       min_amount: undefined,
       max_amount: undefined,
       sort: '-date',
@@ -241,6 +247,7 @@ describe('the transactions view', () => {
         status: 'pending',
         sources: ['plaid'],
         importId: 'import-harbor',
+        subscriptionId: 'subscription-streamflix',
         min: '2.00',
         max: '10.00',
       }),
@@ -255,6 +262,7 @@ describe('the transactions view', () => {
       status: 'pending',
       source: ['plaid'],
       import_id: 'import-harbor',
+      subscription_id: 'subscription-streamflix',
       min_amount: '2.00',
       max_amount: '10.00',
     })
@@ -284,10 +292,11 @@ describe('the transactions view', () => {
         status: 'posted',
         sources: ['manual', 'file'],
         importId: 'import-harbor',
+        subscriptionId: 'subscription-streamflix',
         min: null,
         max: '10.00',
       }),
-    ).toBe(11)
+    ).toBe(12)
     expect(filterCount({ ...emptyFilters(), q: 'coffee', period: 'this-year' })).toBe(0)
   })
 
