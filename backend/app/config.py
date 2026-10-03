@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     # instead of in a pop-up. It has to be on Plaid's list of allowed redirect URIs.
     plaid_oauth_redirect: bool = False
 
+    # Where exchange rates come from, so accounts in other currencies count toward the
+    # household's budget in its own: a Frankfurter server (https://frankfurter.dev), which only
+    # hears currency codes and dates. Point it at your own server, or leave it empty to keep
+    # accounts in other currencies out of the budget.
+    exchange_rate_url: str = "https://api.frankfurter.dev"
+
+    @field_validator("exchange_rate_url")
+    @classmethod
+    def _exchange_rate_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if value and not value.startswith(("https://", "http://")):
+            raise ValueError("The exchange rate URL must start with https:// or http://")
+        return value
+
     @field_validator("plaid_country_codes", mode="before")
     @classmethod
     def _split_country_codes(cls, value: object) -> object:

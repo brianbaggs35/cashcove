@@ -114,7 +114,8 @@ function makeMonth(month = currentMonth()): BudgetMonth {
       },
     ],
     uncategorized: { received: '0.00', spent: '93.00', count: 2 },
-    other_currencies: [],
+    converted_currencies: [],
+    unconverted_currencies: [],
   }
 }
 
@@ -137,6 +138,8 @@ function makeYear(year: number, selected = currentMonth()): BudgetYear {
         },
       }
     }),
+    converted_currencies: [],
+    unconverted_currencies: [],
   }
 }
 
@@ -250,7 +253,8 @@ interface RenderOptions {
   linked?: boolean
   alertEnabled?: boolean
   allUnbudgeted?: boolean
-  otherCurrencies?: boolean
+  convertedCurrencies?: boolean
+  unconvertedCurrencies?: boolean
   withoutPreferences?: boolean
   withoutYear?: boolean
   linkedElsewhere?: boolean
@@ -275,7 +279,8 @@ async function render({
   linked = false,
   alertEnabled = true,
   allUnbudgeted = false,
-  otherCurrencies = false,
+  convertedCurrencies = false,
+  unconvertedCurrencies = false,
   withoutPreferences = false,
   withoutYear = false,
   linkedElsewhere = false,
@@ -313,7 +318,8 @@ async function render({
         ),
       }))
     }
-    if (otherCurrencies) data.other_currencies = ['CAD']
+    if (convertedCurrencies) data.converted_currencies = ['CAD']
+    if (unconvertedCurrencies) data.unconverted_currencies = ['EUR', 'GBP']
     if (noRollover) data.spending.carried = '0.00'
     if (missingCurrency) data.currency = undefined as unknown as string
     return data
@@ -764,6 +770,23 @@ describe('BudgetView', () => {
     wrapper.unmount()
   })
 
+  it("shows a transaction to link in its own account's currency", async () => {
+    const { wrapper, find, transactionFetch } = await render()
+    const canadianBill = {
+      ...billTransaction,
+      id: 'transaction-cad',
+      account_id: canadianAccount.id,
+    }
+    transactionFetch.mockResolvedValueOnce(makePage([canadianBill]))
+
+    await find(`budget-link-expense-${groceries.id}`).trigger('click')
+    await flushPromises()
+
+    expect(find(`budget-transaction-${canadianBill.id}`).text()).toContain('-CA$96.40')
+    await find('dialog-close').trigger('click')
+    wrapper.unmount()
+  })
+
   it('ignores stale month and transaction list responses', async () => {
     const { wrapper, find, monthFetch } = await render()
     const pendingMonths: DeferredMonth[] = []
@@ -890,14 +913,19 @@ describe('BudgetView', () => {
   it('shows unbudgeted, currency and preference fallbacks without a yearly report', async () => {
     const { wrapper, find } = await render({
       allUnbudgeted: true,
-      otherCurrencies: true,
+      convertedCurrencies: true,
+      unconvertedCurrencies: true,
       withoutPreferences: true,
       withoutYear: true,
       missingCurrency: true,
     })
 
     expect(find('budget-no-targets').exists()).toBe(true)
-    expect(find('budget-currency-note').text()).toContain('USD')
+    expect(find('budget-currency-converted').text()).toContain(
+      'Transactions from CAD accounts are converted to USD',
+    )
+    expect(find('budget-currency-note').text()).toContain('exchange rates for EUR, GBP')
+    expect(find('budget-currency-note').text()).toContain('USD budget')
     expect(find('budget-alert').exists()).toBe(false)
     expect(find('budget-year-chart').exists()).toBe(false)
     expect(find(`budget-category-${coffee.id}`).text()).toContain('No target set')
@@ -920,7 +948,8 @@ describe('BudgetView', () => {
       unbudgeted: boolean
       noCategories: boolean
       nearLimitCount: number
-      accountItems: { value: string }[]
+      accountItems: { title: string; value: string; props: { subtitle?: string } }[]
+      transactionCurrency: (transaction: Transaction) => string
       usedAmount: (line: BudgetLine) => string
       limitAmount: (line: BudgetLine) => string
       transactionAccount: (transaction: Transaction) => string
@@ -954,10 +983,17 @@ describe('BudgetView', () => {
     expect(setup.unbudgeted).toBe(false)
     expect(setup.noCategories).toBe(false)
     expect(setup.nearLimitCount).toBe(0)
-    expect(setup.accountItems.map((item) => item.value)).not.toContain(canadianAccount.id)
-    expect(setup.accountItems.some((item) => item.value === accountWithoutInstitution.id)).toBe(
-      true,
+    const subtitles = Object.fromEntries(
+      setup.accountItems.map((item) => [item.value, item.props.subtitle]),
     )
+    expect(subtitles[canadianAccount.id]).toBe(`${canadianAccount.institution} · CAD`)
+    expect(subtitles[checking.id]).toBe(checking.institution)
+    expect(subtitles[accountWithoutInstitution.id]).toBeUndefined()
+    expect(setup.transactionCurrency(paycheckTransaction)).toBe('USD')
+    expect(
+      setup.transactionCurrency({ ...paycheckTransaction, account_id: canadianAccount.id }),
+    ).toBe('CAD')
+    expect(setup.transactionCurrency(orphanIncomeTransaction)).toBe('USD')
     expect(setup.usedAmount(line(travel, { period: 'yearly', amount: '1200.00' }))).toBe('0.00')
     expect(setup.limitAmount(line(travel, { period: 'yearly', amount: null }))).toBe('0.00')
     expect(setup.transactionAccount(orphanIncomeTransaction)).toBe('Account unavailable')
@@ -1108,7 +1144,7 @@ describe('BudgetView', () => {
       allAccounts
         .find(`budget-link-subscription-${canadianSubscription.id}`)
         .attributes('disabled'),
-    ).toBeDefined()
+    ).toBeUndefined()
     await allAccounts.find('dialog-close').trigger('click')
     allAccounts.wrapper.unmount()
   })

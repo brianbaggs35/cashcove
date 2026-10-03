@@ -98,6 +98,12 @@ def test_the_harness_reads_its_settings_from_the_environment(
     assert app.url_path_for("reset_to_baseline") == "/api/e2e/reset"
 
 
+def test_the_harness_never_asks_the_internet_for_exchange_rates(settings: Settings) -> None:
+    assert settings.exchange_rate_url
+    app = create_e2e_app(settings)
+    assert app.dependency_overrides[get_settings]().exchange_rate_url == ""
+
+
 def test_reset_replaces_everything_with_the_baseline(
     e2e: TestClient, session: Session, settings: Settings
 ) -> None:

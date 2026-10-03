@@ -174,9 +174,10 @@ class BudgetMonth(BaseModel):
     spending: MonthTotals
     groups: list[BudgetGroup]
     uncategorized: Uncategorized
-    # Transactions in accounts in these currencies aren't counted, since budgets are in the
-    # household's own.
-    other_currencies: list[str]
+    # Other currencies' transactions are counted in the household's, converted at each day's
+    # exchange rate, unless there are no rates to convert them with: those aren't counted.
+    converted_currencies: list[str]
+    unconverted_currencies: list[str]
 
 
 # ---- The year ----------------------------------------------------------------------------
@@ -242,7 +243,8 @@ class BudgetYear(BaseModel):
     months: list[YearMonth]
     groups: list[BudgetYearGroup]
     uncategorized: YearUncategorized
-    other_currencies: list[str]
+    converted_currencies: list[str]
+    unconverted_currencies: list[str]
 
 
 # ---- One category over time --------------------------------------------------------------

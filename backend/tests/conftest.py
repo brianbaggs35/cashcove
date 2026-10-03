@@ -9,9 +9,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db import get_session
+from app.finance import exchange_rates
+from app.finance.exchange_rates import exchange_rate_transport
 from app.main import create_app
 from app.models import Base, Role, User
 from tests.helpers import ORIGIN, SERVER_NAME, TEST_DATABASE_URL, add_user, sign_in
+from tests.rates import NOW, FakeRates
 
 
 def pytest_configure() -> None:
@@ -56,7 +59,15 @@ def session(engine: Engine) -> Iterator[Session]:
 
 
 @pytest.fixture
-def app(settings: Settings, session: Session) -> FastAPI:
+def rates(monkeypatch: pytest.MonkeyPatch) -> FakeRates:
+    """The exchange rate server, which has no rates until a test gives it some. The clock
+    stands still, so which days have final rates doesn't depend on when the tests run."""
+    monkeypatch.setattr(exchange_rates, "utcnow", lambda: NOW)
+    return FakeRates()
+
+
+@pytest.fixture
+def app(settings: Settings, session: Session, rates: FakeRates) -> FastAPI:
     def request_session() -> Iterator[Session]:
         # Like a real request's session, anything not committed is rolled back at the end.
         try:
@@ -66,6 +77,7 @@ def app(settings: Settings, session: Session) -> FastAPI:
 
     app = create_app(settings)
     app.dependency_overrides[get_session] = request_session
+    app.dependency_overrides[exchange_rate_transport] = lambda: rates.transport
     return app
 
 
