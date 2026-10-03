@@ -13,6 +13,14 @@ from app.models.auth import (
     UserSession,
 )
 from app.models.base import Base, TimestampMixin
+from app.models.budget import (
+    Budget,
+    BudgetAmount,
+    BudgetPeriod,
+    budget_accounts,
+    budget_subscriptions,
+    budget_transactions,
+)
 from app.models.category import Category, CategoryGroup, CategoryKind
 from app.models.connection import (
     Connection,
@@ -22,6 +30,7 @@ from app.models.connection import (
     HistoryStatus,
     SyncTrigger,
 )
+from app.models.exchange_rate import ExchangeRate, ExchangeRateSpan
 from app.models.imports import FileFormat, FileImport, ImportProfile
 from app.models.subscription import PaymentFrequency, Subscription
 from app.models.transaction import Transaction, TransactionSource
@@ -36,6 +45,9 @@ __all__ = [
     "AuditEvent",
     "AuthChallenge",
     "Base",
+    "Budget",
+    "BudgetAmount",
+    "BudgetPeriod",
     "Category",
     "CategoryGroup",
     "CategoryKind",
@@ -43,6 +55,8 @@ __all__ = [
     "ConnectionProvider",
     "ConnectionStatus",
     "ConnectionSync",
+    "ExchangeRate",
+    "ExchangeRateSpan",
     "FileFormat",
     "FileImport",
     "HistoryStatus",
@@ -61,4 +75,7 @@ __all__ = [
     "TransactionSource",
     "User",
     "UserSession",
+    "budget_accounts",
+    "budget_subscriptions",
+    "budget_transactions",
 ]
