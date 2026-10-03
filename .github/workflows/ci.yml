@@ -202,11 +202,12 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npm run e2e:install -- --with-deps
 
-      - name: Login for the smoke test's admin
+      - name: Generate the smoke test's admin password
         run: |
-          login="$(openssl rand -hex 24)"
-          echo "::add-mask::$login"
-          echo "CASHCOVE_SMOKE_LOGIN=$login" >> "$GITHUB_ENV"
+          # A fresh random password for the disposable smoke-test admin.
+          smoke_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$smoke_secret"
+          echo "CASHCOVE_SMOKE_PASSWORD=$smoke_secret" >> "$GITHUB_ENV"
 
       - name: Start the stack
         run: docker compose up --detach --no-build --wait --wait-timeout 180
