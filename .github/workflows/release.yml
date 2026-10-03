@@ -68,11 +68,12 @@ jobs:
       - name: Trivy scan of the image
         run: make scan-image
 
-      - name: Login for the smoke test's admin
+      - name: Generate the smoke test's admin password
         run: |
-          login="$(openssl rand -hex 24)"
-          echo "::add-mask::$login"
-          echo "CASHCOVE_SMOKE_LOGIN=$login" >> "$GITHUB_ENV"
+          # A fresh random password for the disposable smoke-test admin.
+          smoke_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$smoke_secret"
+          echo "CASHCOVE_SMOKE_PASSWORD=$smoke_secret" >> "$GITHUB_ENV"
 
       - name: Smoke test
         env:
