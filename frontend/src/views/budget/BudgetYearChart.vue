@@ -48,7 +48,7 @@ function monthLabel(month: string): string {
         Spent
       </span>
     </div>
-    <ul class="budget-chart__months" aria-label="Budget year months">
+    <ul class="budget-chart__months" aria-label="Budget year months" tabindex="0">
       <li
         v-for="month in budgetYear.months"
         :key="month.month"
