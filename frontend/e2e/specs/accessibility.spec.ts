@@ -165,6 +165,16 @@ test.describe('Accessibility', () => {
         })
       })
 
+      test('the transaction details dialog', async ({ page, signInAs, transactionsPage }) => {
+        test.skip(test.info().project.name !== 'mobile', 'Phones open transaction details first')
+        await signInAs('admin')
+        await transactionsPage.goto()
+
+        await expectAccessibleOverlays(page, {
+          'viewing transaction details': () => transactionsPage.openDetails('Whole Foods'),
+        })
+      })
+
       test('categorizing a selection', async ({ page, signInAs, transactionsPage }) => {
         // Phones list transactions without the table's checkboxes, so there's nothing to select.
         test.skip(test.info().project.name === 'mobile', 'Only computers select several at once')
