@@ -9,10 +9,11 @@ const props = withDefaults(
   defineProps<{
     label?: string
     hideDetails?: boolean
+    disabled?: boolean
     /** A category to leave out, e.g. the one being deleted. */
     exclude?: string | null
   }>(),
-  { label: 'Category', hideDetails: false, exclude: null },
+  { label: 'Category', hideDetails: false, disabled: false, exclude: null },
 )
 
 const categories = useCategoriesStore()
@@ -59,6 +60,7 @@ function filter(title: string, query: string, item?: { raw: Option }): boolean {
     :label="label"
     :custom-filter="filter"
     :loading="categories.loading"
+    :disabled="disabled"
     :hide-details="hideDetails"
     item-title="title"
     item-value="value"

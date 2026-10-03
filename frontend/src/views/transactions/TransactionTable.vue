@@ -24,6 +24,7 @@ const props = defineProps<{
 const selected = defineModel<string[]>('selected', { required: true })
 const emit = defineEmits<{
   open: [transaction: Transaction]
+  edit: [transaction: Transaction]
   options: [changes: { page: number; pageSize: number; sort: TransactionSort }]
 }>()
 
@@ -86,6 +87,11 @@ function changed(options: Options) {
 
 function account(transaction: Transaction) {
   return accounts.find(transaction.account_id)
+}
+
+function activate(transaction: Transaction) {
+  if (props.selectable) emit('edit', transaction)
+  else emit('open', transaction)
 }
 
 /** Under the payee: the notes, or what the bank calls it when that's more than the payee. */
@@ -169,7 +175,7 @@ function detail(transaction: Transaction): string | null {
         size="small"
         :aria-label="selectable ? `Edit ${item.payee}` : `See ${item.payee}`"
         data-test="transaction-open"
-        @click.stop="emit('open', item)"
+        @click.stop="activate(item)"
       />
     </template>
   </v-data-table-server>
