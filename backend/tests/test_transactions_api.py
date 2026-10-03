@@ -130,6 +130,7 @@ def test_everyone_sees_the_newest_transactions_first_with_totals(
         "payee": "Blue Bottle",
         "original_description": None,
         "category_id": str(household["coffee"].id),
+        "subscription_id": None,
         "notes": None,
         "pending": True,
         "source": "plaid",

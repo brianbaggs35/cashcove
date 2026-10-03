@@ -89,6 +89,7 @@ class TransactionOut(BaseModel):
     payee: str
     original_description: str | None
     category_id: uuid.UUID | None
+    subscription_id: uuid.UUID | None
     notes: str | None
     pending: bool
     source: TransactionSource
@@ -121,6 +122,7 @@ class TransactionQuery(BaseModel):
     source: list[TransactionSource] = []
     # Only the transactions one import added.
     import_id: uuid.UUID | None = None
+    subscription_id: uuid.UUID | None = None
     # How big the amount is, whichever way the money went.
     min_amount: PositiveAmount | None = None
     max_amount: PositiveAmount | None = None

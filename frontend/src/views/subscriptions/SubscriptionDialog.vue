@@ -1,0 +1,325 @@
+<script setup lang="ts">
+import { CalendarClock, Pencil, Repeat } from '@lucide/vue'
+import { computed, reactive, ref, watch } from 'vue'
+
+import { fetchTransactions, type Transaction } from '@/api/transactions'
+import {
+  createSubscription,
+  updateSubscription,
+  type PaymentFrequency,
+  type Subscription,
+  type SubscriptionInput,
+} from '@/api/subscriptions'
+import CategoryPicker from '@/components/finance/CategoryPicker.vue'
+import AppDialog from '@/components/ui/AppDialog.vue'
+import DateField from '@/components/ui/DateField.vue'
+import MoneyField from '@/components/ui/MoneyField.vue'
+import { notify } from '@/composables/notify'
+import { useAction } from '@/composables/useAction'
+import { useAccountsStore } from '@/stores/accounts'
+import { addDays, todayIso } from '@/utils/dates'
+import { negate } from '@/utils/money'
+import { frequencies } from '@/views/subscriptions/recurrence'
+
+const open = defineModel<boolean>({ required: true })
+const props = defineProps<{ subscription: Subscription | null }>()
+const emit = defineEmits<{ saved: [subscription: Subscription] }>()
+const accounts = useAccountsStore()
+
+interface SubscriptionForm {
+  name: string
+  payee: string
+  amount: string | null
+  frequency: PaymentFrequency
+  accountId: string | null
+  nextDueDate: string | null
+  categoryId: string | null
+  notes: string
+  active: boolean
+  seedTransactionId: string | null
+}
+
+const form = reactive<SubscriptionForm>({
+  name: '',
+  payee: '',
+  amount: null as string | null,
+  frequency: 'monthly',
+  accountId: null as string | null,
+  nextDueDate: null as string | null,
+  categoryId: null as string | null,
+  notes: '',
+  active: true,
+  seedTransactionId: null as string | null,
+})
+const valid = ref(false)
+const transactions = ref<Transaction[]>([])
+const transactionError = ref<string | null>(null)
+const transactionLoading = ref(false)
+
+const account = computed(() => accounts.find(form.accountId))
+const accountItems = computed(() => {
+  const items = [...accounts.open]
+  const current = accounts.find(props.subscription?.account_id)
+  if (current && !items.some((item) => item.id === current.id)) items.unshift(current)
+  return items.map((item) => ({
+    value: item.id,
+    title: item.name,
+    props: { subtitle: item.institution ?? undefined },
+  }))
+})
+const paymentItems = computed(() =>
+  transactions.value.map((transaction) => ({
+    value: transaction.id,
+    title: `${transaction.payee} · ${transaction.date}`,
+    props: { subtitle: `${negate(transaction.amount)} · ${account.value?.name ?? ''}` },
+  })),
+)
+const title = computed(() => (props.subscription ? 'Edit subscription' : 'Add a subscription'))
+const notesRules = [(value: string) => value.length <= 1000 || 'Keep notes under 1,000 characters']
+const nameRules = [
+  (value: string) => value.trim().length > 0 || 'Give this subscription a name',
+  (value: string) => value.trim().length <= 120 || 'Keep it under 120 characters',
+]
+const accountRules = [(value: string | null) => !!value || 'Choose an account']
+const fieldError = (field: string) => saving.fields.value[field] ?? undefined
+const formError = computed(() =>
+  Object.keys(saving.fields.value).length ? null : saving.error.value,
+)
+
+function reset() {
+  const subscription = props.subscription
+  form.name = subscription?.name ?? ''
+  form.payee = subscription?.payee ?? ''
+  form.amount = subscription?.amount ?? null
+  form.frequency = subscription?.frequency ?? 'monthly'
+  form.accountId = subscription?.account_id ?? accounts.open[0]?.id ?? null
+  form.nextDueDate = subscription?.next_due_date ?? addDays(todayIso(), 30)
+  form.categoryId = subscription?.category_id ?? null
+  form.notes = subscription?.notes ?? ''
+  form.active = subscription?.active ?? true
+  form.seedTransactionId = null
+  transactions.value = []
+  transactionError.value = null
+  saving.clear()
+}
+
+async function loadTransactions() {
+  const accountId = form.accountId
+  transactions.value = []
+  transactionError.value = null
+  if (!accountId) return
+  transactionLoading.value = true
+  try {
+    const result = await fetchTransactions({
+      account_id: [accountId],
+      direction: 'out',
+      page_size: 200,
+    })
+    if (form.accountId === accountId) transactions.value = result.items
+  } catch (error) {
+    if (form.accountId === accountId) {
+      transactionError.value = error instanceof Error ? error.message : String(error)
+    }
+  } finally {
+    if (form.accountId === accountId) transactionLoading.value = false
+  }
+}
+
+function selectAccount(accountId: string | null) {
+  if (accountId === form.accountId) return
+  form.accountId = accountId
+  form.seedTransactionId = null
+  void loadTransactions()
+}
+
+function selectTransaction(transactionId: string | null) {
+  form.seedTransactionId = transactionId
+  if (!transactionId) return
+  const transaction = transactions.value.find((item) => item.id === transactionId)
+  if (!transaction) return
+  form.payee = transaction.payee
+  form.amount = negate(transaction.amount)
+}
+
+watch(open, (value) => {
+  if (value) {
+    reset()
+    void loadTransactions()
+  }
+})
+watch(form, () => {
+  saving.clear()
+})
+
+const saving = useAction(async () => {
+  const input: SubscriptionInput = {
+    name: form.name.trim(),
+    payee: form.payee.trim() || form.name.trim(),
+    amount: form.amount as string,
+    frequency: form.frequency,
+    account_id: form.accountId as string,
+    next_due_date: form.nextDueDate as string,
+    category_id: form.categoryId,
+    notes: form.notes.trim() || null,
+    seed_transaction_id: form.seedTransactionId,
+  }
+  const subscription = props.subscription
+    ? await updateSubscription(props.subscription.id, { ...input, active: form.active })
+    : await createSubscription(input)
+  notify(props.subscription ? 'Saved the subscription' : `Added ${subscription.name}`)
+  emit('saved', subscription)
+  open.value = false
+})
+
+function submit() {
+  if (valid.value) void saving.run()
+}
+</script>
+
+<template>
+  <AppDialog
+    v-model="open"
+    :title="title"
+    subtitle="Track renewals and automatically match payments from the same account."
+    :icon="subscription ? Pencil : Repeat"
+    :persistent="saving.busy.value"
+    max-width="640"
+    fullscreen-on-mobile
+  >
+    <v-form v-model="valid" @submit.prevent="submit">
+      <v-row density="compact">
+        <v-col cols="12" sm="7">
+          <v-text-field
+            v-model="form.name"
+            label="Subscription name"
+            :rules="nameRules"
+            :error-messages="fieldError('name')"
+            autocomplete="off"
+            required
+            data-test="subscription-name"
+          />
+        </v-col>
+        <v-col cols="12" sm="5">
+          <MoneyField
+            v-model="form.amount"
+            label="Payment amount"
+            :currency="account?.currency"
+            required
+            non-zero
+            :error-messages="fieldError('amount')"
+            data-test="subscription-amount"
+          />
+        </v-col>
+        <v-col cols="12" sm="6">
+          <v-select
+            v-model="form.frequency"
+            :items="frequencies"
+            label="Payment frequency"
+            :prepend-inner-icon="Repeat"
+            data-test="subscription-frequency"
+          />
+        </v-col>
+        <v-col cols="12" sm="6">
+          <DateField
+            v-model="form.nextDueDate"
+            label="Next payment date"
+            required
+            :error-messages="fieldError('next_due_date')"
+            data-test="subscription-due-date"
+          />
+        </v-col>
+        <v-col cols="12">
+          <v-select
+            :model-value="form.accountId"
+            :items="accountItems"
+            label="Payment account"
+            :prepend-inner-icon="CalendarClock"
+            :rules="accountRules"
+            :error-messages="fieldError('account_id')"
+            no-data-text="Add an account in the Accounts tab first"
+            data-test="subscription-account"
+            @update:model-value="selectAccount"
+          />
+        </v-col>
+        <v-col cols="12">
+          <v-text-field
+            v-model="form.payee"
+            label="Match transactions with this payee"
+            hint="Leave blank to match the subscription name. Matching ignores letter case."
+            persistent-hint
+            :error-messages="fieldError('payee')"
+            autocomplete="off"
+            data-test="subscription-payee"
+          />
+        </v-col>
+        <v-col cols="12">
+          <v-autocomplete
+            :model-value="form.seedTransactionId"
+            :items="paymentItems"
+            :loading="transactionLoading"
+            label="Link a past payment (optional)"
+            hint="Matching this payment links other and future payments from this account."
+            persistent-hint
+            clearable
+            no-data-text="No outgoing transactions found for this account"
+            :error-messages="transactionError"
+            data-test="subscription-seed-transaction"
+            @update:model-value="selectTransaction"
+          />
+        </v-col>
+        <v-col cols="12">
+          <CategoryPicker
+            v-model="form.categoryId"
+            label="Transaction category"
+            :error-messages="fieldError('category_id')"
+            data-test="subscription-category"
+          />
+        </v-col>
+        <v-col cols="12">
+          <v-textarea
+            v-model="form.notes"
+            label="Notes"
+            hint="Optional"
+            rows="2"
+            auto-grow
+            counter="1000"
+            :rules="notesRules"
+            :error-messages="fieldError('notes')"
+            data-test="subscription-notes"
+          />
+        </v-col>
+      </v-row>
+      <v-switch
+        v-if="subscription"
+        v-model="form.active"
+        label="Automatically track matching payments"
+        color="primary"
+        hide-details
+        data-test="subscription-active"
+      />
+      <v-alert
+        v-if="formError"
+        type="error"
+        variant="tonal"
+        density="compact"
+        class="mt-4"
+        :text="formError"
+        data-test="subscription-error"
+      />
+      <button type="submit" hidden />
+    </v-form>
+    <template #actions>
+      <v-btn variant="text" :disabled="saving.busy.value" @click="open = false">Cancel</v-btn>
+      <v-btn
+        color="primary"
+        variant="flat"
+        :loading="saving.busy.value"
+        :disabled="!valid"
+        data-test="subscription-save"
+        @click="submit"
+      >
+        {{ subscription ? 'Save changes' : 'Add subscription' }}
+      </v-btn>
+    </template>
+  </AppDialog>
+</template>

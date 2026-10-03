@@ -165,6 +165,17 @@ test.describe('Accessibility', () => {
         })
       })
 
+      test('the transaction details dialog', async ({ page, signInAs, transactionsPage }) => {
+        // Desktop admins open the edit form directly; only phones have this details dialog.
+        test.skip(test.info().project.name !== 'mobile', 'Phones open transaction details first')
+        await signInAs('admin')
+        await transactionsPage.goto()
+
+        await expectAccessibleOverlays(page, {
+          'viewing transaction details': () => transactionsPage.openDetails('Whole Foods'),
+        })
+      })
+
       test('categorizing a selection', async ({ page, signInAs, transactionsPage }) => {
         // Phones list transactions without the table's checkboxes, so there's nothing to select.
         test.skip(test.info().project.name === 'mobile', 'Only computers select several at once')
@@ -247,7 +258,7 @@ test.describe('Accessibility', () => {
               .format(baseline.saved_formats.maple_card.name)
               .getByTestId('saved-format-actions')
               .click()
-            await page.getByTestId('saved-format-rename').click()
+            await page.locator(OVERLAY).getByTestId('saved-format-rename').click()
           },
           'undoing an import': () =>
             importPage

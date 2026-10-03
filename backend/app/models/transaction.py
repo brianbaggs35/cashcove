@@ -10,6 +10,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, Money, TimestampMixin, enum_type
 
+SET_NULL = "SET NULL"
+
 
 class TransactionSource(StrEnum):
     MANUAL = "manual"
@@ -41,7 +43,10 @@ class Transaction(TimestampMixin, Base):
     # What the bank or file called it ("WHOLEFDS MKT #10234 AUSTIN TX"), kept as it came.
     original_description: Mapped[str | None] = mapped_column(String(255))
     category_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("categories.id", ondelete="SET NULL"), index=True
+        ForeignKey("categories.id", ondelete=SET_NULL), index=True
+    )
+    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete=SET_NULL), index=True
     )
     notes: Mapped[str | None] = mapped_column(String(1000))
     # Authorized but not yet posted by the bank; its date and amount can still change.
@@ -53,7 +58,7 @@ class Transaction(TimestampMixin, Base):
     external_id: Mapped[str | None] = mapped_column(String(255))
     # The file it was imported from, which can be undone.
     import_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("file_imports.id", ondelete="SET NULL"), index=True
+        ForeignKey("file_imports.id", ondelete=SET_NULL), index=True
     )
 
     @property

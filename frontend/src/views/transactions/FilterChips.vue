@@ -110,6 +110,17 @@ function importChips({ importId }: TransactionFilters): Chip[] {
   ]
 }
 
+function subscriptionChips({ subscriptionId }: TransactionFilters): Chip[] {
+  if (!subscriptionId) return []
+  return [
+    {
+      key: 'subscription',
+      label: 'Subscription payments',
+      remove: { subscriptionId: null },
+    },
+  ]
+}
+
 /** The amount range, from whichever ends are set. */
 function amountLabel(min: string | null, max: string | null): string {
   if (min && max) return `${money(min)} to ${money(max)}`
@@ -131,6 +142,7 @@ const chips = computed<Chip[]>(() => [
   ...choiceChips(props.filters),
   ...sourceChips(props.filters),
   ...importChips(props.filters),
+  ...subscriptionChips(props.filters),
   ...amountChips(props.filters),
 ])
 </script>

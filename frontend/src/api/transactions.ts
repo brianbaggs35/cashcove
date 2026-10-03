@@ -14,6 +14,7 @@ export interface Transaction {
   /** What the bank called it, e.g. "WHOLEFDS MKT #10234". */
   original_description: string | null
   category_id: string | null
+  subscription_id: string | null
   notes: string | null
   /** The bank hasn't settled it yet, so it may still change. */
   pending: boolean
@@ -44,6 +45,7 @@ export interface TransactionQuery {
   source?: TransactionSource[]
   /** Only the transactions one import added. */
   import_id?: string
+  subscription_id?: string
   /** However the money went, e.g. `50` matches both 50.00 in and 50.00 out. */
   min_amount?: string
   max_amount?: string
