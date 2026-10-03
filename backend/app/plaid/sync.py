@@ -18,6 +18,7 @@ from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.crypto import DecryptionError, SecretBox
+from app.finance.subscriptions import apply_subscription_rule
 from app.models import (
     Account,
     Connection,
@@ -199,6 +200,7 @@ def _apply_account(
             external_id=transaction.transaction_id,
         )
         _update_from_bank(row, transaction)
+        apply_subscription_rule(db, row)
         db.add(row)
         rows[transaction.transaction_id] = row
         counts.added += 1

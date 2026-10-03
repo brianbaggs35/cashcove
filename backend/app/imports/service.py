@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import ApiError
 from app.finance.accounts import get_account, importable_account, move_balance
+from app.finance.subscriptions import apply_subscription_rule
 from app.imports.csvfile import CsvFile, signature
 from app.imports.files import FileProblem, Statement, decode, sniff
 from app.imports.matching import Reviewed, review
@@ -372,20 +373,20 @@ def import_file(
     db.flush()
     for item in chosen:
         row = item.row
-        db.add(
-            Transaction(
-                account_id=account.id,
-                date=row.date,
-                amount=row.amount,
-                payee=item.payee,
-                original_description=row.description or None,
-                category_id=item.category_id,
-                notes=row.memo,
-                source=TransactionSource.FILE,
-                external_id=row.external_id,
-                import_id=record.id,
-            )
+        transaction = Transaction(
+            account_id=account.id,
+            date=row.date,
+            amount=row.amount,
+            payee=item.payee,
+            original_description=row.description or None,
+            category_id=item.category_id,
+            notes=row.memo,
+            source=TransactionSource.FILE,
+            external_id=row.external_id,
+            import_id=record.id,
         )
+        apply_subscription_rule(db, transaction)
+        db.add(transaction)
     if change:
         account.balance += change
         account.balance_updated_at = now

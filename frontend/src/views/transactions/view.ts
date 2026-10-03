@@ -25,6 +25,8 @@ export interface TransactionFilters {
   sources: TransactionSource[]
   /** Only what one import added, e.g. from the Import tab's list of imports. */
   importId: string | null
+  /** Only transactions linked to one recurring payment. */
+  subscriptionId: string | null
   /** However the money went, e.g. 50 matches both 50.00 in and 50.00 out. */
   min: string | null
   max: string | null
@@ -57,6 +59,7 @@ export function emptyFilters(): TransactionFilters {
     status: null,
     sources: [],
     importId: null,
+    subscriptionId: null,
     min: null,
     max: null,
   }
@@ -126,6 +129,7 @@ export function viewFromQuery(query: LocationQuery): TransactionView {
         SOURCES.has(source as TransactionSource),
       ),
       importId: one(query.import),
+      subscriptionId: one(query.subscription),
       min: amount(query.min),
       max: amount(query.max),
     },
@@ -161,6 +165,7 @@ export function queryFromView({
   set('status', filters.status)
   set('source', filters.sources)
   set('import', filters.importId)
+  set('subscription', filters.subscriptionId)
   set('min', filters.min)
   set('max', filters.max)
   set('sort', sort, '-date')
@@ -195,6 +200,7 @@ export function apiQuery(
     status: filters.status ?? undefined,
     source: filters.sources,
     import_id: filters.importId ?? undefined,
+    subscription_id: filters.subscriptionId ?? undefined,
     min_amount: min ?? undefined,
     max_amount: max ?? undefined,
     sort,
@@ -212,6 +218,7 @@ export function filterCount(filters: TransactionFilters): number {
     Number(filters.status !== null) +
     filters.sources.length +
     Number(filters.importId !== null) +
+    Number(filters.subscriptionId !== null) +
     Number(filters.min !== null || filters.max !== null)
   )
 }

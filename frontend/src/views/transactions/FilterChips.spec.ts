@@ -63,6 +63,7 @@ describe('FilterChips', () => {
     [{ period: 'custom', start: null, end: '2026-09-15' }, 'Until Sep 15, 2026'],
     [{ importId: checkingImport.id }, 'From harbor-checking.csv'],
     [{ importId: 'import-undone' }, 'From an import'],
+    [{ subscriptionId: 'subscription-streamflix' }, 'Subscription payments'],
   ])('describes %o', async (filters, expected) => {
     const { labels } = await render(filters)
     expect(labels().join(' ')).toBe(expected)
@@ -79,6 +80,7 @@ describe('FilterChips', () => {
       status: 'posted',
       sources: ['plaid', 'file'],
       importId: checkingImport.id,
+      subscriptionId: 'subscription-streamflix',
       min: '5.00',
     })
     const close = async (key: string) => chip(key).find('.v-chip__close').trigger('click')
@@ -94,6 +96,7 @@ describe('FilterChips', () => {
     await close('status')
     await close('source-plaid')
     await close('import')
+    await close('subscription')
     await close('amount')
     expect(wrapper.emitted('change')).toEqual([
       [{ accounts: ['account-gone'] }],
@@ -104,6 +107,7 @@ describe('FilterChips', () => {
       [{ status: null }],
       [{ sources: ['file'] }],
       [{ importId: null }],
+      [{ subscriptionId: null }],
       [{ min: null, max: null }],
     ])
 
