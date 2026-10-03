@@ -35,8 +35,10 @@ export interface SubscriptionInput {
 
 export type SubscriptionChanges = Partial<SubscriptionInput> & { active?: boolean }
 
-export const fetchSubscriptions = (active?: boolean) =>
-  apiGet<Subscription[]>(`/subscriptions${active === undefined ? '' : `?active=${active}`}`)
+export const fetchSubscriptions = (active?: boolean) => {
+  const query = active === undefined ? '' : `?active=${active}`
+  return apiGet<Subscription[]>(`/subscriptions${query}`)
+}
 export const createSubscription = (input: SubscriptionInput) =>
   apiPost<Subscription>('/subscriptions', input)
 export const updateSubscription = (id: string, changes: SubscriptionChanges) =>

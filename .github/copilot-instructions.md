@@ -23,4 +23,5 @@ Before reporting a change as complete:
 
 `make test` requires Docker for the backend's throwaway PostgreSQL database. Backend and frontend test suites enforce 100% coverage, so add or update tests when changing behavior.
 
-Also make sure to run `make lint` or equivalent which would be ruff, eslint, prettier, pyright, bandit, typecheck, etc. The command `make lint` seems to run them all.
+Also make sure to run `make lint` or equivalent which would be ruff, eslint, prettier, pyright, bandit, typecheck, etc. The command `make lint` seems to run them all. Always run sonarqube scans too on all
+edited files.
