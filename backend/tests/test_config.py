@@ -50,3 +50,29 @@ def test_plaid_oauth_comes_back_to_the_connect_tab() -> None:
     settings = Settings(server_name="money.example.com", plaid_oauth_redirect=True)
     assert settings.plaid_redirect_uri == "https://money.example.com/connect/oauth"
     assert Settings().plaid_redirect_uri is None
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        ("https://rates.example.com/", "https://rates.example.com"),
+        (" http://localhost:8080// ", "http://localhost:8080"),
+        ("", ""),
+    ],
+)
+def test_the_exchange_rate_server_is_a_web_address_or_nothing(given: str, expected: str) -> None:
+    assert Settings(exchange_rate_url=given).exchange_rate_url == expected
+
+
+def test_exchange_rates_come_from_frankfurter_unless_told_otherwise(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert Settings().exchange_rate_url == "https://api.frankfurter.dev"
+    monkeypatch.setenv("CASHCOVE_EXCHANGE_RATE_URL", "")
+    assert Settings().exchange_rate_url == ""
+
+
+def test_the_exchange_rate_server_needs_a_web_address() -> None:
+    with pytest.raises(ValueError, match="must start with https:// or http://"):
+        Settings(exchange_rate_url="ftp://rates.example.com")

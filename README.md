@@ -128,6 +128,27 @@ app secret key. The browser only loads Plaid Link from `cdn.plaid.com`, which th
 Security Policy allows along with the matching Plaid API host. Removing a bank in Cashcove
 also removes it at Plaid, so Plaid stops billing for it.
 
+### Accounts in other currencies
+
+Budgets are in the currency chosen in **Settings > General**. Transactions from accounts in any
+other currency count toward them too, converted at the exchange rate of the day each one
+happened (a transaction from today counts at yesterday's rate until the day is over). The
+Budget tab says which currencies it converted. Nothing converted is stored: change an
+account's currency or the household's and the budgets follow.
+
+Rates come from [Frankfurter](https://frankfurter.dev), a free, open-source rates service that
+needs no key and covers about 165 currencies. Cashcove asks it for one currency's daily rates
+over the days that account has transactions, only ever sends currency codes and dates (never
+amounts, accounts or anything about you), and keeps what it gets in its own database, so each
+day is only ever fetched once. If the rates can't be fetched, those accounts are left out of the
+budget and the Budget tab says so, until they can be.
+
+- **Your own rate server:** Frankfurter is MIT-licensed and runs as one container
+  (`lineofflight/frankfurter`). Set `CASHCOVE_EXCHANGE_RATE_URL` in `.env` to its address, e.g.
+  `http://frankfurter:8080`.
+- **No lookups at all:** set `CASHCOVE_EXCHANGE_RATE_URL=` to nothing. Only rates already kept
+  are used, so accounts in other currencies count only for days Cashcove already has rates for.
+
 ### Importing statement files
 
 The **Import** tab brings in transactions from files downloaded from a bank's website: for

@@ -164,13 +164,17 @@ const enabledAlertThreshold = computed(() =>
   alertSettings.value?.budget_threshold_enabled ? alertThreshold.value : 101,
 )
 const accountItems = computed(() =>
-  accounts.open
-    .filter((account) => account.currency === currency.value)
-    .map((account) => ({
-      title: account.name,
-      value: account.id,
-      props: { subtitle: account.institution ?? undefined },
-    })),
+  accounts.open.map((account) => ({
+    title: account.name,
+    value: account.id,
+    // Accounts in other currencies say so, since their transactions are converted.
+    props: {
+      subtitle:
+        [account.institution, account.currency === currency.value ? null : account.currency]
+          .filter(Boolean)
+          .join(' · ') || undefined,
+    },
+  })),
 )
 const periodLabel = (period: BudgetPeriod) => periodTitles[period]
 const configFor = (categoryId: string) =>
@@ -398,11 +402,7 @@ function subscriptionLink(subscriptionId: string): BudgetConfiguration | undefin
 function subscriptionCanLink(subscription: Subscription): boolean {
   if (!subscriptionCategory.value) return false
   const scope = configFor(subscriptionCategory.value.id)?.account_ids ?? []
-  const account = accounts.find(subscription.account_id)
-  return (
-    (!scope.length || scope.includes(subscription.account_id)) &&
-    account?.currency === currency.value
-  )
+  return !scope.length || scope.includes(subscription.account_id)
 }
 
 async function loadLinkableSubscriptions() {
@@ -448,6 +448,10 @@ async function toggleSubscriptionLink(subscription: Subscription) {
 
 function transactionAccount(transaction: Transaction): string {
   return accounts.find(transaction.account_id)?.name ?? 'Account unavailable'
+}
+
+function transactionCurrency(transaction: Transaction): string {
+  return accounts.find(transaction.account_id)?.currency ?? currency.value
 }
 
 function usedAmount(line: BudgetLine): string {
@@ -605,14 +609,25 @@ function accountScopeLabel(categoryId: string): string {
       </v-alert>
 
       <v-alert
-        v-if="monthBudget.other_currencies.length"
+        v-if="monthBudget.converted_currencies.length"
         type="info"
+        variant="tonal"
+        class="mb-5"
+        data-test="budget-currency-converted"
+      >
+        Transactions from {{ monthBudget.converted_currencies.join(', ') }} accounts are converted
+        to {{ currency }} at each day's exchange rate.
+      </v-alert>
+
+      <v-alert
+        v-if="monthBudget.unconverted_currencies.length"
+        type="warning"
         variant="tonal"
         class="mb-5"
         data-test="budget-currency-note"
       >
-        Transactions from {{ monthBudget.other_currencies.join(', ') }} accounts aren't included in
-        this {{ currency }} budget.
+        Couldn't get exchange rates for {{ monthBudget.unconverted_currencies.join(', ') }}, so
+        transactions from those accounts aren't included in this {{ currency }} budget.
       </v-alert>
 
       <v-row class="mb-1" density="compact">
@@ -931,7 +946,7 @@ function accountScopeLabel(categoryId: string): string {
           chips
           closable-chips
           clearable
-          hint="Leave empty to include transactions from every account in your budget currency."
+          hint="Leave empty to include transactions from every account."
           persistent-hint
           data-test="budget-accounts"
         />
@@ -1036,7 +1051,7 @@ function accountScopeLabel(categoryId: string): string {
                 class="text-body-small font-weight-medium"
                 :class="linkedCategory?.kind === 'income' ? 'text-success' : 'text-error'"
               >
-                {{ formatMoney(transaction.amount, currency) }}
+                {{ formatMoney(transaction.amount, transactionCurrency(transaction)) }}
               </span>
               <v-btn
                 v-if="transactionLink(transaction.id)?.category_id === linkedCategory?.id"

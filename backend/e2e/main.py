@@ -28,6 +28,8 @@ def create_e2e_app(settings: Settings | None = None) -> FastAPI:
             "plaid_env": "sandbox",
             "plaid_client_id": client_id,
             "plaid_secret": SecretStr(secret),
+            # Nothing in the tests reaches the internet, so no exchange rates either.
+            "exchange_rate_url": "",
         }
     )
     app = create_app(settings)

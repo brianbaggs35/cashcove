@@ -30,6 +30,7 @@ from app.models.connection import (
     HistoryStatus,
     SyncTrigger,
 )
+from app.models.exchange_rate import ExchangeRate, ExchangeRateSpan
 from app.models.imports import FileFormat, FileImport, ImportProfile
 from app.models.subscription import PaymentFrequency, Subscription
 from app.models.transaction import Transaction, TransactionSource
@@ -54,6 +55,8 @@ __all__ = [
     "ConnectionProvider",
     "ConnectionStatus",
     "ConnectionSync",
+    "ExchangeRate",
+    "ExchangeRateSpan",
     "FileFormat",
     "FileImport",
     "HistoryStatus",
