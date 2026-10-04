@@ -12,14 +12,15 @@ from app.models.auth import (
     RecoveryCode,
     UserSession,
 )
+from app.models.automation import Automation, AutomationMatch, AutomationScope
 from app.models.base import Base, TimestampMixin
 from app.models.budget import (
     Budget,
     BudgetAmount,
+    BudgetExclusion,
+    BudgetKind,
+    BudgetLink,
     BudgetPeriod,
-    budget_accounts,
-    budget_subscriptions,
-    budget_transactions,
 )
 from app.models.category import Category, CategoryGroup, CategoryKind
 from app.models.connection import (
@@ -44,9 +45,15 @@ __all__ = [
     "AppSettings",
     "AuditEvent",
     "AuthChallenge",
+    "Automation",
+    "AutomationMatch",
+    "AutomationScope",
     "Base",
     "Budget",
     "BudgetAmount",
+    "BudgetExclusion",
+    "BudgetKind",
+    "BudgetLink",
     "BudgetPeriod",
     "Category",
     "CategoryGroup",
@@ -75,7 +82,4 @@ __all__ = [
     "TransactionSource",
     "User",
     "UserSession",
-    "budget_accounts",
-    "budget_subscriptions",
-    "budget_transactions",
 ]

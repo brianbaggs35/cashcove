@@ -1,5 +1,6 @@
 import datetime as dt
 import uuid
+from decimal import Decimal
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -40,7 +41,7 @@ def test_viewers_can_read_subscriptions_but_cannot_manage_them(
     subscription = Subscription(
         name="Streamflix",
         payee="Streamflix",
-        amount="14.99",
+        amount=Decimal("14.99"),
         frequency="monthly",
         account_id=account.id,
         next_due_date=TODAY,
@@ -330,3 +331,434 @@ def test_subscription_deletion_unlinks_but_keeps_transaction_history(
     session.expire_all()
     assert session.get_one(Transaction, transaction.id).subscription_id is None
     assert session.scalar(select(Subscription).where(Subscription.id == subscription["id"])) is None
+
+
+def add_payment(
+    client: TestClient, account: Account, payee: str, amount: str = "-14.99", **fields: Any
+) -> dict[str, Any]:
+    response = client.post(
+        "/api/transactions",
+        json={
+            "account_id": str(account.id),
+            "date": TODAY.isoformat(),
+            "amount": amount,
+            "payee": payee,
+            **fields,
+        },
+    )
+    assert response.status_code == 201, response.text
+    result: dict[str, Any] = response.json()
+    return result
+
+
+def link(client: TestClient, subscription: dict[str, Any], *ids: Any) -> dict[str, Any]:
+    response = client.post(
+        f"/api/subscriptions/{subscription['id']}/payments", json={"ids": [str(i) for i in ids]}
+    )
+    assert response.status_code == 200, response.text
+    result: dict[str, Any] = response.json()
+    return result
+
+
+def test_a_payment_that_arrives_settles_the_due_date_and_is_the_last_payment(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    subscription = create(
+        admin_client, payload(account, name="Cloud Box", next_due_date=TODAY.isoformat())
+    )
+    assert subscription["last_payment_on"] is None
+
+    payment = add_payment(admin_client, account, "Cloud Box")
+
+    assert payment["subscription_id"] == subscription["id"]
+    updated = admin_client.get(f"/api/subscriptions/{subscription['id']}").json()
+    assert updated["next_due_date"] == TODAY.replace(month=10).isoformat()
+    assert updated["last_payment_on"] == TODAY.isoformat()
+    assert updated["payment_count"] == 1
+    # The next payment settles the next due date, a month on.
+    add_payment(admin_client, account, "Cloud Box")
+    assert (
+        admin_client.get(f"/api/subscriptions/{subscription['id']}").json()["next_due_date"]
+        == TODAY.replace(month=10).isoformat()
+    )
+
+
+def test_old_payments_do_not_move_the_due_date(admin_client: TestClient, session: Session) -> None:
+    account = add_account(session)
+    long_ago = TODAY - dt.timedelta(days=60)
+    old = add_transaction(session, account, "-3.99", "Cloud Box", date=long_ago)
+
+    subscription = create(admin_client, payload(account, name="Cloud Box"))
+
+    assert (subscription["payment_count"], subscription["last_payment_on"]) == (
+        1,
+        long_ago.isoformat(),
+    )
+    assert subscription["next_due_date"] == payload(account)["next_due_date"]
+    assert old.subscription_id is not None
+
+
+def test_viewers_cannot_link_or_unlink_payments(
+    viewer_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    subscription = Subscription(
+        name="Streamflix",
+        payee="Streamflix",
+        amount=Decimal("14.99"),
+        frequency="monthly",
+        account_id=account.id,
+        next_due_date=TODAY,
+        active=True,
+    )
+    session.add(subscription)
+    session.commit()
+    path = f"/api/subscriptions/{subscription.id}/payments"
+
+    assert error(viewer_client.post(path, json={"ids": [str(uuid.uuid4())]})) == "admin_only"
+    assert error(viewer_client.delete(f"{path}/{uuid.uuid4()}")) == "admin_only"
+
+
+def test_payments_from_any_account_can_be_linked_to_a_subscription(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    card = add_account(session, "Rewards card")
+    streaming = add_category(session, "Streaming", add_group(session, "Media"))
+    other = add_category(session, "Fun", add_group(session, "Leisure"))
+    subscription = create(admin_client, payload(account, category_id=str(streaming.id)))
+    far = TODAY - dt.timedelta(days=45)
+    by_card = add_transaction(session, card, "-14.99", "STREAMFLIX*123", date=far)
+    by_hand = add_transaction(
+        session, account, "-15.49", "Zelle to Sam", date=far, category_id=other.id
+    )
+
+    linked = link(admin_client, subscription, by_card.id, by_hand.id, uuid.uuid4())
+
+    assert linked["count"] == 2
+    assert (linked["subscription"]["payment_count"], linked["subscription"]["last_payment_on"]) == (
+        2,
+        far.isoformat(),
+    )
+    # They took its category, and a payment that old leaves the due date alone.
+    assert linked["subscription"]["next_due_date"] == subscription["next_due_date"]
+    session.expire_all()
+    for row in (by_card, by_hand):
+        row = session.get_one(Transaction, row.id)
+        assert (row.subscription_id, row.category_id) == (
+            uuid.UUID(subscription["id"]),
+            streaming.id,
+        )
+    # Linking them again changes nothing, unless someone changed their category since.
+    assert link(admin_client, subscription, by_card.id)["count"] == 0
+    session.get_one(Transaction, by_hand.id).category_id = other.id
+    session.commit()
+    assert link(admin_client, subscription, by_card.id, by_hand.id)["count"] == 1
+    # Nothing to link is fine.
+    assert link(admin_client, subscription, uuid.uuid4())["count"] == 0
+
+
+def test_payments_linked_to_a_subscription_without_a_category_keep_theirs(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    other = add_category(session, "Fun", add_group(session, "Leisure"))
+    subscription = create(admin_client, payload(account))
+    payment = add_transaction(
+        session,
+        account,
+        "-14.99",
+        "Zelle to Sam",
+        date=TODAY - dt.timedelta(days=45),
+        category_id=other.id,
+    )
+
+    assert link(admin_client, subscription, payment.id)["count"] == 1
+
+    session.expire_all()
+    assert session.get_one(Transaction, payment.id).category_id == other.id
+    # Linked, it isn't a change to link it again.
+    assert link(admin_client, subscription, payment.id)["count"] == 0
+
+
+def test_a_recent_payment_linked_by_hand_settles_the_due_date(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    subscription = create(admin_client, payload(account))
+    payment = add_transaction(session, account, "-14.99", "Zelle to Sam")
+
+    linked = link(admin_client, subscription, payment.id)
+
+    due = dt.date.fromisoformat(subscription["next_due_date"])
+    assert (
+        linked["subscription"]["next_due_date"]
+        == dt.date(due.year, due.month + 1, due.day).isoformat()
+    )
+
+
+def test_only_payments_can_be_linked_to_a_subscription(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    subscription = create(admin_client, payload(account))
+    payment = add_transaction(session, account, "-14.99", "Zelle to Sam")
+    refund = add_transaction(session, account, "14.99", "Zelle from Sam")
+
+    response = admin_client.post(
+        f"/api/subscriptions/{subscription['id']}/payments",
+        json={"ids": [str(payment.id), str(refund.id)]},
+    )
+
+    assert (response.status_code, error(response)) == (422, "not_payment")
+    session.expire_all()
+    assert session.get_one(Transaction, payment.id).subscription_id is None
+    assert (
+        error(
+            admin_client.post(
+                f"/api/subscriptions/{uuid.uuid4()}/payments", json={"ids": [str(payment.id)]}
+            )
+        )
+        == "not_found"
+    )
+    empty = admin_client.post(f"/api/subscriptions/{subscription['id']}/payments", json={"ids": []})
+    assert empty.status_code == 422
+
+
+def test_a_payment_can_be_taken_off_a_subscription_and_keeps_its_category(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    streaming = add_category(session, "Streaming", add_group(session, "Media"))
+    subscription = create(admin_client, payload(account, category_id=str(streaming.id)))
+    other = create(admin_client, payload(account, name="Other", payee="Another"))
+    payment = add_transaction(
+        session, account, "-14.99", "Zelle to Sam", date=TODAY - dt.timedelta(days=45)
+    )
+    link(admin_client, subscription, payment.id)
+
+    # Naming the wrong subscription takes nothing off the right one.
+    wrong = admin_client.delete(f"/api/subscriptions/{other['id']}/payments/{payment.id}")
+    assert wrong.status_code == 200
+    assert admin_client.get(f"/api/subscriptions/{subscription['id']}").json()["payment_count"] == 1
+
+    path = f"/api/subscriptions/{subscription['id']}/payments/{payment.id}"
+    response = admin_client.delete(path)
+    assert response.status_code == 200
+    assert response.json()["payment_count"] == 0
+    session.expire_all()
+    row = session.get_one(Transaction, payment.id)
+    assert (row.subscription_id, row.category_id) == (None, streaming.id)
+    # Again, or for a payment that's gone, there's nothing to do.
+    assert admin_client.delete(path).status_code == 200
+    assert (
+        admin_client.delete(
+            f"/api/subscriptions/{subscription['id']}/payments/{uuid.uuid4()}"
+        ).status_code
+        == 200
+    )
+    assert error(
+        admin_client.delete(f"/api/subscriptions/{uuid.uuid4()}/payments/{payment.id}")
+    ) == ("not_found")
+
+
+def test_resuming_a_subscription_catches_up_on_what_arrived_while_it_was_paused(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    subscription = create(admin_client, payload(account, name="Cloud Box"))
+    admin_client.patch(f"/api/subscriptions/{subscription['id']}", json={"active": False})
+    arrived = add_transaction(
+        session, account, "-3.99", "Cloud Box", date=TODAY - dt.timedelta(days=45)
+    )
+    assert arrived.subscription_id is None
+
+    resumed = admin_client.patch(
+        f"/api/subscriptions/{subscription['id']}", json={"active": True}
+    ).json()
+
+    assert resumed["payment_count"] == 1
+    session.expire_all()
+    assert session.get_one(Transaction, arrived.id).subscription_id == uuid.UUID(subscription["id"])
+
+
+def test_changing_what_a_subscription_matches_keeps_payments_linked_by_hand(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    card = add_account(session, "Rewards card")
+    far = TODAY - dt.timedelta(days=45)
+    matched = add_transaction(session, account, "-4.00", "Old stream", date=far)
+    subscription = create(admin_client, payload(account, name="Old stream"))
+    by_hand = add_transaction(session, card, "-4.00", "Something else", date=far)
+    link(admin_client, subscription, by_hand.id)
+
+    updated = admin_client.patch(
+        f"/api/subscriptions/{subscription['id']}", json={"payee": "New stream"}
+    ).json()
+
+    assert updated["payment_count"] == 1
+    session.expire_all()
+    assert session.get_one(Transaction, matched.id).subscription_id is None
+    assert session.get_one(Transaction, by_hand.id).subscription_id == uuid.UUID(subscription["id"])
+
+
+def test_subscriptions_list_how_many_payments_each_tracks(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    far = TODAY - dt.timedelta(days=45)
+    add_transaction(session, account, "-3.99", "Cloud Box", date=far)
+    add_transaction(session, account, "-3.99", "Cloud Box", date=far - dt.timedelta(days=30))
+    busy = create(admin_client, payload(account, name="Cloud Box"))
+    idle = create(admin_client, payload(account, name="Idle", payee="Nothing"))
+
+    listed = {item["id"]: item for item in admin_client.get("/api/subscriptions").json()}
+
+    assert (listed[busy["id"]]["payment_count"], listed[busy["id"]]["last_payment_on"]) == (
+        2,
+        far.isoformat(),
+    )
+    assert (listed[idle["id"]]["payment_count"], listed[idle["id"]]["last_payment_on"]) == (
+        0,
+        None,
+    )
+
+
+def test_a_category_chosen_for_a_subscriptions_payment_stays(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    streaming = add_category(session, "Streaming", add_group(session, "Media"))
+    other = add_category(session, "Fun", add_group(session, "Leisure"))
+    subscription = create(
+        admin_client, payload(account, category_id=str(streaming.id), payee="Streamflix")
+    )
+
+    plain = add_payment(admin_client, account, "Streamflix")
+    chosen = add_payment(admin_client, account, "Streamflix", category_id=str(other.id))
+    assert (plain["category_id"], plain["subscription_id"]) == (
+        str(streaming.id),
+        subscription["id"],
+    )
+    assert (chosen["category_id"], chosen["subscription_id"]) == (
+        str(other.id),
+        subscription["id"],
+    )
+
+    edited = admin_client.patch(
+        f"/api/transactions/{plain['id']}", json={"category_id": str(other.id)}
+    ).json()
+    assert (edited["category_id"], edited["subscription_id"]) == (
+        str(other.id),
+        subscription["id"],
+    )
+    cleared = admin_client.patch(
+        f"/api/transactions/{plain['id']}", json={"category_id": None, "payee": "STREAMFLIX"}
+    ).json()
+    assert (cleared["category_id"], cleared["subscription_id"]) == (None, subscription["id"])
+
+
+def test_editing_what_automations_match_a_transaction_by_sorts_it_again(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    card = add_account(session, "Rewards card")
+    streaming = add_category(session, "Streaming", add_group(session, "Media"))
+    subscription = create(
+        admin_client, payload(account, category_id=str(streaming.id), payee="Streamflix")
+    )
+
+    typo = add_payment(admin_client, account, "Streamflx")
+    elsewhere = add_payment(admin_client, card, "Streamflix")
+    assert (typo["subscription_id"], elsewhere["subscription_id"]) == (None, None)
+
+    fixed = admin_client.patch(
+        f"/api/transactions/{typo['id']}", json={"payee": "Streamflix"}
+    ).json()
+    assert (fixed["subscription_id"], fixed["category_id"]) == (
+        subscription["id"],
+        str(streaming.id),
+    )
+    moved = admin_client.patch(
+        f"/api/transactions/{elsewhere['id']}", json={"account_id": str(account.id)}
+    ).json()
+    assert moved["subscription_id"] == subscription["id"]
+
+    # Other edits leave a payment's link alone, even when nothing matches it any more.
+    renamed = admin_client.patch(
+        f"/api/transactions/{typo['id']}", json={"notes": "Family plan"}
+    ).json()
+    assert renamed["subscription_id"] == subscription["id"]
+
+
+def test_a_payment_changed_to_money_in_leaves_its_subscription(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    subscription = create(admin_client, payload(account, payee="Streamflix"))
+    payment = add_payment(admin_client, account, "Streamflix")
+    assert payment["subscription_id"] == subscription["id"]
+    refund = add_payment(admin_client, account, "Streamflix", "14.99")
+    assert refund["subscription_id"] is None
+
+    into_refund = admin_client.patch(
+        f"/api/transactions/{payment['id']}", json={"amount": "14.99"}
+    ).json()
+    assert into_refund["subscription_id"] is None
+    into_payment = admin_client.patch(
+        f"/api/transactions/{refund['id']}", json={"amount": "-14.99"}
+    ).json()
+    assert into_payment["subscription_id"] == subscription["id"]
+
+
+def test_a_bill_that_changes_every_time_is_expected_to_be_about_what_recent_ones_were(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    power = create(
+        admin_client, payload(account, name="Power", amount="100.00", amount_varies=True)
+    )
+    fixed = create(admin_client, payload(account, name="Streamflix", payee="Nothing"))
+    assert (power["amount_varies"], fixed["amount_varies"]) == (True, False)
+    # Nothing paid yet, so the amount it was set up with is all there is to go on.
+    assert (power["typical_amount"], power["last_payment_amount"], power["expected_amount"]) == (
+        None,
+        None,
+        "100.00",
+    )
+
+    # Seven bills, the oldest of which is more than the six that its typical amount comes from.
+    ids: list[uuid.UUID] = []
+    for index, amount in enumerate(
+        ["-500.00", "-90.00", "-100.00", "-110.00", "-120.00", "-130.00", "-140.01"]
+    ):
+        bill = add_transaction(
+            session,
+            account,
+            amount,
+            "City Power",
+            date=TODAY - dt.timedelta(days=400 - 30 * index),
+        )
+        ids.append(bill.id)
+    link(admin_client, power, *ids)
+    streams = [
+        add_transaction(
+            session, account, amount, "Streamflix", date=TODAY - dt.timedelta(days=days)
+        ).id
+        for amount, days in (("-14.99", 40), ("-15.49", 10))
+    ]
+    link(admin_client, fixed, *streams)
+
+    updated = {item["id"]: item for item in admin_client.get("/api/subscriptions").json()}
+    varying, steady = updated[power["id"]], updated[fixed["id"]]
+    assert varying["payment_count"] == 7
+    assert varying["last_payment_amount"] == "140.01"
+    assert varying["typical_amount"] == "115.00"
+    # A bill that changes is expected to be what recent ones averaged; one that doesn't, what it is.
+    assert varying["expected_amount"] == "115.00"
+    assert (steady["typical_amount"], steady["expected_amount"]) == ("15.24", "14.99")
+
+    changed = admin_client.patch(f"/api/subscriptions/{power['id']}", json={"amount_varies": False})
+    assert (changed.json()["amount_varies"], changed.json()["expected_amount"]) == (False, "100.00")

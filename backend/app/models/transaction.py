@@ -4,15 +4,11 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 from enum import StrEnum
-from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, ForeignKey, Index, String, UniqueConstraint, Uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, Money, TimestampMixin, enum_type
-
-if TYPE_CHECKING:
-    from app.models.budget import Budget
 
 SET_NULL = "SET NULL"
 
@@ -63,10 +59,6 @@ class Transaction(TimestampMixin, Base):
     # The file it was imported from, which can be undone.
     import_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("file_imports.id", ondelete=SET_NULL), index=True
-    )
-    budgets: Mapped[list["Budget"]] = relationship(
-        secondary="budget_transactions",
-        back_populates="transactions",
     )
 
     @property

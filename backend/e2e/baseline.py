@@ -31,8 +31,8 @@ from app.auth.service import one_time_link, plaid_box, totp_box
 from app.auth.tokens import hash_token, new_token
 from app.auth.useragent import describe as describe_device
 from app.config import Settings
-from app.finance.budget import add_months, year_start
 from app.finance.categories import SUGGESTED
+from app.finance.periods import default_start
 from app.imports.csvfile import signature
 from app.models import (
     Account,
@@ -43,6 +43,8 @@ from app.models import (
     Base,
     Budget,
     BudgetAmount,
+    BudgetKind,
+    BudgetLink,
     BudgetPeriod,
     Category,
     CategoryGroup,
@@ -1118,55 +1120,59 @@ IMPORTED_BY = {item.key: record for record in IMPORTS for item in record.transac
 
 @dataclass(frozen=True)
 class SeedBudget:
-    """A category's budget, set up with Cashcove about four months before the reset."""
+    """A budget the household set up with Cashcove, and what counts toward it."""
 
-    # One of the suggested categories, by name.
-    category: str
-    # How many months (budget years, for a yearly budget) before the reset's each amount
-    # starts, and the amount: None stops budgeting the category from then on. Negative counts
-    # start after the reset's month.
-    amounts: tuple[tuple[int, str | None], ...]
-    period: BudgetPeriod = BudgetPeriod.MONTHLY
-    # Rolls over what's left from this many months before the reset's month on.
-    rollover_months_ago: int | None = None
+    # Its key in ``Baseline.budgets``.
+    key: str
+    name: str
+    period: BudgetPeriod
+    amount: str
+    # What counts as income and as spending: categories by name, accounts by key, and
+    # transactions on their own by key.
+    income_categories: tuple[str, ...] = ()
+    spending_categories: tuple[str, ...] = ()
+    spending_accounts: tuple[str, ...] = ()
+    spending_transactions: tuple[str, ...] = ()
 
     @property
     def id(self) -> uuid.UUID:
-        return stable_id("budget", self.category)
+        return stable_id("budget", self.key)
 
 
-# Set up four months ago, the month the household started with Cashcove.
-BUDGETED_SINCE = 4
-
-
-def _monthly(category: str, amount: str, **options: Any) -> SeedBudget:
-    return SeedBudget(category, ((BUDGETED_SINCE, amount),), **options)
-
-
-# Income first, then spending, as the Budget tab lists them. Some spending isn't budgeted
-# (Cash & ATM, Pharmacy, Clothing, Bank fees), and nothing budgets transfers.
+# Smallest period first, as the Budget tab lists them.
 BUDGETS = (
-    _monthly("Paycheck", "4000.00"),
-    _monthly("Interest & dividends", "10.00"),
-    _monthly("Rent & mortgage", "1850.00"),
-    _monthly("Utilities", "110.00"),
-    _monthly("Phone & internet", "165.00"),
-    _monthly("Insurance", "140.00"),
-    _monthly("Subscriptions", "30.00"),
-    # Raised last month.
-    SeedBudget("Groceries", ((BUDGETED_SINCE, "450.00"), (1, "500.00"))),
-    # What's left rolls over, since two months ago.
-    _monthly("Restaurants", "120.00", rollover_months_ago=2),
-    _monthly("Coffee", "25.00"),
-    _monthly("Gas & fuel", "160.00"),
-    _monthly("Fitness", "25.00"),
-    # More this month only.
-    SeedBudget("Shopping", ((BUDGETED_SINCE, "100.00"), (0, "150.00"), (-1, "100.00"))),
-    _monthly("Loan payments", "325.00"),
-    # For the budget year the reset is in.
-    SeedBudget("Travel", ((0, "2500.00"),), BudgetPeriod.YEARLY),
-    SeedBudget("Home maintenance", ((0, "600.00"),), BudgetPeriod.YEARLY),
-    SeedBudget("Gifts & donations", ((0, "400.00"),), BudgetPeriod.YEARLY),
+    SeedBudget(
+        "spending_money",
+        "Spending money",
+        BudgetPeriod.WEEKLY,
+        "150.00",
+        spending_categories=("Restaurants", "Coffee", "Shopping", "Entertainment"),
+    ),
+    SeedBudget(
+        "household",
+        "Household",
+        BudgetPeriod.MONTHLY,
+        "3600.00",
+        income_categories=("Paycheck", "Interest & dividends"),
+        spending_categories=(
+            "Groceries",
+            "Utilities",
+            "Phone & internet",
+            "Insurance",
+            "Subscriptions",
+            "Gas & fuel",
+        ),
+        spending_accounts=("card",),
+        spending_transactions=("rent",),
+    ),
+    SeedBudget(
+        "year",
+        "Year plan",
+        BudgetPeriod.YEARLY,
+        "52000.00",
+        income_categories=("Paycheck", "Interest & dividends"),
+        spending_accounts=("checking",),
+    ),
 )
 
 
@@ -1343,24 +1349,20 @@ class BaselineImport(BaseModel):
     created_by: str
 
 
-class BaselineBudgetAmount(BaseModel):
-    # It starts this many months before the reset's month, or budget years before the reset's
-    # budget year for a yearly budget. Negative when it starts after the reset's.
-    ago: int
-    # None stops budgeting the category from then on.
-    amount: str | None
+class BaselineBudgetSource(BaseModel):
+    kind: BudgetKind
+    # What counts: a category by name, or an account or a transaction on its own by key.
+    type: Literal["category", "account", "transaction"]
+    target: str
+    target_id: uuid.UUID
 
 
 class BaselineBudget(BaseModel):
     id: uuid.UUID
-    # Its category's name, the key in ``categories``.
-    category: str
-    category_id: uuid.UUID
+    name: str
     period: BudgetPeriod
-    # Oldest first.
-    amounts: list[BaselineBudgetAmount]
-    # For a budget that rolls over: from this many months before the reset's month.
-    rollover_months_ago: int | None
+    amount: str
+    sources: list[BaselineBudgetSource]
 
 
 class Baseline(BaseModel):
@@ -1383,7 +1385,7 @@ class Baseline(BaseModel):
     # for banks' files, by key ("checking_history", "harbor_checking").
     imports: dict[str, BaselineImport]
     saved_formats: dict[str, BaselineSavedFormat]
-    # Categories' budgets, by category name ("Groceries"), income first, then spending.
+    # The household's budgets by key ("household"), the smallest period first.
     budgets: dict[str, BaselineBudget]
 
 
@@ -1515,20 +1517,54 @@ def describe(settings: Settings) -> Baseline:
             )
             for saved in SAVED_FORMATS
         },
-        budgets={
-            budget.category: BaselineBudget(
-                id=budget.id,
-                category=budget.category,
-                category_id=stable_id("category", budget.category),
-                period=budget.period,
-                amounts=[
-                    BaselineBudgetAmount(ago=ago, amount=amount)
-                    for ago, amount in sorted(budget.amounts, key=lambda item: -item[0])
-                ],
-                rollover_months_ago=budget.rollover_months_ago,
+        budgets={budget.key: _budget(budget) for budget in BUDGETS},
+    )
+
+
+def _budget(budget: SeedBudget) -> BaselineBudget:
+    accounts = {account.key: account.id for account in ACCOUNTS}
+    transactions = {transaction.key: transaction.id for transaction in TRANSACTIONS}
+    sources = [
+        *(
+            BaselineBudgetSource(
+                kind=BudgetKind.INCOME,
+                type="category",
+                target=name,
+                target_id=stable_id("category", name),
             )
-            for budget in BUDGETS
-        },
+            for name in budget.income_categories
+        ),
+        *(
+            BaselineBudgetSource(
+                kind=BudgetKind.SPENDING,
+                type="category",
+                target=name,
+                target_id=stable_id("category", name),
+            )
+            for name in budget.spending_categories
+        ),
+        *(
+            BaselineBudgetSource(
+                kind=BudgetKind.SPENDING, type="account", target=key, target_id=accounts[key]
+            )
+            for key in budget.spending_accounts
+        ),
+        *(
+            BaselineBudgetSource(
+                kind=BudgetKind.SPENDING,
+                type="transaction",
+                target=key,
+                target_id=transactions[key],
+            )
+            for key in budget.spending_transactions
+        ),
+    ]
+    return BaselineBudget(
+        id=budget.id,
+        name=budget.name,
+        period=budget.period,
+        amount=budget.amount,
+        sources=sources,
     )
 
 
@@ -1926,29 +1962,63 @@ def _seed_imports(db: Session, now: datetime) -> None:
 
 
 def _seed_budgets(db: Session, now: datetime, first_month: int) -> None:
-    this_month = now.date().replace(day=1)
-    this_year = year_start(this_month, first_month)
+    today = now.date()
     for budget in BUDGETS:
-        yearly = budget.period == BudgetPeriod.YEARLY
-        start = this_year if yearly else this_month
-        months = 12 if yearly else 1
+        # Weeks start on Sunday, which is how the household counts them, months on the 1st and
+        # years in the month the household's budget year starts in.
+        starts_on = default_start(budget.period, today, week_starts_on=6, first_month=first_month)
         db.add(
             Budget(
                 id=budget.id,
-                category_id=stable_id("category", budget.category),
+                name=budget.name,
                 period=budget.period,
-                rollover_since=(
-                    None
-                    if budget.rollover_months_ago is None
-                    else add_months(this_month, -budget.rollover_months_ago)
-                ),
+                starts_on=starts_on,
                 amounts=[
                     BudgetAmount(
-                        id=stable_id("budget_amount", f"{budget.category}:{ago}"),
-                        starts_on=add_months(start, -ago * months),
-                        amount=None if amount is None else Decimal(amount),
+                        id=stable_id("budget_amount", budget.key),
+                        starts_on=starts_on,
+                        amount=Decimal(budget.amount),
                     )
-                    for ago, amount in budget.amounts
                 ],
             )
+        )
+    # Before the links, which refer to them.
+    db.flush()
+    for budget in BUDGETS:
+        links = [
+            *(
+                (BudgetKind.INCOME, "category", name, {"category_id": stable_id("category", name)})
+                for name in budget.income_categories
+            ),
+            *(
+                (
+                    BudgetKind.SPENDING,
+                    "category",
+                    name,
+                    {"category_id": stable_id("category", name)},
+                )
+                for name in budget.spending_categories
+            ),
+            *(
+                (BudgetKind.SPENDING, "account", key, {"account_id": account.id})
+                for key in budget.spending_accounts
+                for account in ACCOUNTS
+                if account.key == key
+            ),
+            *(
+                (BudgetKind.SPENDING, "transaction", key, {"transaction_id": transaction.id})
+                for key in budget.spending_transactions
+                for transaction in TRANSACTIONS
+                if transaction.key == key
+            ),
+        ]
+        db.add_all(
+            BudgetLink(
+                id=stable_id("budget_link", f"{budget.key}:{type_}:{kind}:{target}"),
+                budget_id=budget.id,
+                kind=kind,
+                created_at=now,
+                **ids,
+            )
+            for kind, type_, target, ids in links
         )

@@ -1,279 +1,254 @@
-"""Request and response models for the Budget tab."""
+"""Request and response models for budgets."""
 
 import datetime as dt
-import re
 import uuid
+from decimal import Decimal
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, Field, PlainSerializer, PlainValidator, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 from pydantic_core import PydanticCustomError
 
-from app.models import BudgetPeriod, CategoryKind
-from app.schemas.fields import STRICT, AmountOut, PositiveAmount
+from app.models import BudgetKind, BudgetPeriod
+from app.schemas.fields import MAX_AMOUNT, STRICT, AmountOut
 
 # Far enough back for any history, and far enough ahead for any plan.
-FIRST_YEAR = 1970
-LAST_YEAR = 2199
-# The most categories one change to a month's budget can cover.
-MAX_PLAN = 500
+FIRST_DAY = dt.date(1970, 1, 1)
+LAST_DAY = dt.date(2199, 12, 31)
+Day = Annotated[dt.date, Field(ge=FIRST_DAY, le=LAST_DAY)]
 
-_MONTH = re.compile(r"(\d{4})-(0[1-9]|1[0-2])")
+BudgetName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+# What a budget has for each period, which has to be something.
+BudgetAmountIn = Annotated[Decimal, Field(gt=0, le=MAX_AMOUNT, max_digits=14, decimal_places=2)]
+# The most periods one look back covers, and the most transactions linked at once.
+MAX_HISTORY = 60
+MAX_LINKED = 500
 
-
-def _month(value: object) -> dt.date:
-    """A month as "2026-09", which stands for its first day."""
-    if isinstance(value, str) and (match := _MONTH.fullmatch(value)):
-        year = int(match[1])
-        if FIRST_YEAR <= year <= LAST_YEAR:
-            return dt.date(year, int(match[2]), 1)
-    raise PydanticCustomError("month", "Choose a month between 1970 and 2199, like 2026-09.")
-
-
-def _month_text(value: dt.date) -> str:
-    return f"{value.year:04d}-{value.month:02d}"
+# What a source of a budget is: everything in an account or category, the payments of a
+# subscription, or what an automation sorts.
+SourceType = Literal["account", "category", "subscription", "automation"]
+# Why a transaction counts: it was linked itself, or by one of the sources.
+Via = Literal["transaction", "automation", "subscription", "category", "account"]
 
 
-# Months travel as "2026-09" both ways.
-Month = Annotated[dt.date, PlainValidator(_month, json_schema_input_type=str)]
-MonthOut = Annotated[dt.date, PlainSerializer(_month_text, return_type=str)]
-Year = Annotated[int, Field(ge=FIRST_YEAR, le=LAST_YEAR)]
-# A change applies from the month (or budget year) being looked at on, or only to it.
-Scope = Literal["onward", "only"]
-
-
-class BudgetChange(BaseModel):
-    """A category's budget, from the month being looked at, or from the budget year it's in
-    for a yearly budget. Switching between monthly and yearly starts the budget afresh."""
-
+class BudgetCreate(BaseModel):
     model_config = STRICT
 
-    month: Month
-    period: BudgetPeriod = BudgetPeriod.MONTHLY
-    # For each month, or for the budget year. None stops budgeting the category.
-    amount: PositiveAmount | None
-    scope: Scope = "onward"
-    # Carry what's left of each month into the next. Monthly spending budgets only.
-    rollover: bool = False
-    # Optional: for weekly/biweekly budgets, the recurring payday or cycle anchor.
-    cycle_anchor: dt.date | None = None
-    # None leaves the existing account scope alone; an empty list includes every account.
-    account_ids: Annotated[list[uuid.UUID], Field(max_length=100)] | None = None
-
-    @model_validator(mode="after")
-    def _only_monthly_budgets_roll_over(self) -> Self:
-        if self.rollover and self.period != BudgetPeriod.MONTHLY:
-            raise PydanticCustomError(
-                "rollover_period", "Only monthly budgets can roll over to the next month."
-            )
-        if self.cycle_anchor is not None and self.period not in {
-            BudgetPeriod.WEEKLY,
-            BudgetPeriod.BIWEEKLY,
-        }:
-            raise PydanticCustomError(
-                "cycle_anchor_period",
-                "Choose a cycle anchor only for a weekly or biweekly budget.",
-            )
-        if self.account_ids is not None and len(set(self.account_ids)) != len(self.account_ids):
-            raise PydanticCustomError("duplicate_account", "Each account can only be linked once.")
-        return self
-
-
-class PlanAmount(BaseModel):
-    model_config = STRICT
-
-    category_id: uuid.UUID
-    # For each month, or for the budget year when the category's budget is yearly. None stops
-    # budgeting it.
-    amount: PositiveAmount | None
-
-
-class BudgetPlan(BaseModel):
-    """Several categories' budgets at once, for the month being looked at."""
-
-    model_config = STRICT
-
-    scope: Scope = "onward"
-    amounts: Annotated[list[PlanAmount], Field(min_length=1, max_length=MAX_PLAN)]
-
-    @model_validator(mode="after")
-    def _each_category_once(self) -> Self:
-        ids = [item.category_id for item in self.amounts]
-        if len(set(ids)) != len(ids):
-            raise PydanticCustomError(
-                "duplicate_category", "Each category can only be budgeted once."
-            )
-        return self
-
-
-# ---- The month ---------------------------------------------------------------------------
-
-
-class MonthTotals(BaseModel):
-    """What a month's budgets add up to, what rolled over into it, and what actually came in
-    or went out."""
-
-    budgeted: AmountOut
-    carried: AmountOut
-    actual: AmountOut
-
-
-class Uncategorized(BaseModel):
-    """Transactions without a category. They count toward the totals, but no budget."""
-
-    received: AmountOut
-    spent: AmountOut
-    count: int
-
-
-class BudgetLine(BaseModel):
-    """A category in a month: its budget, and what came in or went out."""
-
-    category_id: uuid.UUID
-    name: str
-    emoji: str
-    # How the category is budgeted, if it is (it may not be in this month).
-    period: BudgetPeriod | None
-    # Its budget for the month, or for the budget year when it's yearly. None when nothing's
-    # budgeted then.
-    amount: AmountOut | None
-    # What is budgeted in this calendar month, including weekly/biweekly cycles.
-    budgeted: AmountOut
-    rollover: bool
-    # What was left over (or overspent) in the months before, for a budget that rolls over.
-    carried: AmountOut
-    # What was spent in the month, for spending, or received, for income.
-    actual: AmountOut
-    # For a yearly budget: what was spent or received from the start of the budget year to
-    # the end of the month.
-    year_to_date: AmountOut | None
-    # What a month came to on average over the three before, to suggest a budget.
-    average: AmountOut
-    # How many transactions it had in the month.
-    count: int
-
-
-class BudgetGroup(BaseModel):
-    id: uuid.UUID
-    name: str
-    kind: CategoryKind
-    categories: list[BudgetLine]
-
-
-class BudgetMonth(BaseModel):
-    """A month's budget. Income comes first, then spending; transfers between the household's
-    own accounts aren't budgeted."""
-
-    month: MonthOut
-    currency: str
-    # The budget year the month is in, which yearly budgets are for, by the year it starts in.
-    year: int
-    year_start: MonthOut
-    year_end: MonthOut
-    # Budgeted includes a twelfth of each yearly budget.
-    income: MonthTotals
-    spending: MonthTotals
-    groups: list[BudgetGroup]
-    uncategorized: Uncategorized
-    # Other currencies' transactions are counted in the household's, converted at each day's
-    # exchange rate, unless there are no rates to convert them with: those aren't counted.
-    converted_currencies: list[str]
-    unconverted_currencies: list[str]
-
-
-# ---- The year ----------------------------------------------------------------------------
-
-
-class Totals(BaseModel):
-    budgeted: AmountOut
-    actual: AmountOut
-
-
-class MonthCell(BaseModel):
-    """A category in one month of the year."""
-
-    # The month's budget, for a category budgeted monthly.
-    budgeted: AmountOut | None
-    actual: AmountOut
-
-
-class BudgetYearLine(BaseModel):
-    category_id: uuid.UUID
-    name: str
-    emoji: str
-    period: BudgetPeriod | None
-    # The year's budget: its months' budgets added up, or the yearly budget. None when it
-    # isn't budgeted in the year.
-    amount: AmountOut | None
-    actual: AmountOut
-    months: list[MonthCell]
-
-
-class BudgetYearGroup(BaseModel):
-    id: uuid.UUID
-    name: str
-    kind: CategoryKind
-    categories: list[BudgetYearLine]
-
-
-class YearMonth(BaseModel):
-    month: MonthOut
-    # Budgeted includes a twelfth of each yearly budget.
-    income: Totals
-    spending: Totals
-
-
-class UncategorizedMonth(BaseModel):
-    received: AmountOut
-    spent: AmountOut
-
-
-class YearUncategorized(Uncategorized):
-    months: list[UncategorizedMonth]
-
-
-class BudgetYear(BaseModel):
-    """A budget year, month by month. It starts in the month Settings > General says."""
-
-    year: int
-    start: MonthOut
-    end: MonthOut
-    currency: str
-    income: Totals
-    spending: Totals
-    months: list[YearMonth]
-    groups: list[BudgetYearGroup]
-    uncategorized: YearUncategorized
-    converted_currencies: list[str]
-    unconverted_currencies: list[str]
-
-
-# ---- One category over time --------------------------------------------------------------
-
-
-class HistoryMonth(BaseModel):
-    month: MonthOut
-    # The month's budget, for a category budgeted monthly.
-    budgeted: AmountOut | None
-    actual: AmountOut
-
-
-class CategoryHistory(BaseModel):
-    """A category's last twelve months, up to and including the one asked for."""
-
-    category_id: uuid.UUID
-    kind: CategoryKind
-    months: list[HistoryMonth]
-
-
-class BudgetConfiguration(BaseModel):
-    """A category budget's editable settings for the month being viewed."""
-
-    id: uuid.UUID
-    category_id: uuid.UUID
+    name: BudgetName
     period: BudgetPeriod
-    amount: AmountOut | None
-    rollover: bool
-    cycle_anchor: dt.date | None
-    account_ids: list[uuid.UUID]
-    linked_transaction_ids: list[uuid.UUID]
-    linked_subscription_ids: list[uuid.UUID]
+    amount: BudgetAmountIn
+    # A day a period starts on, when it isn't the usual one: a week or two weeks on the
+    # household's first day of the week, a month on the 1st, a year in the month the budget year
+    # starts in.
+    starts_on: Day | None = None
+    # The date where the person is, which says which period they are in.
+    today: Day | None = None
+
+
+class BudgetUpdate(BaseModel):
+    """Leave a field out to keep it. A new amount applies from the period the person is in, so
+    periods that are over stay as they were, and changing how often a budget repeats starts it
+    over with one amount."""
+
+    model_config = STRICT
+
+    name: BudgetName | None = None
+    period: BudgetPeriod | None = None
+    amount: BudgetAmountIn | None = None
+    starts_on: Day | None = None
+    today: Day | None = None
+
+
+class PeriodSummary(BaseModel):
+    """What a budget came to in one of its periods."""
+
+    start: dt.date
+    end: dt.date
+    amount: AmountOut
+    income: AmountOut
+    spent: AmountOut
+
+
+class BudgetOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    period: BudgetPeriod
+    starts_on: dt.date
+    # What it has for each period now, and how the period the person is in is going.
+    amount: AmountOut
+    current: PeriodSummary
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+class BudgetSourceIn(BaseModel):
+    """Something to count toward a budget, other than single transactions: all the money out of
+    an account (as spending) or in (as income), everything in a category, a subscription's
+    payments or what an automation sorts. Name exactly one."""
+
+    model_config = STRICT
+
+    kind: BudgetKind
+    account_id: uuid.UUID | None = None
+    category_id: uuid.UUID | None = None
+    subscription_id: uuid.UUID | None = None
+    automation_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _is_one_thing(self) -> Self:
+        named = [
+            self.account_id,
+            self.category_id,
+            self.subscription_id,
+            self.automation_id,
+        ]
+        if sum(item is not None for item in named) != 1:
+            raise PydanticCustomError(
+                "one_source", "Choose one account, category, subscription or automation."
+            )
+        if self.subscription_id is not None and self.kind != BudgetKind.SPENDING:
+            raise PydanticCustomError(
+                "subscription_income", "A subscription's payments count as spending."
+            )
+        return self
+
+
+class BudgetLinkOut(BaseModel):
+    """A source of a budget."""
+
+    id: uuid.UUID
+    kind: BudgetKind
+    type: SourceType
+    target_id: uuid.UUID
+    name: str
+    # Paused, for an automation or a subscription, which has nothing counted until it's resumed.
+    active: bool = True
+
+
+class BudgetSource(BudgetLinkOut):
+    """A source, and what it counted in the period being looked at."""
+
+    amount: AmountOut
+    count: int
+
+
+class DayTotal(BaseModel):
+    day: dt.date
+    income: AmountOut
+    spent: AmountOut
+
+
+class CategoryTotal(BaseModel):
+    """What was spent in a category, or with none."""
+
+    category_id: uuid.UUID | None
+    amount: AmountOut
+    count: int
+
+
+class UpcomingBill(BaseModel):
+    """A subscription counted as spending that is due before the period ends."""
+
+    subscription_id: uuid.UUID
+    name: str
+    due_on: dt.date
+    amount: AmountOut
+
+
+class BudgetPeriodView(BaseModel):
+    """One period of a budget: how it's going, or how it went."""
+
+    budget: BudgetOut
+    start: dt.date
+    end: dt.date
+    # The first days of the periods either side that can be looked at: none after this one,
+    # or before the first with a transaction.
+    previous: dt.date | None
+    next: dt.date | None
+    # The period the person is in.
+    current: bool
+    # How many days it is, and how many have gone, today's included (all or none, for periods
+    # that are over or haven't begun).
+    days: int
+    days_gone: int
+    amount: AmountOut
+    income: AmountOut
+    spent: AmountOut
+    # What's left of the amount, which is negative when more was spent than that.
+    left: AmountOut
+    # What came in, less what was spent.
+    saved: AmountOut
+    # For the period the person is in: what spending would be by now if it were spread evenly
+    # over the days, and what it comes to if it carries on at the pace so far.
+    expected: AmountOut | None
+    projected: AmountOut | None
+    # How many transactions count, and how many that would count were taken off.
+    transactions: int
+    removed: int
+    daily: list[DayTotal]
+    categories: list[CategoryTotal]
+    sources: list[BudgetSource]
+    upcoming: list[UpcomingBill]
+    # Currencies other than the household's that were converted, and ones that couldn't be,
+    # for lack of an exchange rate, so their transactions aren't in the totals.
+    converted: list[str]
+    unavailable: list[str]
+
+
+class HistoryPeriod(BaseModel):
+    start: dt.date
+    end: dt.date
+    amount: AmountOut
+    income: AmountOut
+    spent: AmountOut
+    current: bool
+
+
+class BudgetHistory(BaseModel):
+    """What a budget came to in each of its latest periods, the earliest first."""
+
+    periods: list[HistoryPeriod]
+    converted: list[str]
+    unavailable: list[str]
+
+
+class BudgetTransaction(BaseModel):
+    """A transaction that counts toward a budget (or that would, if it hadn't been taken off)."""
+
+    id: uuid.UUID
+    date: dt.date
+    payee: str
+    amount: AmountOut
+    account_id: uuid.UUID
+    category_id: uuid.UUID | None
+    kind: BudgetKind
+    via: Via
+    # The source it counts through, when it isn't linked itself.
+    source_id: uuid.UUID | None
+
+
+class BudgetTransactionPage(BaseModel):
+    items: list[BudgetTransaction]
+    total: int
+
+
+class TransactionsLink(BaseModel):
+    """Transactions to count toward a budget, as income or as spending. Ones that were taken
+    off are put back."""
+
+    model_config = STRICT
+
+    ids: Annotated[list[uuid.UUID], Field(min_length=1, max_length=MAX_LINKED)]
+    kind: BudgetKind
+
+
+class TransactionsLinked(BaseModel):
+    count: int
+
+
+class AutomationCount(BaseModel):
+    """An automation counting what it sorts toward a budget, as income or as spending."""
+
+    model_config = STRICT
+
+    budget_id: uuid.UUID
+    kind: BudgetKind

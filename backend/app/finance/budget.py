@@ -1,1110 +1,931 @@
-"""Budgets: what each category plans for a month or a budget year, what actually came in or
-went out, and changing budgets from a month on.
+"""Budgets: what counts toward each, and how each of its periods is going.
 
-Totals are worked out from the transactions every time they're asked for, never stored, so
-they're always up to date, whatever synced, was imported, undone or recategorized since.
-Accounts in other currencies count too, converted into the household's at each transaction's
-day's exchange rate.
+A budget has an amount for each period and things linked to it (see ``BudgetLink``). What came
+in and went out is worked out from the transactions every time it's asked for, never stored,
+so it's always up to date, whatever synced, was imported, undone, recategorized or sorted by an
+automation since. Accounts in other currencies count too, converted into the household's at
+each transaction's day's exchange rate.
+
+A transaction counts toward a budget once, whichever of its links catches it, in this order:
+the budget's link to the transaction itself, to an automation that sorts it, to its
+subscription, to its category and to its account. Taking a transaction off a budget removes its
+own link and, if something else still counts it, remembers that it's been taken off.
 """
 
 import datetime as dt
 import uuid
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from bisect import bisect_right
+from collections import defaultdict
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, NamedTuple
 
 from fastapi import status
 from sqlalchemy import (
-    ColumnElement,
-    Date,
     Select,
-    SQLColumnExpression,
-    case,
-    cast,
+    Subquery,
+    and_,
     delete,
+    exists,
     func,
+    literal,
+    or_,
     select,
+    union_all,
 )
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session, aliased, selectinload
+from sqlalchemy.dialects.postgresql import distinct_on, insert
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
 
 from app.auth.deps import ApiError
 from app.auth.service import load_preferences
-from app.finance.categories import KIND_ORDER
+from app.finance.automations import Looks, matching
 from app.finance.exchange_rates import ExchangeRateClient, RateBook
+from app.finance.periods import (
+    default_start,
+    next_start,
+    period_end,
+    period_start,
+    previous_start,
+    starts_back,
+)
+from app.finance.subscriptions import due_dates, expected_amount, payment_stats
 from app.models import (
     Account,
+    Automation,
+    AutomationScope,
     Budget,
     BudgetAmount,
+    BudgetExclusion,
+    BudgetKind,
+    BudgetLink,
     BudgetPeriod,
     Category,
     CategoryGroup,
     CategoryKind,
     Subscription,
     Transaction,
-    budget_subscriptions,
-    budget_transactions,
 )
-from app.models.base import CENT
+from app.models.base import CENT, utcnow
 from app.schemas.budget import (
-    BudgetChange,
-    BudgetConfiguration,
-    BudgetGroup,
-    BudgetLine,
-    BudgetMonth,
-    BudgetPlan,
-    BudgetYear,
-    BudgetYearGroup,
-    BudgetYearLine,
-    CategoryHistory,
-    HistoryMonth,
-    MonthCell,
-    MonthTotals,
-    Scope,
-    Totals,
-    Uncategorized,
-    UncategorizedMonth,
-    YearMonth,
-    YearUncategorized,
+    AutomationCount,
+    BudgetCreate,
+    BudgetHistory,
+    BudgetLinkOut,
+    BudgetOut,
+    BudgetPeriodView,
+    BudgetSource,
+    BudgetSourceIn,
+    BudgetTransaction,
+    BudgetTransactionPage,
+    BudgetUpdate,
+    CategoryTotal,
+    DayTotal,
+    HistoryPeriod,
+    PeriodSummary,
+    UpcomingBill,
+    Via,
 )
 
-MONTHS_IN_YEAR = 12
-# How many months before the one being looked at an average covers, to suggest a budget.
-AVERAGE_MONTHS = 3
-HISTORY_MONTHS = 12
 ZERO = Decimal("0.00")
-BUDGETED_KINDS = (CategoryKind.INCOME, CategoryKind.EXPENSE)
+# The order a transaction's links are tried in, which is why it counts once.
+EXPLICIT, AUTOMATION, SUBSCRIPTION, CATEGORY, ACCOUNT = 1, 2, 3, 4, 5
+VIA: dict[int, Via] = {
+    EXPLICIT: "transaction",
+    AUTOMATION: "automation",
+    SUBSCRIPTION: "subscription",
+    CATEGORY: "category",
+    ACCOUNT: "account",
+}
+# Budgets are listed by how often they repeat, then the order they were made in.
+PERIOD_ORDER = {
+    BudgetPeriod.WEEKLY: 0,
+    BudgetPeriod.BIWEEKLY: 1,
+    BudgetPeriod.MONTHLY: 2,
+    BudgetPeriod.YEARLY: 3,
+}
 
 
-# ---- Months ------------------------------------------------------------------------------
+def find_budget(db: Session, budget_id: uuid.UUID) -> Budget:
+    budget = db.scalar(
+        select(Budget).where(Budget.id == budget_id).options(selectinload(Budget.amounts))
+    )
+    if budget is None:
+        raise ApiError(status.HTTP_404_NOT_FOUND, "not_found", "That budget doesn't exist anymore.")
+    return budget
 
 
-def add_months(month: dt.date, count: int) -> dt.date:
-    """The first day of the month `count` months after `month` (before, when negative)."""
-    index = month.year * MONTHS_IN_YEAR + month.month - 1 + count
-    return dt.date(index // MONTHS_IN_YEAR, index % MONTHS_IN_YEAR + 1, 1)
+@dataclass(frozen=True)
+class Household:
+    """What budgets need to know about the household: its currency, which day its weeks start
+    on and which month its budget year starts in."""
 
-
-def months_between(start: dt.date, end: dt.date) -> int:
-    """How many months `end` is after `start`: 0 for the same month."""
-    return (end.year - start.year) * MONTHS_IN_YEAR + end.month - start.month
-
-
-def year_start(month: dt.date, first_month: int) -> dt.date:
-    """The first month of the budget year `month` is in, for years starting in `first_month`."""
-    year = month.year if month.month >= first_month else month.year - 1
-    return dt.date(year, first_month, 1)
-
-
-def _twelfth(total: Decimal) -> Decimal:
-    """A month's share of a year's budget."""
-    return (total / MONTHS_IN_YEAR).quantize(CENT, ROUND_HALF_UP)
-
-
-def _cycles_in_month(month: dt.date, anchor: dt.date, days: int) -> int:
-    """How many weekly or biweekly cycles start in this calendar month."""
-    end = add_months(month, 1)
-    offset = (month - anchor).days
-    first_index = max(0, (offset + days - 1) // days)
-    first = anchor + dt.timedelta(days=first_index * days)
-    if first >= end:
-        return 0
-    distance = (end - first).days
-    return (distance + days - 1) // days
-
-
-def amount_at(amounts: Iterable[BudgetAmount], month: dt.date) -> Decimal | None:
-    """What's budgeted in `month`: the latest amount to start on or before it."""
-    started = [row for row in amounts if row.starts_on <= month]
-    return max(started, key=lambda row: row.starts_on).amount if started else None
-
-
-# ---- What came in and went out -------------------------------------------------------------
-
-
-@dataclass
-class Flow:
-    """What a category's transactions came to in a month."""
-
-    net: Decimal = ZERO
-    # Money in and money out, both as positive amounts.
-    received: Decimal = ZERO
-    spent: Decimal = ZERO
-    count: int = 0
-
-
-_NONE = Flow()
-
-FlowKey = tuple[uuid.UUID | None, dt.date]
-
-
-class _FlowRow(NamedTuple):
-    """What a category's transactions in one account came to in a month, or on a day."""
-
-    category: uuid.UUID | None
-    period: dt.date
-    account_id: uuid.UUID
     currency: str
-    net: Decimal
-    received: Decimal
-    spent: Decimal
+    # Counted as Python does: Monday is 0.
+    week_starts_on: int
+    first_month: int
+
+    @classmethod
+    def load(cls, db: Session) -> "Household":
+        general = load_preferences(db).general
+        return cls(
+            currency=general.currency,
+            week_starts_on=6 if general.week_starts_on == "sunday" else 0,
+            first_month=general.fiscal_year_start_month,
+        )
+
+    def start_for(self, period: BudgetPeriod, today: dt.date) -> dt.date:
+        return default_start(
+            period, today, week_starts_on=self.week_starts_on, first_month=self.first_month
+        )
+
+
+def amount_at(budget: Budget, start: dt.date) -> Decimal:
+    """What the budget has for the period that starts on `start`: the latest amount to start on
+    or before it, or the earliest, for periods from before the budget."""
+    amount = budget.amounts[0].amount
+    for row in budget.amounts:
+        if row.starts_on <= start:
+            amount = row.amount
+    return amount
+
+
+# ---- What counts ------------------------------------------------------------------------
+
+
+def _transfers() -> Select[*tuple[Any, ...]]:
+    """The categories of money moving between the household's own accounts."""
+    return (
+        select(Category.id)
+        .join(CategoryGroup, CategoryGroup.id == Category.group_id)
+        .where(CategoryGroup.kind == CategoryKind.TRANSFER)
+    )
+
+
+def _counted(
+    db: Session,
+    budget: Budget,
+    *,
+    first: dt.date | None = None,
+    last: dt.date | None = None,
+    ids: Sequence[uuid.UUID] | None = None,
+    removed: bool = False,
+) -> Subquery:
+    """The transactions that count toward a budget, each once: its ID, what it counts as
+    (`kind`), the link that counts it (`link_id`) and which kind of link that is (`priority`).
+    Limited to the days from `first` to `last` and to the transactions `ids`, when given.
+    With `removed`, it's the ones someone took off that would otherwise count, instead."""
+    limits = [
+        *([Transaction.date >= first] if first is not None else []),
+        *([Transaction.date <= last] if last is not None else []),
+        *([Transaction.id.in_(ids)] if ids is not None else []),
+    ]
+    mine = BudgetLink.budget_id == budget.id
+    kind = BudgetLink.kind
+    hits: list[Select[*tuple[Any, ...]]] = [
+        select(Transaction.id, kind, BudgetLink.id, literal(EXPLICIT))
+        .join(BudgetLink, BudgetLink.transaction_id == Transaction.id)
+        .where(mine, *limits)
+    ]
+    sorting = db.execute(
+        select(BudgetLink, Automation)
+        .join(Automation, Automation.id == BudgetLink.automation_id)
+        .where(mine, Automation.active.is_(True))
+    )
+    for link, automation in sorting:
+        where = [*matching(Looks.of(automation)), *limits]
+        if automation.apply_to == AutomationScope.FUTURE:
+            # The ones that arrived after it was made, which is what "future only" means.
+            where.append(Transaction.created_at >= automation.created_at)
+        hits.append(
+            select(
+                Transaction.id,
+                literal(link.kind, kind.type),
+                literal(link.id, BudgetLink.id.type),
+                literal(AUTOMATION),
+            ).where(*where)
+        )
+    hits.append(
+        select(Transaction.id, kind, BudgetLink.id, literal(SUBSCRIPTION))
+        .join(BudgetLink, BudgetLink.subscription_id == Transaction.subscription_id)
+        .where(mine, Transaction.amount < 0, *limits)
+    )
+    hits.append(
+        select(Transaction.id, kind, BudgetLink.id, literal(CATEGORY))
+        .join(BudgetLink, BudgetLink.category_id == Transaction.category_id)
+        .where(mine, *limits)
+    )
+    hits.append(
+        select(Transaction.id, kind, BudgetLink.id, literal(ACCOUNT))
+        .join(BudgetLink, BudgetLink.account_id == Transaction.account_id)
+        .where(
+            mine,
+            or_(
+                and_(kind == BudgetKind.SPENDING, Transaction.amount < 0),
+                and_(kind == BudgetKind.INCOME, Transaction.amount > 0),
+            ),
+            # Moving money between accounts isn't income or spending.
+            or_(Transaction.category_id.is_(None), Transaction.category_id.not_in(_transfers())),
+            *limits,
+        )
+    )
+    union = union_all(*hits).subquery("hits")
+    taken_off = exists().where(
+        BudgetExclusion.budget_id == budget.id,
+        BudgetExclusion.transaction_id == union.c[0],
+    )
+    return (
+        select(
+            union.c[0].label("transaction_id"),
+            union.c[1].label("kind"),
+            union.c[2].label("link_id"),
+            union.c[3].label("priority"),
+        )
+        .where(taken_off if removed else ~taken_off)
+        .ext(distinct_on(union.c[0]))
+        .order_by(union.c[0], union.c[3], union.c[2])
+        .subquery("counted")
+    )
+
+
+class _Row(NamedTuple):
+    day: dt.date
+    currency: str
+    kind: BudgetKind
+    category_id: uuid.UUID | None
+    link_id: uuid.UUID
+    priority: int
+    amount: Decimal
     transactions: int
 
 
-def _flow_statement(
-    period: SQLColumnExpression[dt.date],
-    currency: ColumnElement[bool],
-    start: dt.date,
-    end: dt.date,
-    category_id: uuid.UUID | None,
-) -> Select[*tuple[Any, ...]]:
-    """What the transactions of accounts in `currency` came to in each `period` (a month or a
-    day), by category and account. An explicitly linked transaction belongs to that budget's
-    category."""
-    received = func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0))
-    spent = func.sum(case((Transaction.amount < 0, -Transaction.amount), else_=0))
-    transaction_links = budget_transactions.alias("budget_transaction_links")
-    subscription_links = budget_subscriptions.alias("budget_subscription_links")
-    transaction_budget = aliased(Budget)
-    subscription_budget = aliased(Budget)
-    effective_category = case(
-        (transaction_links.c.transaction_id.is_not(None), transaction_budget.category_id),
-        (subscription_links.c.subscription_id.is_not(None), subscription_budget.category_id),
-        else_=Transaction.category_id,
-    )
-    statement = (
-        select(
-            effective_category,
-            period,
-            Transaction.account_id,
-            Account.currency,
-            func.sum(Transaction.amount),
-            received,
-            spent,
-            func.count(),
-        )
-        .join(Account, Account.id == Transaction.account_id)
-        .outerjoin(
-            transaction_links,
-            transaction_links.c.transaction_id == Transaction.id,
-        )
-        .outerjoin(transaction_budget, transaction_budget.id == transaction_links.c.budget_id)
-        .outerjoin(
-            subscription_links,
-            subscription_links.c.subscription_id == Transaction.subscription_id,
-        )
-        .outerjoin(
-            subscription_budget,
-            subscription_budget.id == subscription_links.c.budget_id,
-        )
-        .where(currency, Transaction.date >= start, Transaction.date < end)
-        .group_by(effective_category, period, Transaction.account_id, Account.currency)
-    )
-    if category_id is not None:
-        statement = statement.where(effective_category == category_id)
-    return statement
+@dataclass(frozen=True)
+class Flow:
+    """What counted on one day: money in for income, money out for spending, in the
+    household's currency."""
+
+    day: dt.date
+    kind: BudgetKind
+    category_id: uuid.UUID | None
+    link_id: uuid.UUID
+    value: Decimal
+    count: int
+
+
+@dataclass
+class Flows:
+    """What counted over some days, and which currencies were converted to get it."""
+
+    flows: list[Flow] = field(default_factory=list[Flow])
+    converted: list[str] = field(default_factory=list[str])
+    unavailable: list[str] = field(default_factory=list[str])
+
+    def total(self, kind: BudgetKind) -> Decimal:
+        return sum((flow.value for flow in self.flows if flow.kind == kind), ZERO)
 
 
 def _flows(
     db: Session,
-    rates: RateBook,
-    start: dt.date,
-    end: dt.date,
-    category_id: uuid.UUID | None = None,
-    account_scopes: dict[uuid.UUID, set[uuid.UUID]] | None = None,
-) -> dict[FlowKey, Flow]:
-    """What each budget category's transactions came to each month, respecting its account
-    scope. Accounts in other currencies are converted into the household's (`rates.quote`)
-    a day at a time, at each day's rate; those without rates are left out."""
-    flows: dict[FlowKey, Flow] = {}
-
-    def add(row: _FlowRow, month: dt.date, flow: Flow) -> None:
-        scope = account_scopes.get(row.category) if account_scopes and row.category else None
-        if scope and row.account_id not in scope:
-            return
-        total = flows.setdefault((row.category, month), Flow())
-        total.net += flow.net
-        total.received += flow.received
-        total.spent += flow.spent
-        total.count += flow.count
-
-    month = cast(func.date_trunc("month", Transaction.date), Date)
-    at_home = Account.currency == rates.quote
-    for row in map(
-        _FlowRow._make, db.execute(_flow_statement(month, at_home, start, end, category_id))
-    ):
-        add(row, row.period, Flow(row.net, row.received, row.spent, row.transactions))
-
-    abroad = list(
-        map(
-            _FlowRow._make,
-            db.execute(_flow_statement(Transaction.date, ~at_home, start, end, category_id)),
-        )
-    )
-    days: dict[str, tuple[dt.date, dt.date]] = {}
-    for row in abroad:
-        first, last = days.get(row.currency, (row.period, row.period))
-        days[row.currency] = (min(first, row.period), max(last, row.period))
-    rates.prepare(days)
-    for row in abroad:
-        received = rates.convert(row.currency, row.period, row.received)
-        spent = rates.convert(row.currency, row.period, row.spent)
-        if received is not None and spent is not None:
-            add(
-                row,
-                row.period.replace(day=1),
-                Flow(received - spent, received, spent, row.transactions),
-            )
-    return flows
-
-
-def _net(
-    flows: dict[FlowKey, Flow], category_id: uuid.UUID, start: dt.date, months: int
-) -> Decimal:
-    """What a category's transactions came to over `months` months from `start`."""
-    return sum(
-        (flows.get((category_id, add_months(start, index)), _NONE).net for index in range(months)),
-        ZERO,
-    )
-
-
-def _foreign_currencies(db: Session, currency: str, start: dt.date, end: dt.date) -> list[str]:
-    """The currencies of other accounts with transactions from `start` until `end`."""
-    return list(
-        db.scalars(
-            select(Account.currency)
-            .join(Transaction, Transaction.account_id == Account.id)
-            .where(Account.currency != currency, Transaction.date >= start, Transaction.date < end)
-            .distinct()
-            .order_by(Account.currency)
-        )
-    )
-
-
-# ---- The household's budgets -------------------------------------------------------------
-
-
-def _counted(kind: CategoryKind, net: Decimal) -> Decimal:
-    """What transactions that came to `net` count as: what went out, for spending, or what
-    came in, for income. (Adding zero keeps -0.00 from showing up.)"""
-    return (-net if kind == CategoryKind.EXPENSE else net) + ZERO
-
-
-@dataclass
-class Household:
-    """What every budget view needs: the household's currency and budget year, its income and
-    spending categories, their budgets, and when its transactions start."""
-
-    currency: str
-    first_month: int
-    # Income first, then spending, each by name.
-    groups: list[CategoryGroup]
-    budgets: dict[uuid.UUID, Budget]
-    account_scopes: dict[uuid.UUID, set[uuid.UUID]]
-    # The month of its earliest transaction, if it has any.
-    earliest: dt.date | None
-
-    @classmethod
-    def load(cls, db: Session) -> "Household":
-        preferences = load_preferences(db)
-        general = preferences.general
-        groups = sorted(
-            db.scalars(
-                select(CategoryGroup)
-                .where(CategoryGroup.kind.in_(BUDGETED_KINDS))
-                .options(selectinload(CategoryGroup.categories))
-            ),
-            key=lambda group: (KIND_ORDER[group.kind], group.name.casefold()),
-        )
-        budgets = list(
-            db.scalars(
-                select(Budget)
-                .options(selectinload(Budget.amounts), selectinload(Budget.accounts))
-                .order_by(Budget.category_id)
-            )
-        )
-        earliest = db.scalar(select(func.min(Transaction.date)))
-        return cls(
-            currency=general.currency,
-            first_month=general.fiscal_year_start_month,
-            groups=groups,
-            budgets={budget.category_id: budget for budget in budgets},
-            account_scopes={
-                budget.category_id: {account.id for account in budget.accounts}
-                for budget in budgets
-                if budget.accounts
-            },
-            earliest=earliest and earliest.replace(day=1),
-        )
-
-    def categories(self, group: CategoryGroup) -> list[Category]:
-        return sorted(group.categories, key=lambda category: category.name.casefold())
-
-    def average(
-        self, flows: dict[FlowKey, Flow], category: Category, kind: CategoryKind, month: dt.date
-    ) -> Decimal:
-        """What the category came to in a month, on average, over the months before `month`
-        that the household has transactions for, up to three."""
-        start = add_months(month, -AVERAGE_MONTHS)
-        if self.earliest is not None:
-            start = max(start, self.earliest)
-        months = months_between(start, month)
-        if self.earliest is None or months <= 0:
-            return ZERO
-        total = _counted(kind, _net(flows, category.id, start, months))
-        return max(ZERO, (total / months).quantize(CENT, ROUND_HALF_UP))
-
-
-def _carried(budget: Budget, since: dt.date, month: dt.date, flows: dict[FlowKey, Flow]) -> Decimal:
-    """What a monthly spending budget that rolls over carries into `month`: what was left of
-    each month since rollover started, less what went over."""
-    total = ZERO
-    current = since
-    while current < month:
-        spent = -flows.get((budget.category_id, current), _NONE).net
-        total += (amount_at(budget.amounts, current) or ZERO) - spent
-        current = add_months(current, 1)
-    return total
-
-
-def _rollover_since(budget: Budget | None, kind: CategoryKind) -> dt.date | None:
-    """When a budget started rolling over, for a monthly spending budget that does."""
-    if budget is None or budget.period != BudgetPeriod.MONTHLY or kind != CategoryKind.EXPENSE:
-        return None
-    return budget.rollover_since
-
-
-def monthly_budgeted(budget: Budget | None, month: dt.date) -> Decimal:
-    if budget is None:
-        return ZERO
-    amount = amount_at(budget.amounts, month)
-    if amount is None:
-        return ZERO
-    if budget.period == BudgetPeriod.YEARLY:
-        return _twelfth(amount)
-    if budget.period in (BudgetPeriod.WEEKLY, BudgetPeriod.BIWEEKLY):
-        if budget.cycle_anchor is None:
-            raise RuntimeError("A weekly or biweekly budget must have a cycle anchor.")
-        days = 7 if budget.period == BudgetPeriod.WEEKLY else 14
-        return amount * _cycles_in_month(month, budget.cycle_anchor, days)
-    return amount
-
-
-# ---- A month -------------------------------------------------------------------------------
-
-
-def _month_line(
     household: Household,
-    category: Category,
-    kind: CategoryKind,
-    month: dt.date,
-    flows: dict[FlowKey, Flow],
-) -> BudgetLine:
-    budget = household.budgets.get(category.id)
-    flow = flows.get((category.id, month), _NONE)
-    since = _rollover_since(budget, kind)
-    amount: Decimal | None = None
-    year_to_date: Decimal | None = None
-    carried = ZERO
-    if budget is not None and budget.period == BudgetPeriod.YEARLY:
-        start = year_start(month, household.first_month)
-        amount = amount_at(budget.amounts, add_months(start, MONTHS_IN_YEAR - 1))
-        year_to_date = _counted(
-            kind, _net(flows, category.id, start, months_between(start, month) + 1)
-        )
-    elif budget is not None:
-        amount = amount_at(budget.amounts, month)
-        if since is not None:
-            carried = _carried(budget, since, month, flows)
-    return BudgetLine(
-        category_id=category.id,
-        name=category.name,
-        emoji=category.emoji,
-        period=budget.period if budget else None,
-        amount=amount,
-        budgeted=monthly_budgeted(budget, month),
-        rollover=since is not None,
-        carried=carried,
-        actual=_counted(kind, flow.net),
-        year_to_date=year_to_date,
-        average=household.average(flows, category, kind, month),
-        count=flow.count,
-    )
-
-
-def _month_totals(
-    groups: Sequence[BudgetGroup],
-    kind: CategoryKind,
-    extra: Decimal,
-    flows: dict[FlowKey, Flow],
-    month: dt.date,
-) -> MonthTotals:
-    """What a kind's budgets add up to in a month, and what came in or went out."""
-    lines = [line for group in groups if group.kind == kind for line in group.categories]
-    recurring = sum((line.budgeted for line in lines if line.period != BudgetPeriod.YEARLY), ZERO)
-    yearly = sum(
-        (line.amount or ZERO for line in lines if line.period == BudgetPeriod.YEARLY), ZERO
-    )
-    return MonthTotals(
-        budgeted=recurring + _twelfth(yearly),
-        carried=sum((line.carried for line in lines), ZERO),
-        actual=sum(
-            (_counted(kind, flows.get((line.category_id, month), _NONE).net) for line in lines),
-            extra,
-        ),
-    )
-
-
-def _currency_notes(
-    db: Session, rates: RateBook, start: dt.date, end: dt.date
-) -> tuple[list[str], list[str]]:
-    """The other currencies with transactions from `start` until `end`, split into those that
-    were converted and those that couldn't be, which are left out."""
-    abroad = _foreign_currencies(db, rates.quote, start, end)
-    return (
-        [currency for currency in abroad if currency not in rates.unavailable],
-        [currency for currency in abroad if currency in rates.unavailable],
-    )
-
-
-def budget_month(db: Session, month: dt.date, client: ExchangeRateClient | None) -> BudgetMonth:
-    household = Household.load(db)
-    rates = RateBook(db, client, household.currency)
-    start = year_start(month, household.first_month)
-    rollovers = [
-        budget.rollover_since
-        for budget in household.budgets.values()
-        if budget.rollover_since is not None and budget.rollover_since < month
-    ]
-    after = add_months(month, 1)
-    flow_start = min(start, add_months(month, -AVERAGE_MONTHS), *rollovers)
-    flows = _flows(db, rates, flow_start, after, account_scopes=household.account_scopes)
-    all_flows = _flows(db, rates, flow_start, after) if household.account_scopes else flows
-    groups = [
-        BudgetGroup(
-            id=group.id,
-            name=group.name,
-            kind=group.kind,
-            categories=[
-                _month_line(household, category, group.kind, month, flows)
-                for category in household.categories(group)
-            ],
-        )
-        for group in household.groups
-    ]
-    loose = flows.get((None, month), _NONE)
-    converted, unconverted = _currency_notes(db, rates, month, after)
-    return BudgetMonth(
-        month=month,
-        currency=household.currency,
-        year=start.year,
-        year_start=start,
-        year_end=add_months(start, MONTHS_IN_YEAR - 1),
-        income=_month_totals(groups, CategoryKind.INCOME, loose.received, all_flows, month),
-        spending=_month_totals(groups, CategoryKind.EXPENSE, loose.spent, all_flows, month),
-        groups=groups,
-        uncategorized=Uncategorized(received=loose.received, spent=loose.spent, count=loose.count),
-        converted_currencies=converted,
-        unconverted_currencies=unconverted,
-    )
-
-
-# ---- A year --------------------------------------------------------------------------------
-
-
-def _year_line(
-    category: Category,
-    kind: CategoryKind,
-    budget: Budget | None,
-    months: Sequence[dt.date],
-    flows: dict[FlowKey, Flow],
-) -> BudgetYearLine:
-    cells = [
-        MonthCell(
-            budgeted=(
-                monthly_budgeted(budget, month)
-                if budget is not None and amount_at(budget.amounts, month) is not None
-                else None
-            ),
-            actual=_counted(kind, flows.get((category.id, month), _NONE).net),
-        )
-        for month in months
-    ]
-    amount: Decimal | None = None
-    if budget is not None and budget.period == BudgetPeriod.YEARLY:
-        amount = amount_at(budget.amounts, months[-1])
-    elif budgeted := [cell.budgeted for cell in cells if cell.budgeted is not None]:
-        amount = sum(budgeted, ZERO)
-    return BudgetYearLine(
-        category_id=category.id,
-        name=category.name,
-        emoji=category.emoji,
-        period=budget.period if budget else None,
-        amount=amount,
-        actual=sum((cell.actual for cell in cells), ZERO),
-        months=cells,
-    )
-
-
-def _year_line_budgeted(line: BudgetYearLine) -> Decimal:
-    if line.period == BudgetPeriod.YEARLY:
-        return line.amount or ZERO
-    return sum((cell.budgeted or ZERO for cell in line.months), ZERO)
-
-
-def _year_totals(
-    groups: Sequence[BudgetYearGroup], kind: CategoryKind, index: int | None = None
-) -> tuple[Decimal, Decimal]:
-    """What the year's (or one of its months') budgets and actual amounts of a kind add up
-    to. A month counts a twelfth of each yearly budget."""
-    lines = [line for group in groups if group.kind == kind for line in group.categories]
-    if index is None:
-        budgeted = sum((_year_line_budgeted(line) for line in lines), ZERO)
-        actual = sum((line.actual for line in lines), ZERO)
-    else:
-        cells = [line.months[index] for line in lines]
-        budgeted = sum((cell.budgeted or ZERO for cell in cells), ZERO)
-        actual = sum((cell.actual for cell in cells), ZERO)
-    return budgeted, actual
-
-
-def budget_year(db: Session, year: int, client: ExchangeRateClient | None) -> BudgetYear:
-    household = Household.load(db)
-    rates = RateBook(db, client, household.currency)
-    start = dt.date(year, household.first_month, 1)
-    months = [add_months(start, index) for index in range(MONTHS_IN_YEAR)]
-    after = add_months(start, MONTHS_IN_YEAR)
-    flows = _flows(db, rates, start, after, account_scopes=household.account_scopes)
-    all_flows = _flows(db, rates, start, after) if household.account_scopes else flows
-    groups = [
-        BudgetYearGroup(
-            id=group.id,
-            name=group.name,
-            kind=group.kind,
-            categories=[
-                _year_line(
-                    category,
-                    group.kind,
-                    household.budgets.get(category.id),
-                    months,
-                    flows,
-                )
-                for category in household.categories(group)
-            ],
-        )
-        for group in household.groups
-    ]
-    loose = [flows.get((None, month), _NONE) for month in months]
-    received = sum((flow.received for flow in loose), ZERO)
-    spent = sum((flow.spent for flow in loose), ZERO)
-
-    def totals(kind: CategoryKind, index: int | None = None) -> Totals:
-        budgeted, _ = _year_totals(groups, kind, index)
-        category_ids = [
-            line.category_id for group in groups if group.kind == kind for line in group.categories
-        ]
-        selected_months = months if index is None else [months[index]]
-        actual = sum(
-            (
-                _counted(kind, all_flows.get((category_id, month), _NONE).net)
-                for month in selected_months
-                for category_id in category_ids
-            ),
-            ZERO,
-        )
-        extra = loose[index] if index is not None else Flow(received=received, spent=spent)
-        return Totals(
-            budgeted=budgeted,
-            actual=actual + (extra.received if kind == CategoryKind.INCOME else extra.spent),
-        )
-
-    converted, unconverted = _currency_notes(db, rates, start, after)
-    return BudgetYear(
-        year=year,
-        start=start,
-        end=months[-1],
-        currency=household.currency,
-        income=totals(CategoryKind.INCOME),
-        spending=totals(CategoryKind.EXPENSE),
-        months=[
-            YearMonth(
-                month=month,
-                income=totals(CategoryKind.INCOME, index),
-                spending=totals(CategoryKind.EXPENSE, index),
-            )
-            for index, month in enumerate(months)
-        ],
-        groups=groups,
-        uncategorized=YearUncategorized(
-            received=received,
-            spent=spent,
-            count=sum(flow.count for flow in loose),
-            months=[UncategorizedMonth(received=flow.received, spent=flow.spent) for flow in loose],
-        ),
-        converted_currencies=converted,
-        unconverted_currencies=unconverted,
-    )
-
-
-# ---- One category --------------------------------------------------------------------------
-
-
-def _budgetable(category: Category | None) -> Category:
-    """A category that can have a budget: income or spending, not transfers."""
-    if category is None:
-        raise ApiError(
-            status.HTTP_404_NOT_FOUND, "not_found", "That category doesn't exist anymore."
-        )
-    if category.group.kind == CategoryKind.TRANSFER:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "transfer_category",
-            f"{category.name} is for money moving between your own accounts, which isn't budgeted.",
-        )
-    return category
-
-
-def category_history(
-    db: Session, category_id: uuid.UUID, month: dt.date, client: ExchangeRateClient | None
-) -> CategoryHistory:
-    category = _budgetable(db.get(Category, category_id))
-    kind = category.group.kind
-    general = load_preferences(db).general
-    start = add_months(month, 1 - HISTORY_MONTHS)
-    budget = db.scalar(
-        select(Budget)
-        .where(Budget.category_id == category.id)
-        .options(selectinload(Budget.amounts), selectinload(Budget.accounts))
-    )
-    account_scopes = (
-        {category.id: {account.id for account in budget.accounts}}
-        if budget is not None and budget.accounts
-        else None
-    )
-    flows = _flows(
-        db,
-        RateBook(db, client, general.currency),
-        start,
-        add_months(month, 1),
-        category.id,
-        account_scopes,
-    )
-    has_monthly_budget = budget is not None and budget.period != BudgetPeriod.YEARLY
-    months = [add_months(start, index) for index in range(HISTORY_MONTHS)]
-    return CategoryHistory(
-        category_id=category.id,
-        kind=kind,
-        months=[
-            HistoryMonth(
-                month=current,
-                budgeted=(
-                    monthly_budgeted(budget, current)
-                    if has_monthly_budget
-                    and budget is not None
-                    and amount_at(budget.amounts, current) is not None
-                    else None
-                ),
-                actual=_counted(kind, flows.get((category.id, current), _NONE).net),
-            )
-            for current in months
-        ],
-    )
-
-
-def budget_configurations(db: Session, month: dt.date) -> list[BudgetConfiguration]:
-    budgets = list(
-        db.scalars(
-            select(Budget)
-            .options(selectinload(Budget.amounts), selectinload(Budget.accounts))
-            .order_by(Budget.category_id)
-        )
-    )
-    linked: dict[uuid.UUID, list[uuid.UUID]] = {}
-    for budget_id, transaction_id in db.execute(
-        select(budget_transactions.c.budget_id, budget_transactions.c.transaction_id)
-        .join(Transaction, Transaction.id == budget_transactions.c.transaction_id)
-        .where(
-            Transaction.date >= month,
-            Transaction.date < add_months(month, 1),
-        )
-        .order_by(Transaction.date, Transaction.id)
-    ):
-        linked.setdefault(budget_id, []).append(transaction_id)
-    linked_subscriptions: dict[uuid.UUID, list[uuid.UUID]] = {}
-    for budget_id, subscription_id in db.execute(
-        select(budget_subscriptions.c.budget_id, budget_subscriptions.c.subscription_id)
-        .join(Subscription, Subscription.id == budget_subscriptions.c.subscription_id)
-        .order_by(Subscription.name, Subscription.id)
-    ):
-        linked_subscriptions.setdefault(budget_id, []).append(subscription_id)
-    return [
-        BudgetConfiguration(
-            id=budget.id,
-            category_id=budget.category_id,
-            period=budget.period,
-            amount=amount_at(budget.amounts, month),
-            rollover=budget.rollover_since is not None,
-            cycle_anchor=budget.cycle_anchor,
-            account_ids=[account.id for account in budget.accounts],
-            linked_transaction_ids=linked.get(budget.id, []),
-            linked_subscription_ids=linked_subscriptions.get(budget.id, []),
-        )
-        for budget in budgets
-    ]
-
-
-def link_budget_transaction(db: Session, category_id: uuid.UUID, transaction_id: uuid.UUID) -> None:
-    category = _budgetable(db.get(Category, category_id))
-    budget = db.scalar(
-        select(Budget)
-        .where(Budget.category_id == category.id)
-        .with_for_update()
-        .options(selectinload(Budget.accounts))
-    )
-    if budget is None:
-        raise ApiError(
-            status.HTTP_404_NOT_FOUND,
-            "budget_not_found",
-            "Set a budget for this category before linking transactions.",
-        )
-    transaction = db.get(Transaction, transaction_id)
-    if transaction is None:
-        raise ApiError(
-            status.HTTP_404_NOT_FOUND,
-            "transaction_not_found",
-            "That transaction doesn't exist anymore.",
-        )
-    if budget.accounts and transaction.account_id not in {item.id for item in budget.accounts}:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "budget_account",
-            "Link a transaction from one of this budget's selected accounts.",
-        )
-    if (category.group.kind == CategoryKind.INCOME and transaction.amount <= 0) or (
-        category.group.kind == CategoryKind.EXPENSE and transaction.amount >= 0
-    ):
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "budget_transaction_direction",
-            "Link incoming transactions to income budgets and outgoing transactions to spending "
-            "budgets.",
-        )
-    existing = db.scalar(
-        select(budget_transactions.c.budget_id).where(
-            budget_transactions.c.transaction_id == transaction_id
-        )
-    )
-    if existing is not None:
-        if existing == budget.id:
-            return
-        raise ApiError(
-            status.HTTP_409_CONFLICT,
-            "transaction_already_linked",
-            "That transaction is already linked to another budget.",
-        )
-    db.execute(
-        insert(budget_transactions)
-        .values(transaction_id=transaction_id, budget_id=budget.id)
-        .on_conflict_do_nothing(index_elements=["transaction_id"])
-    )
-    existing = db.scalar(
-        select(budget_transactions.c.budget_id).where(
-            budget_transactions.c.transaction_id == transaction_id
-        )
-    )
-    if existing != budget.id:
-        raise ApiError(
-            status.HTTP_409_CONFLICT,
-            "transaction_already_linked",
-            "That transaction is already linked to another budget.",
-        )
-
-
-def unlink_budget_transaction(
-    db: Session, category_id: uuid.UUID, transaction_id: uuid.UUID
-) -> None:
-    category = _budgetable(db.get(Category, category_id))
-    budget_id = db.scalar(select(Budget.id).where(Budget.category_id == category.id))
-    if budget_id is None:
-        raise ApiError(
-            status.HTTP_404_NOT_FOUND,
-            "budget_not_found",
-            "That budget doesn't exist anymore.",
-        )
-    db.execute(
-        delete(budget_transactions).where(
-            budget_transactions.c.budget_id == budget_id,
-            budget_transactions.c.transaction_id == transaction_id,
-        )
-    )
-
-
-def link_budget_subscription(
-    db: Session, category_id: uuid.UUID, subscription_id: uuid.UUID
-) -> None:
-    category = _budgetable(db.get(Category, category_id))
-    if category.group.kind != CategoryKind.EXPENSE:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "subscription_not_expense",
-            "Subscriptions can only be linked to a spending budget.",
-        )
-    budget = db.scalar(
-        select(Budget)
-        .where(Budget.category_id == category.id)
-        .with_for_update()
-        .options(selectinload(Budget.accounts))
-    )
-    if budget is None:
-        raise ApiError(
-            status.HTTP_404_NOT_FOUND,
-            "budget_not_found",
-            "Set a budget for this category before linking subscriptions.",
-        )
-    subscription = db.get(Subscription, subscription_id)
-    if subscription is None:
-        raise ApiError(
-            status.HTTP_404_NOT_FOUND,
-            "subscription_not_found",
-            "That subscription doesn't exist anymore.",
-        )
-    if budget.accounts and subscription.account_id not in {item.id for item in budget.accounts}:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "budget_account",
-            "Link a subscription from one of this budget's selected accounts.",
-        )
-    existing = db.scalar(
-        select(budget_subscriptions.c.budget_id).where(
-            budget_subscriptions.c.subscription_id == subscription_id
-        )
-    )
-    if existing is not None:
-        if existing == budget.id:
-            return
-        raise ApiError(
-            status.HTTP_409_CONFLICT,
-            "subscription_already_linked",
-            "That subscription is already linked to another budget.",
-        )
-    db.execute(
-        insert(budget_subscriptions)
-        .values(subscription_id=subscription_id, budget_id=budget.id)
-        .on_conflict_do_nothing(index_elements=["subscription_id"])
-    )
-    existing = db.scalar(
-        select(budget_subscriptions.c.budget_id).where(
-            budget_subscriptions.c.subscription_id == subscription_id
-        )
-    )
-    if existing != budget.id:
-        raise ApiError(
-            status.HTTP_409_CONFLICT,
-            "subscription_already_linked",
-            "That subscription is already linked to another budget.",
-        )
-
-
-def unlink_budget_subscription(
-    db: Session, category_id: uuid.UUID, subscription_id: uuid.UUID
-) -> None:
-    category = _budgetable(db.get(Category, category_id))
-    budget_id = db.scalar(select(Budget.id).where(Budget.category_id == category.id))
-    if budget_id is None:
-        raise ApiError(
-            status.HTTP_404_NOT_FOUND,
-            "budget_not_found",
-            "That budget doesn't exist anymore.",
-        )
-    db.execute(
-        delete(budget_subscriptions).where(
-            budget_subscriptions.c.budget_id == budget_id,
-            budget_subscriptions.c.subscription_id == subscription_id,
-        )
-    )
-
-
-# ---- Changing budgets ----------------------------------------------------------------------
-
-
-def _locked_budgets(
-    db: Session, category_ids: Sequence[uuid.UUID], *, create: Iterable[uuid.UUID]
-) -> dict[uuid.UUID, Budget]:
-    """The categories' budgets, locked against other changes until the commit. Categories in
-    `create` get a monthly budget if they have none."""
-    new = [
-        {"id": uuid.uuid4(), "category_id": category_id, "period": BudgetPeriod.MONTHLY}
-        for category_id in create
-    ]
-    if new:
-        # Two admins budgeting the same category at once both end up with the one budget.
-        db.execute(
-            insert(Budget).values(new).on_conflict_do_nothing(index_elements=["category_id"])
-        )
-    budgets = db.scalars(
-        select(Budget)
-        .where(Budget.category_id.in_(category_ids))
-        # Locked in the same order every time, so two requests can't each wait on the other.
-        .order_by(Budget.category_id)
-        .with_for_update()
-        .options(selectinload(Budget.amounts), selectinload(Budget.accounts))
-        .execution_options(populate_existing=True)
-    )
-    return {budget.category_id: budget for budget in budgets}
-
-
-def _period(budget: Budget, month: dt.date, first_month: int) -> tuple[dt.date, dt.date]:
-    """The month, or budget year, that `month` is in for the budget, and the one after it."""
-    if budget.period == BudgetPeriod.YEARLY:
-        start = year_start(month, first_month)
-        return start, add_months(start, MONTHS_IN_YEAR)
-    return month, add_months(month, 1)
-
-
-def _set_budget_accounts(db: Session, budget: Budget, account_ids: Sequence[uuid.UUID]) -> None:
-    accounts = list(db.scalars(select(Account).where(Account.id.in_(account_ids))))
-    if len(accounts) != len(set(account_ids)):
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "unknown_account",
-            "Choose accounts that still exist.",
-        )
-    if account_ids:
-        linked_account = db.scalar(
-            select(Transaction.account_id)
-            .join(
-                budget_transactions,
-                budget_transactions.c.transaction_id == Transaction.id,
-            )
-            .where(
-                budget_transactions.c.budget_id == budget.id,
-                Transaction.account_id.not_in(account_ids),
-            )
-            .limit(1)
-        )
-        if linked_account is not None:
-            raise ApiError(
-                status.HTTP_409_CONFLICT,
-                "linked_transaction_outside_accounts",
-                "Unlink transactions from other accounts before changing this account scope.",
-            )
-        linked_subscription_account = db.scalar(
-            select(Subscription.account_id)
-            .join(
-                budget_subscriptions,
-                budget_subscriptions.c.subscription_id == Subscription.id,
-            )
-            .where(
-                budget_subscriptions.c.budget_id == budget.id,
-                Subscription.account_id.not_in(account_ids),
-            )
-            .limit(1)
-        )
-        if linked_subscription_account is not None:
-            raise ApiError(
-                status.HTTP_409_CONFLICT,
-                "linked_subscription_outside_accounts",
-                "Unlink subscriptions from other accounts before changing this account scope.",
-            )
-    budget.accounts = accounts
-
-
-def _set_amount(
-    db: Session,
+    client: ExchangeRateClient | None,
     budget: Budget,
-    month: dt.date,
-    first_month: int,
-    amount: Decimal | None,
-    scope: Scope,
-) -> None:
-    """Budgets `amount` from the month (or budget year) that `month` is in on, replacing what
-    was planned after it, or only for that month, leaving the ones after it as they were.
-    A budget left with nothing budgeted in any month is deleted."""
-    start, following = _period(budget, month, first_month)
-    rows = {row.starts_on: row for row in budget.amounts}
-    if scope == "only" and following not in rows:
-        budget.amounts.append(
-            BudgetAmount(starts_on=following, amount=amount_at(budget.amounts, following))
+    first: dt.date,
+    last: dt.date,
+) -> Flows:
+    """What counted toward the budget on each day from `first` to `last`. Accounts in other
+    currencies are converted a day at a time, at each day's rate; those without rates are left
+    out."""
+    counted = _counted(db, budget, first=first, last=last)
+    rows = [
+        _Row(day, currency, BudgetKind(kind), category_id, link_id, priority, amount, transactions)
+        for day, currency, kind, category_id, link_id, priority, amount, transactions in db.execute(
+            select(
+                Transaction.date,
+                Account.currency,
+                counted.c.kind,
+                Transaction.category_id,
+                counted.c.link_id,
+                counted.c.priority,
+                func.sum(Transaction.amount),
+                func.count(),
+            )
+            .join(counted, counted.c.transaction_id == Transaction.id)
+            .join(Account, Account.id == Transaction.account_id)
+            .group_by(
+                Transaction.date,
+                Account.currency,
+                counted.c.kind,
+                Transaction.category_id,
+                counted.c.link_id,
+                counted.c.priority,
+            )
         )
-    if scope == "onward":
-        for row in [row for row in budget.amounts if row.starts_on > start]:
-            budget.amounts.remove(row)
-    if start in rows:
-        rows[start].amount = amount
-    else:
-        budget.amounts.append(BudgetAmount(starts_on=start, amount=amount))
-    # Amounts that change nothing go: the same as the one before, or none before any.
-    previous: Decimal | None = None
-    for row in sorted(budget.amounts, key=lambda row: row.starts_on):
-        if row.amount == previous:
-            budget.amounts.remove(row)
+    ]
+    rates = RateBook(db, client, household.currency)
+    abroad: dict[str, tuple[dt.date, dt.date]] = {}
+    for row in rows:
+        if row.currency != household.currency:
+            early, late = abroad.get(row.currency, (row.day, row.day))
+            abroad[row.currency] = (min(early, row.day), max(late, row.day))
+    rates.prepare(abroad)
+    result = Flows()
+    for row in rows:
+        value = row.amount if row.kind == BudgetKind.INCOME else -row.amount
+        if row.currency != household.currency:
+            converted = rates.convert(row.currency, row.day, value)
+            if converted is None:
+                continue
+            value = converted
+        result.flows.append(
+            Flow(row.day, row.kind, row.category_id, row.link_id, value, row.transactions)
+        )
+    result.unavailable = sorted(rates.unavailable)
+    result.converted = sorted(set(abroad) - rates.unavailable)
+    return result
+
+
+def _summary(
+    db: Session,
+    household: Household,
+    client: ExchangeRateClient | None,
+    budget: Budget,
+    start: dt.date,
+    last: dt.date,
+) -> PeriodSummary:
+    flows = _flows(db, household, client, budget, start, last)
+    return PeriodSummary(
+        start=start,
+        end=last,
+        amount=amount_at(budget, start),
+        income=flows.total(BudgetKind.INCOME),
+        spent=flows.total(BudgetKind.SPENDING),
+    )
+
+
+# ---- Budgets ------------------------------------------------------------------------------
+
+
+def _out(
+    db: Session,
+    client: ExchangeRateClient | None,
+    household: Household,
+    budget: Budget,
+    today: dt.date,
+) -> BudgetOut:
+    start = period_start(budget.period, budget.starts_on, today)
+    current = _summary(
+        db, household, client, budget, start, period_end(budget.period, budget.starts_on, start)
+    )
+    return BudgetOut(
+        id=budget.id,
+        name=budget.name,
+        period=budget.period,
+        starts_on=budget.starts_on,
+        amount=current.amount,
+        current=current,
+        created_at=budget.created_at,
+        updated_at=budget.updated_at,
+    )
+
+
+def budget_out(
+    db: Session, client: ExchangeRateClient | None, budget: Budget, today: dt.date
+) -> BudgetOut:
+    return _out(db, client, Household.load(db), budget, today)
+
+
+def list_budgets(db: Session, client: ExchangeRateClient | None, today: dt.date) -> list[BudgetOut]:
+    """Every budget, with how the period it's in is going."""
+    household = Household.load(db)
+    budgets = sorted(
+        db.scalars(select(Budget).options(selectinload(Budget.amounts))),
+        key=lambda budget: (PERIOD_ORDER[budget.period], budget.created_at, budget.id),
+    )
+    return [_out(db, client, household, budget, today) for budget in budgets]
+
+
+def create_budget(db: Session, body: BudgetCreate) -> Budget:
+    household = Household.load(db)
+    starts_on = body.starts_on or household.start_for(body.period, body.today or utcnow().date())
+    budget = Budget(name=body.name, period=body.period, starts_on=starts_on)
+    budget.amounts.append(BudgetAmount(starts_on=starts_on, amount=body.amount))
+    db.add(budget)
+    db.flush()
+    return budget
+
+
+def change_budget(db: Session, budget: Budget, body: BudgetUpdate) -> None:
+    """Changes a budget's name, how often it repeats, the day periods start on and its amount.
+    A new amount applies from the period the person is in; changing how often it repeats
+    starts the amounts over."""
+    household = Household.load(db)
+    today = body.today or utcnow().date()
+    if body.name is not None:
+        budget.name = body.name
+    amount = (
+        body.amount
+        if body.amount is not None
+        else amount_at(budget, period_start(budget.period, budget.starts_on, today))
+    )
+    if body.period is not None and body.period != budget.period:
+        budget.period = body.period
+        budget.starts_on = body.starts_on or household.start_for(body.period, today)
+        _start_amounts_over(db, budget, amount)
+        return
+    if body.starts_on is not None:
+        budget.starts_on = body.starts_on
+    if body.amount is not None:
+        start = period_start(budget.period, budget.starts_on, today)
+        row = next((item for item in budget.amounts if item.starts_on == start), None)
+        if row is None:
+            budget.amounts.append(BudgetAmount(starts_on=start, amount=amount))
         else:
-            previous = row.amount
-    if not budget.amounts:
-        db.delete(budget)
+            row.amount = amount
 
 
-def change_budget(db: Session, category_id: uuid.UUID, change: BudgetChange) -> None:
-    category = _budgetable(db.get(Category, category_id))
-    kind = category.group.kind
-    if change.rollover and kind != CategoryKind.EXPENSE:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "rollover_income",
-            "Only spending rolls over to the next month.",
+def _start_amounts_over(db: Session, budget: Budget, amount: Decimal) -> None:
+    """Gives the budget the one amount, from its first day, whatever it had before."""
+    keep, *others = budget.amounts
+    for row in others:
+        budget.amounts.remove(row)
+    db.flush()
+    keep.starts_on = budget.starts_on
+    keep.amount = amount
+
+
+def delete_budget(db: Session, budget: Budget) -> None:
+    db.delete(budget)
+
+
+# ---- A period of a budget -------------------------------------------------------------------
+
+
+def _sources(
+    db: Session, budget: Budget, totals: dict[uuid.UUID, tuple[Decimal, int]]
+) -> list[BudgetSource]:
+    """The budget's sources, income first, with what each counted."""
+    return [
+        BudgetSource(
+            **link.model_dump(),
+            amount=totals.get(link.id, (ZERO, 0))[0],
+            count=totals.get(link.id, (ZERO, 0))[1],
         )
-    creating = [category.id] if change.amount is not None else []
-    budget = _locked_budgets(db, [category.id], create=creating).get(category.id)
-    if budget is None:
-        # Nothing to stop budgeting.
-        return
-    first_month = load_preferences(db).general.fiscal_year_start_month
-    _set_budget_period(db, budget, change)
-    if change.account_ids is not None:
-        _set_budget_accounts(db, budget, change.account_ids)
-    _set_amount(db, budget, change.month, first_month, change.amount, change.scope)
-    if change.amount is not None:
-        start, _ = _period(budget, change.month, first_month)
-        budget.rollover_since = (budget.rollover_since or start) if change.rollover else None
+        for link in budget_links(db, budget)
+    ]
 
 
-def _set_budget_period(db: Session, budget: Budget, change: BudgetChange) -> None:
-    if change.amount is None:
-        return
-    recurring = change.period in (BudgetPeriod.WEEKLY, BudgetPeriod.BIWEEKLY)
-    if budget.period != change.period:
-        budget.amounts.clear()
-        budget.rollover_since = None
-        budget.period = change.period
-        budget.cycle_anchor = (change.cycle_anchor or change.month) if recurring else None
-        db.flush()
-    elif recurring and change.cycle_anchor is not None:
-        budget.cycle_anchor = change.cycle_anchor
+def budget_links(db: Session, budget: Budget) -> list[BudgetLinkOut]:
+    """What counts toward a budget besides single transactions: its sources, income first."""
+    rows = db.execute(
+        select(
+            BudgetLink,
+            Account.name,
+            Category.name,
+            Subscription.name,
+            Subscription.active,
+            Automation.name,
+            Automation.active,
+        )
+        .outerjoin(Account, Account.id == BudgetLink.account_id)
+        .outerjoin(Category, Category.id == BudgetLink.category_id)
+        .outerjoin(Subscription, Subscription.id == BudgetLink.subscription_id)
+        .outerjoin(Automation, Automation.id == BudgetLink.automation_id)
+        .where(BudgetLink.budget_id == budget.id, BudgetLink.transaction_id.is_(None))
+        .order_by(BudgetLink.created_at, BudgetLink.id)
+    )
+    links: list[BudgetLinkOut] = []
+    for link, account, category, subscription, subscription_active, automation, active in rows:
+        # Each link is to exactly one thing, which the database makes sure of.
+        target = {
+            "account": (link.account_id, account, True),
+            "category": (link.category_id, category, True),
+            "subscription": (link.subscription_id, subscription, subscription_active),
+            "automation": (link.automation_id, automation, active),
+        }
+        source = next(name for name, (thing, _, _) in target.items() if thing is not None)
+        links.append(
+            BudgetLinkOut.model_validate(
+                {
+                    "id": link.id,
+                    "kind": link.kind,
+                    "type": source,
+                    "target_id": target[source][0],
+                    "name": target[source][1],
+                    "active": target[source][2],
+                }
+            )
+        )
+    return sorted(links, key=lambda item: item.kind != BudgetKind.INCOME)
 
 
-def delete_budget(db: Session, category_id: uuid.UUID) -> None:
-    budget = db.scalar(select(Budget).where(Budget.category_id == category_id).with_for_update())
-    if budget is not None:
-        db.delete(budget)
-
-
-def plan_budget(db: Session, month: dt.date, plan: BudgetPlan) -> None:
-    """Budgets several categories for the month. Categories with a yearly budget are budgeted
-    for the budget year the month is in."""
-    ids = [item.category_id for item in plan.amounts]
-    categories = {
-        category.id: category
-        for category in db.scalars(
-            select(Category).where(Category.id.in_(ids)).options(selectinload(Category.group))
+def _upcoming(
+    db: Session,
+    household: Household,
+    client: ExchangeRateClient | None,
+    budget: Budget,
+    first: dt.date,
+    last: dt.date,
+) -> list[UpcomingBill]:
+    """The payments of the budget's subscriptions that fall due in the days from `first` to
+    `last`, which haven't been paid, since paying one moves its next due date on."""
+    subscriptions = list(
+        db.scalars(
+            select(Subscription)
+            .join(BudgetLink, BudgetLink.subscription_id == Subscription.id)
+            .where(BudgetLink.budget_id == budget.id, Subscription.active.is_(True))
+        )
+    )
+    stats = payment_stats(db, [item.id for item in subscriptions]) if subscriptions else {}
+    currencies = {
+        account_id: currency
+        for account_id, currency in db.execute(
+            select(Account.id, Account.currency).where(
+                Account.id.in_([item.account_id for item in subscriptions])
+            )
         )
     }
-    for category_id in ids:
-        _budgetable(categories.get(category_id))
-    budgets = _locked_budgets(
-        db, ids, create=[item.category_id for item in plan.amounts if item.amount is not None]
+    rates = RateBook(db, client, household.currency)
+    rates.prepare(
+        {
+            currency: (first, last)
+            for currency in set(currencies.values())
+            if currency != household.currency
+        }
     )
-    first_month = load_preferences(db).general.fiscal_year_start_month
-    amounts = {item.category_id: item.amount for item in plan.amounts}
-    for category_id, budget in budgets.items():
-        _set_amount(db, budget, month, first_month, amounts[category_id], plan.scope)
+    bills: list[UpcomingBill] = []
+    for subscription in subscriptions:
+        amount = expected_amount(subscription, stats.get(subscription.id))
+        currency = currencies.get(subscription.account_id, household.currency)
+        if currency != household.currency:
+            converted = rates.convert(currency, first, amount)
+            if converted is None:
+                continue
+            amount = converted
+        bills.extend(
+            UpcomingBill(
+                subscription_id=subscription.id,
+                name=subscription.name,
+                due_on=day,
+                amount=amount,
+            )
+            for day in due_dates(subscription, first, last)
+        )
+    return sorted(bills, key=lambda bill: (bill.due_on, bill.name.casefold()))
+
+
+def _days(flows: Flows) -> list[DayTotal]:
+    income: defaultdict[dt.date, Decimal] = defaultdict(lambda: ZERO)
+    spent: defaultdict[dt.date, Decimal] = defaultdict(lambda: ZERO)
+    for flow in flows.flows:
+        (income if flow.kind == BudgetKind.INCOME else spent)[flow.day] += flow.value
+    return [
+        DayTotal(day=day, income=income[day], spent=spent[day]) for day in sorted({*income, *spent})
+    ]
+
+
+def _categories(flows: Flows) -> list[CategoryTotal]:
+    amounts: defaultdict[uuid.UUID | None, Decimal] = defaultdict(lambda: ZERO)
+    counts: defaultdict[uuid.UUID | None, int] = defaultdict(int)
+    for flow in flows.flows:
+        if flow.kind == BudgetKind.SPENDING:
+            amounts[flow.category_id] += flow.value
+            counts[flow.category_id] += flow.count
+    return sorted(
+        (
+            CategoryTotal(category_id=category, amount=amount, count=counts[category])
+            for category, amount in amounts.items()
+            if amount > 0
+        ),
+        key=lambda total: -total.amount,
+    )
+
+
+def _per_link(flows: Flows) -> dict[uuid.UUID, tuple[Decimal, int]]:
+    totals: dict[uuid.UUID, tuple[Decimal, int]] = {}
+    for flow in flows.flows:
+        amount, count = totals.get(flow.link_id, (ZERO, 0))
+        totals[flow.link_id] = (amount + flow.value, count + flow.count)
+    return totals
+
+
+def _rounded(amount: Decimal) -> Decimal:
+    return amount.quantize(CENT, ROUND_HALF_UP)
+
+
+def _floor(db: Session, budget: Budget) -> dt.date:
+    """The start of the earliest period worth looking at: the one with the first transaction
+    or the one the budget was made for, whichever is earlier."""
+    earliest = db.scalar(select(func.min(Transaction.date)))
+    day = budget.starts_on if earliest is None else min(earliest, budget.starts_on)
+    return period_start(budget.period, budget.starts_on, day)
+
+
+def period_view(
+    db: Session,
+    client: ExchangeRateClient | None,
+    budget: Budget,
+    on: dt.date,
+    today: dt.date,
+) -> BudgetPeriodView:
+    """How a budget is going in the period that `on` is in, or how it went."""
+    household = Household.load(db)
+    period, anchor = budget.period, budget.starts_on
+    start = period_start(period, anchor, on)
+    end = period_end(period, anchor, start)
+    flows = _flows(db, household, client, budget, start, end)
+    income, spent = flows.total(BudgetKind.INCOME), flows.total(BudgetKind.SPENDING)
+    amount = amount_at(budget, start)
+    now = period_start(period, anchor, today)
+    current = start == now
+    length = (end - start).days + 1
+    gone = 0 if today < start else length if today > end else (today - start).days + 1
+    pace = current and gone > 0
+    removed = db.scalar(
+        select(func.count()).select_from(_counted(db, budget, first=start, last=end, removed=True))
+    )
+    return BudgetPeriodView(
+        budget=_out(db, client, household, budget, today),
+        start=start,
+        end=end,
+        previous=previous_start(period, anchor, start) if start > _floor(db, budget) else None,
+        next=next_start(period, anchor, start) if start < now else None,
+        current=current,
+        days=length,
+        days_gone=gone,
+        amount=amount,
+        income=income,
+        spent=spent,
+        left=amount - spent,
+        saved=income - spent,
+        expected=_rounded(amount * gone / length) if pace else None,
+        projected=_rounded(max(spent, ZERO) * length / gone) if pace else None,
+        transactions=sum(flow.count for flow in flows.flows),
+        removed=removed or 0,
+        daily=_days(flows),
+        categories=_categories(flows),
+        sources=_sources(db, budget, _per_link(flows)),
+        upcoming=_upcoming(db, household, client, budget, today, end) if current else [],
+        converted=flows.converted,
+        unavailable=flows.unavailable,
+    )
+
+
+def history(
+    db: Session,
+    client: ExchangeRateClient | None,
+    budget: Budget,
+    on: dt.date,
+    today: dt.date,
+    count: int,
+) -> BudgetHistory:
+    """What the budget came to in each of its `count` latest periods up to the one `on` is in."""
+    household = Household.load(db)
+    period, anchor = budget.period, budget.starts_on
+    starts = starts_back(period, anchor, period_start(period, anchor, on), count)
+    last = period_end(period, anchor, starts[-1])
+    flows = _flows(db, household, client, budget, starts[0], last)
+    totals = {start: [ZERO, ZERO] for start in starts}
+    for flow in flows.flows:
+        # Each day is in the latest period that started on or before it.
+        start = starts[bisect_right(starts, flow.day) - 1]
+        totals[start][0 if flow.kind == BudgetKind.INCOME else 1] += flow.value
+    now = period_start(period, anchor, today)
+    return BudgetHistory(
+        periods=[
+            HistoryPeriod(
+                start=start,
+                end=period_end(period, anchor, start),
+                amount=amount_at(budget, start),
+                income=totals[start][0],
+                spent=totals[start][1],
+                current=start == now,
+            )
+            for start in starts
+        ],
+        converted=flows.converted,
+        unavailable=flows.unavailable,
+    )
+
+
+def transactions_page(
+    db: Session,
+    budget: Budget,
+    on: dt.date,
+    *,
+    kind: BudgetKind | None,
+    removed: bool,
+    page: int,
+    page_size: int,
+) -> BudgetTransactionPage:
+    """The transactions that count toward the budget in the period `on` is in, newest first,
+    or the ones taken off that would count."""
+    start = period_start(budget.period, budget.starts_on, on)
+    counted = _counted(
+        db,
+        budget,
+        first=start,
+        last=period_end(budget.period, budget.starts_on, start),
+        removed=removed,
+    )
+    where = [counted.c.kind == kind] if kind is not None else []
+    total = db.scalar(select(func.count()).select_from(counted).where(*where)) or 0
+    rows = db.execute(
+        select(Transaction, counted.c.kind, counted.c.link_id, counted.c.priority)
+        .join(counted, counted.c.transaction_id == Transaction.id)
+        .where(*where)
+        .order_by(Transaction.date.desc(), Transaction.created_at.desc(), Transaction.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return BudgetTransactionPage(
+        items=[
+            BudgetTransaction(
+                id=transaction.id,
+                date=transaction.date,
+                payee=transaction.payee,
+                amount=transaction.amount,
+                account_id=transaction.account_id,
+                category_id=transaction.category_id,
+                kind=BudgetKind(counted_as),
+                via=VIA[priority],
+                source_id=None if priority == EXPLICIT else link_id,
+            )
+            for transaction, counted_as, link_id, priority in rows
+        ],
+        total=total,
+    )
+
+
+# ---- Linking ------------------------------------------------------------------------------
+
+
+def _existing(db: Session, ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+    return set(db.scalars(select(Transaction.id).where(Transaction.id.in_(ids))))
+
+
+def link_transactions(
+    db: Session, budget: Budget, ids: Sequence[uuid.UUID], kind: BudgetKind
+) -> int:
+    """Counts transactions toward a budget as income or as spending, and puts back ones that
+    were taken off. Ones it counts that way already don't need a link of their own."""
+    wanted = set(ids)
+    if _existing(db, ids) != wanted:
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "unknown_transaction", "Some of those transactions are gone."
+        )
+    db.execute(
+        delete(BudgetExclusion).where(
+            BudgetExclusion.budget_id == budget.id, BudgetExclusion.transaction_id.in_(wanted)
+        )
+    )
+    counted = _counted(db, budget, ids=list(wanted))
+    counting = {
+        transaction_id: BudgetKind(counted_as)
+        for transaction_id, counted_as in db.execute(
+            select(counted.c.transaction_id, counted.c.kind)
+        )
+    }
+    linked = {
+        link.transaction_id: link
+        for link in db.scalars(
+            select(BudgetLink).where(
+                BudgetLink.budget_id == budget.id, BudgetLink.transaction_id.in_(wanted)
+            )
+        )
+    }
+    for transaction_id in wanted:
+        link = linked.get(transaction_id)
+        if link is not None:
+            link.kind = kind
+        elif counting.get(transaction_id) != kind:
+            db.add(BudgetLink(budget_id=budget.id, kind=kind, transaction_id=transaction_id))
+    db.flush()
+    return len(wanted)
+
+
+def unlink_transaction(db: Session, budget: Budget, transaction_id: uuid.UUID) -> None:
+    """Takes a transaction off a budget: its own link goes, and if the budget still counts it,
+    because of an account, a category, a subscription or an automation, that's remembered."""
+    if transaction_id not in _existing(db, [transaction_id]):
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "unknown_transaction", "That transaction is gone."
+        )
+    db.execute(
+        delete(BudgetLink).where(
+            BudgetLink.budget_id == budget.id, BudgetLink.transaction_id == transaction_id
+        )
+    )
+    counted = _counted(db, budget, ids=[transaction_id])
+    if db.scalar(select(func.count()).select_from(counted)):
+        db.execute(
+            insert(BudgetExclusion)
+            .values(budget_id=budget.id, transaction_id=transaction_id)
+            .on_conflict_do_nothing()
+        )
+
+
+def _exists(
+    db: Session,
+    model: type[Account | Category | Subscription | Automation],
+    item_id: uuid.UUID | None,
+    code: str,
+    what: str,
+) -> None:
+    if item_id is not None and db.get(model, item_id) is None:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code,
+            f"That {what} doesn't exist anymore. Choose another one.",
+        )
+
+
+def add_source(db: Session, budget: Budget, body: BudgetSourceIn) -> BudgetLinkOut:
+    """Counts an account, a category, a subscription or an automation toward a budget."""
+    _exists(db, Account, body.account_id, "unknown_account", "account")
+    _exists(db, Category, body.category_id, "unknown_category", "category")
+    _exists(db, Subscription, body.subscription_id, "unknown_subscription", "subscription")
+    _exists(db, Automation, body.automation_id, "unknown_automation", "automation")
+    link = BudgetLink(
+        budget_id=budget.id,
+        kind=body.kind,
+        account_id=body.account_id,
+        category_id=body.category_id,
+        subscription_id=body.subscription_id,
+        automation_id=body.automation_id,
+    )
+    db.add(link)
+    try:
+        db.flush()
+    except IntegrityError as error:
+        db.rollback()
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "already_counted",
+            "That already counts toward this budget.",
+        ) from error
+    return next(item for item in budget_links(db, budget) if item.id == link.id)
+
+
+def remove_source(db: Session, budget: Budget, link_id: uuid.UUID) -> None:
+    link = db.scalar(
+        select(BudgetLink).where(
+            BudgetLink.id == link_id,
+            BudgetLink.budget_id == budget.id,
+            BudgetLink.transaction_id.is_(None),
+        )
+    )
+    if link is None:
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "not_found", "That doesn't count toward this budget."
+        )
+    db.delete(link)
+
+
+# ---- Automations ------------------------------------------------------------------------
+
+
+def automation_counts(
+    db: Session, automation_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID | None, list[AutomationCount]]:
+    """The budgets each automation counts what it sorts toward."""
+    counts: defaultdict[uuid.UUID | None, list[AutomationCount]] = defaultdict(list)
+    for automation_id, budget_id, kind in db.execute(
+        select(BudgetLink.automation_id, BudgetLink.budget_id, BudgetLink.kind)
+        .where(BudgetLink.automation_id.in_(automation_ids))
+        .order_by(BudgetLink.created_at, BudgetLink.id)
+    ):
+        counts[automation_id].append(AutomationCount(budget_id=budget_id, kind=kind))
+    return dict(counts)
+
+
+def set_automation_counts(
+    db: Session, automation: Automation, counts: Sequence[AutomationCount]
+) -> None:
+    """Has an automation count what it sorts toward exactly these budgets."""
+    wanted = {item.budget_id: item.kind for item in counts}
+    if len(wanted) != len(counts):
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "duplicate_budget",
+            "Count toward each budget once.",
+        )
+    if wanted and set(db.scalars(select(Budget.id).where(Budget.id.in_(wanted)))) != set(wanted):
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "unknown_budget",
+            "One of those budgets doesn't exist anymore. Choose another one.",
+        )
+    existing = {
+        link.budget_id: link
+        for link in db.scalars(select(BudgetLink).where(BudgetLink.automation_id == automation.id))
+    }
+    for budget_id, link in existing.items():
+        if budget_id not in wanted:
+            db.delete(link)
+        else:
+            link.kind = wanted[budget_id]
+    for budget_id, kind in wanted.items():
+        if budget_id not in existing:
+            db.add(BudgetLink(budget_id=budget_id, kind=kind, automation_id=automation.id))
+    db.flush()
