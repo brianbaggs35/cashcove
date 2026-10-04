@@ -149,6 +149,9 @@ test.describe('Budget', () => {
       rollover: false,
       account_ids: [],
     })
+    const initialMonth = await api.get<BudgetMonth>(`/budget/months/${month}`)
+    const initialPaycheckActual = Number(monthLine(initialMonth, paycheck.id).actual)
+    const initialGroceriesActual = Number(monthLine(initialMonth, groceries.id).actual)
     const salary = await api.post<Transaction>('/transactions', {
       account_id: checking.id,
       date: today,
@@ -205,8 +208,14 @@ test.describe('Budget', () => {
       api.get<BudgetMonth>(`/budget/months/${month}`),
       api.get<BudgetConfiguration[]>(`/budget/configurations?month=${month}`),
     ])
-    expect(monthLine(monthBody, paycheck.id).actual).toBe('2100.00')
-    expect(monthLine(monthBody, groceries.id).actual).toBe('131.40')
+    expect(Number(monthLine(monthBody, paycheck.id).actual) - initialPaycheckActual).toBeCloseTo(
+      2100,
+      2,
+    )
+    expect(Number(monthLine(monthBody, groceries.id).actual) - initialGroceriesActual).toBeCloseTo(
+      131.4,
+      2,
+    )
     expect(
       configurations.find((item) => item.category_id === paycheck.id)?.linked_transaction_ids,
     ).toContain(salary.id)
