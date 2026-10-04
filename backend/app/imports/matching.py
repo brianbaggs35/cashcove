@@ -10,9 +10,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import ColumnElement, func, select
-from sqlalchemy.orm import InstrumentedAttribute, Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from app.finance.text import column_key, text_key
 from app.finance.transactions import SORT_ORDERS
 from app.imports.files import FileRow
 from app.models import Account, Category, Transaction, TransactionSource
@@ -88,18 +89,6 @@ _BANK_CATEGORY_NAMES = {
     "Pets": ("pet",),
 }
 BANK_CATEGORIES = {bank: ours for ours, names in _BANK_CATEGORY_NAMES.items() for bank in names}
-
-
-def text_key(text: str) -> str:
-    """Text as compared: lowercase, with single spaces."""
-    return " ".join(text.lower().split())
-
-
-def _column_key(
-    column: InstrumentedAttribute[str] | InstrumentedAttribute[str | None],
-) -> ColumnElement[str]:
-    """A column's text as compared, the way text_key does it, in the database."""
-    return func.btrim(func.regexp_replace(func.lower(column), r"\s+", " ", "g"))
 
 
 def _category_key(text: str) -> str:
@@ -223,7 +212,7 @@ class Namer:
         for batch in itertools.batched(sorted(descriptions), LOOKUP_BATCH, strict=False):
             for description, payee, category_id in db.execute(
                 select(Transaction.original_description, Transaction.payee, Transaction.category_id)
-                .where(_column_key(Transaction.original_description).in_(batch))
+                .where(column_key(Transaction.original_description).in_(batch))
                 .order_by(*SORT_ORDERS["-date"])
             ):
                 self.by_description.setdefault(text_key(description or ""), (payee, category_id))
@@ -237,7 +226,7 @@ class Namer:
             for payee, category_id in db.execute(
                 select(Transaction.payee, Transaction.category_id)
                 .where(
-                    _column_key(Transaction.payee).in_(batch), Transaction.category_id.is_not(None)
+                    column_key(Transaction.payee).in_(batch), Transaction.category_id.is_not(None)
                 )
                 .order_by(*SORT_ORDERS["-date"])
             ):

@@ -1,164 +1,181 @@
 """Budgets. Everyone can see them; only admins change them."""
 
+import datetime as dt
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Query, status
 
 from app.auth.deps import AdminAuth, CurrentAuth, Db
 from app.finance.budget import (
-    budget_configurations,
-    budget_month,
-    budget_year,
-    category_history,
+    add_source,
+    budget_out,
     change_budget,
+    create_budget,
     delete_budget,
-    link_budget_subscription,
-    link_budget_transaction,
-    plan_budget,
-    unlink_budget_subscription,
-    unlink_budget_transaction,
+    find_budget,
+    history,
+    link_transactions,
+    list_budgets,
+    period_view,
+    remove_source,
+    transactions_page,
+    unlink_transaction,
 )
 from app.finance.exchange_rates import ExchangeRates
+from app.models import BudgetKind
+from app.models.base import utcnow
 from app.schemas.budget import (
-    BudgetChange,
-    BudgetConfiguration,
-    BudgetMonth,
-    BudgetPlan,
-    BudgetYear,
-    CategoryHistory,
-    Month,
-    Year,
+    MAX_HISTORY,
+    BudgetCreate,
+    BudgetHistory,
+    BudgetLinkOut,
+    BudgetOut,
+    BudgetPeriodView,
+    BudgetSourceIn,
+    BudgetTransactionPage,
+    BudgetUpdate,
+    Day,
+    TransactionsLink,
+    TransactionsLinked,
 )
 
-router = APIRouter(prefix="/budget", tags=["budget"])
+router = APIRouter(prefix="/budgets", tags=["budgets"])
 
-MonthPath = Annotated[Month, Path(description="The month, like 2026-09.")]
-
-
-@router.get("/configurations")
-def read_configurations(
-    month: Annotated[Month, Query(description="The month being configured, like 2026-09.")],
-    auth: CurrentAuth,
-    db: Db,
-) -> list[BudgetConfiguration]:
-    """Every category budget's settings and linked transactions for the requested month."""
-    return budget_configurations(db, month)
+Today = Annotated[
+    Day | None,
+    Query(description="The date where the person is, which says which period they're in."),
+]
+On = Annotated[Day | None, Query(description="Any day in the period to look at.")]
 
 
-@router.get("/months/{month}")
-def read_month(month: MonthPath, auth: CurrentAuth, db: Db, rates: ExchangeRates) -> BudgetMonth:
-    """Every income and spending category's budget for the month, and what came in or went
-    out."""
-    return budget_month(db, month, rates)
+def _today(today: dt.date | None) -> dt.date:
+    return today or utcnow().date()
 
 
-@router.put("/months/{month}")
-def plan_month(
-    month: MonthPath, body: BudgetPlan, auth: AdminAuth, db: Db, rates: ExchangeRates
-) -> BudgetMonth:
-    """Budgets several categories from the month on, or for the month only."""
-    plan_budget(db, month, body)
+@router.get("")
+def read_budgets(
+    auth: CurrentAuth, db: Db, rates: ExchangeRates, today: Today = None
+) -> list[BudgetOut]:
+    """Every budget, by how often it repeats, with how the period it's in is going."""
+    return list_budgets(db, rates, _today(today))
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+def add_budget(body: BudgetCreate, auth: AdminAuth, db: Db, rates: ExchangeRates) -> BudgetOut:
+    budget = create_budget(db, body)
     db.commit()
-    return budget_month(db, month, rates)
+    return budget_out(db, rates, budget, _today(body.today))
 
 
-@router.get("/years/{year}")
-def read_year(
-    year: Annotated[Year, Path(description="The year the budget year starts in.")],
+@router.patch("/{budget_id}")
+def update_budget(
+    budget_id: uuid.UUID, body: BudgetUpdate, auth: AdminAuth, db: Db, rates: ExchangeRates
+) -> BudgetOut:
+    """Changes a budget. Leave a field out to keep it."""
+    budget = find_budget(db, budget_id)
+    change_budget(db, budget, body)
+    db.commit()
+    return budget_out(db, rates, budget, _today(body.today))
+
+
+@router.delete("/{budget_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_budget(budget_id: uuid.UUID, auth: AdminAuth, db: Db) -> None:
+    """Deletes a budget and what's linked to it. Nothing that counted toward it changes."""
+    delete_budget(db, find_budget(db, budget_id))
+    db.commit()
+
+
+@router.get("/{budget_id}/period")
+def read_period(
+    budget_id: uuid.UUID,
     auth: CurrentAuth,
     db: Db,
     rates: ExchangeRates,
-) -> BudgetYear:
-    """The budget year that starts in `year`, month by month."""
-    return budget_year(db, year, rates)
+    on: On = None,
+    today: Today = None,
+) -> BudgetPeriodView:
+    """How the budget is going in the period that `on` is in (today's, unless it says), or how
+    it went: what came in, what went out, and what's left."""
+    now = _today(today)
+    return period_view(db, rates, find_budget(db, budget_id), on or now, now)
 
 
-@router.get("/categories/{category_id}/history")
+@router.get("/{budget_id}/history")
 def read_history(
-    category_id: uuid.UUID,
-    month: Annotated[Month, Query(description="The last month, like 2026-09.")],
+    budget_id: uuid.UUID,
     auth: CurrentAuth,
     db: Db,
     rates: ExchangeRates,
-) -> CategoryHistory:
-    """What a category's budget was and what it came to, in each of the twelve months up to
-    and including `month`."""
-    return category_history(db, category_id, month, rates)
+    on: On = None,
+    today: Today = None,
+    count: Annotated[int, Query(ge=1, le=MAX_HISTORY)] = 12,
+) -> BudgetHistory:
+    """What the budget came to in each of its latest periods up to the one `on` is in."""
+    now = _today(today)
+    return history(db, rates, find_budget(db, budget_id), on or now, now, count)
 
 
-@router.put("/categories/{category_id}")
-def budget_category(
-    category_id: uuid.UUID, body: BudgetChange, auth: AdminAuth, db: Db, rates: ExchangeRates
-) -> BudgetMonth:
-    """Sets, changes or stops a category's budget. Returns the month it was changed from."""
-    change_budget(db, category_id, body)
-    db.commit()
-    return budget_month(db, body.month, rates)
-
-
-@router.delete("/categories/{category_id}", status_code=204)
-def remove_budget(category_id: uuid.UUID, auth: AdminAuth, db: Db) -> None:
-    """Removes this category's complete budget history and its links."""
-    delete_budget(db, category_id)
-    db.commit()
-
-
-@router.put(
-    "/categories/{category_id}/transactions/{transaction_id}",
-    status_code=204,
-)
-def link_transaction(
-    category_id: uuid.UUID,
-    transaction_id: uuid.UUID,
-    auth: AdminAuth,
+@router.get("/{budget_id}/transactions")
+def read_transactions(
+    budget_id: uuid.UUID,
+    auth: CurrentAuth,
     db: Db,
-) -> None:
-    """Links an income or spending transaction directly to this category's budget."""
-    link_budget_transaction(db, category_id, transaction_id)
+    on: On = None,
+    today: Today = None,
+    kind: Annotated[BudgetKind | None, Query(description="Only income or only spending.")] = None,
+    removed: Annotated[
+        bool, Query(description="The ones taken off that would otherwise count.")
+    ] = False,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+) -> BudgetTransactionPage:
+    """The transactions that count toward the budget in a period, newest first."""
+    return transactions_page(
+        db,
+        find_budget(db, budget_id),
+        on or _today(today),
+        kind=kind,
+        removed=removed,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post("/{budget_id}/transactions")
+def link(
+    budget_id: uuid.UUID, body: TransactionsLink, auth: AdminAuth, db: Db
+) -> TransactionsLinked:
+    """Counts transactions toward the budget, as income or as spending. Ones that were taken
+    off are put back."""
+    count = link_transactions(db, find_budget(db, budget_id), body.ids, body.kind)
+    db.commit()
+    return TransactionsLinked(count=count)
+
+
+@router.delete("/{budget_id}/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
+def unlink(budget_id: uuid.UUID, transaction_id: uuid.UUID, auth: AdminAuth, db: Db) -> None:
+    """Takes a transaction off the budget, even when an account, a category, a subscription or
+    an automation counts it. Nothing about the transaction itself changes."""
+    unlink_transaction(db, find_budget(db, budget_id), transaction_id)
     db.commit()
 
 
-@router.delete(
-    "/categories/{category_id}/transactions/{transaction_id}",
-    status_code=204,
-)
-def unlink_transaction(
-    category_id: uuid.UUID,
-    transaction_id: uuid.UUID,
-    auth: AdminAuth,
-    db: Db,
-) -> None:
-    """Removes a transaction's direct budget link without changing its category."""
-    unlink_budget_transaction(db, category_id, transaction_id)
+@router.post("/{budget_id}/sources", status_code=status.HTTP_201_CREATED)
+def add_budget_source(
+    budget_id: uuid.UUID, body: BudgetSourceIn, auth: AdminAuth, db: Db
+) -> BudgetLinkOut:
+    """Counts an account, a category, a subscription or an automation toward the budget."""
+    source = add_source(db, find_budget(db, budget_id), body)
     db.commit()
+    return source
 
 
-@router.put(
-    "/categories/{category_id}/subscriptions/{subscription_id}",
-    status_code=204,
-)
-def link_subscription(
-    category_id: uuid.UUID,
-    subscription_id: uuid.UUID,
-    auth: AdminAuth,
-    db: Db,
+@router.delete("/{budget_id}/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_budget_source(
+    budget_id: uuid.UUID, source_id: uuid.UUID, auth: AdminAuth, db: Db
 ) -> None:
-    """Links a recurring bill to this spending budget and routes its payments there."""
-    link_budget_subscription(db, category_id, subscription_id)
-    db.commit()
-
-
-@router.delete(
-    "/categories/{category_id}/subscriptions/{subscription_id}",
-    status_code=204,
-)
-def unlink_subscription(
-    category_id: uuid.UUID,
-    subscription_id: uuid.UUID,
-    auth: AdminAuth,
-    db: Db,
-) -> None:
-    """Removes a recurring bill from the budget without changing the subscription."""
-    unlink_budget_subscription(db, category_id, subscription_id)
+    """Stops counting an account, a category, a subscription or an automation toward the
+    budget."""
+    remove_source(db, find_budget(db, budget_id), source_id)
     db.commit()

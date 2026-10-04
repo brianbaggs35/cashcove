@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import AdminAuth, ApiError, CurrentAuth, Db
 from app.finance.accounts import get_account, move_balance, writable_account
+from app.finance.automations import RuleBook
 from app.finance.categories import find_category
-from app.finance.subscriptions import apply_subscription_rule
+from app.finance.subscriptions import normalized_payee
 from app.finance.transactions import SORT_ORDERS, conditions, like_pattern
 from app.models import Account, Transaction, TransactionSource
 from app.models.base import utcnow
@@ -127,7 +128,8 @@ def create_transaction(body: TransactionCreate, auth: AdminAuth, db: Db) -> Tran
         notes=body.notes,
         source=TransactionSource.MANUAL,
     )
-    apply_subscription_rule(db, transaction)
+    # A category chosen in the form stays; automations only fill in what's left.
+    RuleBook.load(db).sort(transaction, keep_category=body.category_id is not None)
     db.add(transaction)
     move_balance(account, body.amount, utcnow())
     db.commit()
@@ -149,6 +151,8 @@ def update_transaction(
     account_id = body.account_id or transaction.account_id
     amount = transaction.amount if body.amount is None else body.amount
     moved = account_id != transaction.account_id
+    # What automations match a transaction by.
+    matched_by = (normalized_payee(transaction.payee), transaction.amount < 0)
     # Only while its account is still linked: once the bank stops keeping it up to date, the
     # household does.
     if (
@@ -184,7 +188,13 @@ def update_transaction(
         transaction.payee = body.payee
     if "notes" in fields:
         transaction.notes = body.notes
-    apply_subscription_rule(db, transaction)
+    if amount >= 0:
+        # Only payments belong to a subscription.
+        transaction.subscription_id = None
+    # Automations sort it again when what they match it by changed, but never undo what
+    # someone chose: a category in this request stays.
+    if moved or matched_by != (normalized_payee(transaction.payee), amount < 0):
+        RuleBook.load(db).sort(transaction, keep_category="category_id" in fields)
     db.commit()
     return TransactionOut.model_validate(transaction)
 

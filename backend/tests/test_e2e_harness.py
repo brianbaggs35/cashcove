@@ -30,7 +30,8 @@ from app.models import (
     Account,
     AuditEvent,
     Budget,
-    BudgetAmount,
+    BudgetExclusion,
+    BudgetLink,
     Category,
     CategoryGroup,
     Connection,
@@ -495,61 +496,72 @@ def test_the_baseline_has_budgets_set_up_with_cashcove(
     baseline = e2e.post("/api/e2e/reset").json()
 
     budgets = baseline["budgets"]
-    assert count(session, Budget) == len(budgets) == 17
-    assert list(budgets)[:3] == ["Paycheck", "Interest & dividends", "Rent & mortgage"]
-    starts: dict[str, dict[str, str | None]] = {}
-    for name, described in budgets.items():
+    assert list(budgets) == ["spending_money", "household", "year"]
+    assert count(session, Budget) == 3
+    # Weeks start on Sunday, months on the 1st and years in January, counted from the reset.
+    starts = {"spending_money": "2026-09-20", "household": "2026-09-01", "year": "2026-01-01"}
+    sources = 0
+    for key, described in budgets.items():
         stored = session.get(Budget, uuid.UUID(described["id"]))
         assert stored is not None
-        assert described["category"] == name
-        assert str(stored.category_id) == described["category_id"]
-        assert described["category_id"] == baseline["categories"][name]["id"]
-        assert stored.period.value == described["period"]
-        rows = session.scalars(
-            select(BudgetAmount)
-            .where(BudgetAmount.budget_id == stored.id)
-            .order_by(BudgetAmount.starts_on)
-        )
-        starts[name] = {
-            f"{row.starts_on:%Y-%m}": None if row.amount is None else str(row.amount)
-            for row in rows
+        assert (stored.name, stored.period.value) == (described["name"], described["period"])
+        assert str(stored.starts_on) == starts[key]
+        assert [(str(row.starts_on), str(row.amount)) for row in stored.amounts] == [
+            (starts[key], described["amount"])
+        ]
+        links = {
+            (link.kind.value, target): link
+            for link in session.scalars(select(BudgetLink).where(BudgetLink.budget_id == stored.id))
+            for target in [link.category_id or link.account_id or link.transaction_id]
         }
-        assert [amount["amount"] for amount in described["amounts"]] == list(starts[name].values())
-        rollover = described["rollover_months_ago"]
-        assert stored.rollover_since == (
-            None if rollover is None else datetime(2026, 9 - rollover, 1).date()
-        )
-    # Months count back from the reset's month, and yearly budgets are for its budget year.
-    assert starts["Rent & mortgage"] == {"2026-05": "1850.00"}
-    assert starts["Groceries"] == {"2026-05": "450.00", "2026-08": "500.00"}
-    assert starts["Shopping"] == {"2026-05": "100.00", "2026-09": "150.00", "2026-10": "100.00"}
-    assert [amount["ago"] for amount in budgets["Shopping"]["amounts"]] == [4, 0, -1]
-    assert starts["Travel"] == {"2026-01": "2500.00"}
-    assert budgets["Travel"]["period"] == "yearly"
-    assert budgets["Restaurants"]["rollover_months_ago"] == 2
+        assert len(links) == len(described["sources"])
+        sources += len(links)
+        for source in described["sources"]:
+            assert (source["kind"], uuid.UUID(source["target_id"])) in links
+            known = {
+                "category": baseline["categories"],
+                "account": baseline["accounts"],
+                "transaction": baseline["transactions"],
+            }[source["type"]]
+            assert known[source["target"]]["id"] == source["target_id"]
+    assert count(session, BudgetLink) == sources == 17
+    assert count(session, BudgetExclusion) == 0
+    household = budgets["household"]
+    assert [source["target"] for source in household["sources"][:2]] == [
+        "Paycheck",
+        "Interest & dividends",
+    ]
+    assert {source["type"] for source in household["sources"]} == {
+        "category",
+        "account",
+        "transaction",
+    }
+    assert budgets["year"]["period"] == "yearly"
     kinds = {group["name"]: group["kind"] for group in baseline["category_groups"].values()}
     assert not [
-        name for name in budgets if kinds[baseline["categories"][name]["group"]] == "transfer"
+        source
+        for described in budgets.values()
+        for source in described["sources"]
+        if source["type"] == "category"
+        and kinds[baseline["categories"][source["target"]]["group"]] == "transfer"
     ]
 
 
-def test_people_see_the_baseline_budget_through_the_api(e2e: TestClient) -> None:
+def test_people_see_the_baseline_budgets_through_the_api(e2e: TestClient) -> None:
     baseline = e2e.post("/api/e2e/reset").json()
     viewer = baseline["users"]["viewer"]
     sign_in(e2e, viewer["email"], viewer["password"])
-    month = f"{datetime.now(UTC):%Y-%m}"
 
-    body = e2e.get(f"/api/budget/months/{month}").json()
+    listed = e2e.get("/api/budgets").json()
 
-    found = {line["name"]: line for group in body["groups"] for line in group["categories"]}
-    assert found["Shopping"]["amount"] == "150.00"
-    assert found["Groceries"]["amount"] == "500.00"
-    assert (found["Travel"]["period"], found["Travel"]["amount"]) == ("yearly", "2500.00")
-    assert found["Restaurants"]["rollover"] is True
-    assert found["Cash & ATM"]["period"] is None
-    assert body["income"]["budgeted"] == "4010.00"
-    # A twelfth of the yearly budgets counts in each month.
-    assert body["spending"]["budgeted"] == "3891.67"
+    assert [(item["name"], item["period"], item["amount"]) for item in listed] == [
+        ("Spending money", "weekly", "150.00"),
+        ("Household", "monthly", "3600.00"),
+        ("Year plan", "yearly", "52000.00"),
+    ]
+    assert [item["id"] for item in listed] == [item["id"] for item in baseline["budgets"].values()]
+    household = e2e.get(f"/api/budgets/{listed[1]['id']}/period").json()
+    assert {source["name"] for source in household["sources"]} >= {"Paycheck", "Rewards Visa"}
 
 
 def test_resets_reuse_the_hashed_password(e2e: TestClient, session: Session) -> None:
@@ -821,6 +833,9 @@ def test_the_baseline_has_a_healthy_bank_and_one_that_wants_a_new_sign_in(
     e2e: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("e2e.api.utcnow", lambda: RESET_AT)
+    # The saved sign-ins are as old as the reset says. The API reads the same clock, or they
+    # would idle out two weeks on, as they did on the day this test turned two weeks old.
+    monkeypatch.setattr("app.auth.deps.utcnow", lambda: RESET_AT)
     baseline = e2e.post("/api/e2e/reset").json()
     connections = baseline["connections"]
 
