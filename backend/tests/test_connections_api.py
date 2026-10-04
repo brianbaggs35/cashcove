@@ -869,3 +869,130 @@ def test_a_banks_transactions_can_be_edited_once_its_account_is_kept_by_hand(
 
     assert response.status_code == 200, response.text
     assert response.json()["amount"] == "-1.00"
+
+
+def test_what_the_bank_sends_is_sorted_by_automations_and_subscriptions(
+    admin_client: TestClient, session: Session, fake: FakePlaid
+) -> None:
+    connection = imported(admin_client)
+    card = by_name(accounts_of(session, connection["id"]))["Plaid Credit Card"]
+    item = fake.item("platypus")
+    shopping, entertainment = category(session, "Shopping"), category(session, "Entertainment")
+    admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Coffee runs",
+            "payees": ["starbucks"],
+            "category_id": str(shopping),
+            "apply_to": "future",
+        },
+    )
+    subscription = admin_client.post(
+        "/api/subscriptions",
+        json={
+            "name": "Netflix",
+            "payee": "Netflix",
+            "amount": "15.49",
+            "frequency": "monthly",
+            "account_id": str(card.id),
+            "next_due_date": utcnow().date().isoformat(),
+            "category_id": str(entertainment),
+        },
+    ).json()
+    fake.add_transaction(
+        item.item_id, str(card.external_id), "6.10", "Starbucks", "FOOD_AND_DRINK_COFFEE"
+    )
+    fake.add_transaction(
+        item.item_id, str(card.external_id), "15.49", "Netflix", "ENTERTAINMENT_TV_AND_MOVIES"
+    )
+
+    last = sync(admin_client, connection)["last_sync"]
+
+    assert last["added"] == 2
+    rows = [row for row in transactions_in(session, card) if row.date == utcnow().date()]
+    by_payee = {
+        row.payee: row for row in rows if row.amount in (Decimal("-6.10"), Decimal("-15.49"))
+    }
+    # Plaid called the coffee Coffee, and the automation put it in Shopping.
+    assert by_payee["Starbucks"].category_id == shopping
+    netflix = by_payee["Netflix"]
+    assert (netflix.subscription_id, netflix.category_id) == (
+        uuid.UUID(subscription["id"]),
+        entertainment,
+    )
+    updated = admin_client.get(f"/api/subscriptions/{subscription['id']}").json()
+    assert updated["last_payment_on"] == utcnow().date().isoformat()
+    assert updated["next_due_date"] > utcnow().date().isoformat()
+
+
+def test_what_the_household_chose_for_a_pending_transaction_survives_it_posting(
+    admin_client: TestClient, session: Session, fake: FakePlaid
+) -> None:
+    connection = imported(admin_client)
+    card = by_name(accounts_of(session, connection["id"]))["Plaid Credit Card"]
+    account = next(item for item in fake.item("platypus").accounts if item.subtype == "credit card")
+    pending = {event[1]["merchant_name"]: event[1] for event in account.events}["Starbucks"]
+    shopping, restaurants = category(session, "Shopping"), category(session, "Restaurants")
+    admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Coffee runs",
+            "payees": ["starbucks"],
+            "category_id": str(shopping),
+            "apply_to": "future",
+        },
+    )
+    row = {item.payee: item for item in transactions_in(session, card)}["Starbucks"]
+    admin_client.patch(f"/api/transactions/{row.id}", json={"category_id": str(restaurants)})
+    posted = pending | {
+        "transaction_id": "posted-coffee",
+        "pending": False,
+        "pending_transaction_id": pending["transaction_id"],
+    }
+    account.events += [("added", posted), ("removed", pending)]
+
+    sync(admin_client, connection)
+
+    after = {item.external_id: item for item in transactions_in(session, card)}
+    assert after["posted-coffee"].category_id == restaurants
+
+    # Had they taken the category away, the automation would sort the posted one.
+    second = posted | {
+        "transaction_id": "posted-again",
+        "pending_transaction_id": "posted-coffee",
+    }
+    admin_client.patch(f"/api/transactions/{after['posted-coffee'].id}", json={"category_id": None})
+    account.events += [("added", second), ("removed", posted)]
+    sync(admin_client, connection)
+    again = {item.external_id: item for item in transactions_in(session, card)}
+    assert again["posted-again"].category_id == shopping
+
+
+def test_what_the_bank_calls_a_transaction_is_found_too(
+    admin_client: TestClient, session: Session, fake: FakePlaid
+) -> None:
+    connection = imported(admin_client)
+    card = by_name(accounts_of(session, connection["id"]))["Plaid Credit Card"]
+    item = fake.item("platypus")
+    shopping = category(session, "Shopping")
+    # Plaid names it Starbucks, and the bank calls it STARBUCKS #1000, which a statement file
+    # would call it too; so one automation can sort what comes either way.
+    admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Coffee runs",
+            "payees": ["starbucks #"],
+            "match": "contains",
+            "category_id": str(shopping),
+            "apply_to": "all",
+        },
+    )
+    fake.add_transaction(
+        item.item_id, str(card.external_id), "6.10", "Starbucks", "FOOD_AND_DRINK_COFFEE"
+    )
+
+    sync(admin_client, connection)
+
+    rows = [row for row in transactions_in(session, card) if row.payee == "Starbucks"]
+    assert len(rows) == 2
+    assert {row.category_id for row in rows} == {shopping}

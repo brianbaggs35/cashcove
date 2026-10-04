@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import ApiError
 from app.finance.accounts import get_account, importable_account, move_balance
-from app.finance.subscriptions import apply_subscription_rule
+from app.finance.automations import RuleBook
 from app.imports.csvfile import CsvFile, signature
 from app.imports.files import FileProblem, Statement, decode, sniff
 from app.imports.matching import Reviewed, review
@@ -371,6 +371,7 @@ def import_file(
     )
     db.add(record)
     db.flush()
+    rules = RuleBook.load(db)
     for item in chosen:
         row = item.row
         transaction = Transaction(
@@ -385,7 +386,7 @@ def import_file(
             external_id=row.external_id,
             import_id=record.id,
         )
-        apply_subscription_rule(db, transaction)
+        rules.sort(transaction)
         db.add(transaction)
     if change:
         account.balance += change

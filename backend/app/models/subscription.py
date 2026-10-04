@@ -4,15 +4,11 @@ import uuid
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
-from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Date, ForeignKey, String, Uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, Money, TimestampMixin, enum_type
-
-if TYPE_CHECKING:
-    from app.models.budget import Budget
 
 
 class PaymentFrequency(StrEnum):
@@ -31,7 +27,10 @@ class Subscription(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(120))
     # Matching is scoped to an account and an exact, case-insensitive payee.
     payee: Mapped[str] = mapped_column(String(160), index=True)
+    # What a payment is expected to be. When it changes every time, like a utility bill, this is
+    # only an estimate that the average of recent payments replaces once there are some.
     amount: Mapped[Decimal] = mapped_column(Money())
+    amount_varies: Mapped[bool] = mapped_column(Boolean(), default=False)
     frequency: Mapped[PaymentFrequency] = mapped_column(
         enum_type(PaymentFrequency, "payment_frequency")
     )
@@ -44,7 +43,3 @@ class Subscription(TimestampMixin, Base):
     )
     notes: Mapped[str | None] = mapped_column(String(1000))
     active: Mapped[bool] = mapped_column(Boolean(), default=True)
-    budgets: Mapped[list["Budget"]] = relationship(
-        secondary="budget_subscriptions",
-        back_populates="subscriptions",
-    )

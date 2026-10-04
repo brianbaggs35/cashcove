@@ -1,108 +1,44 @@
 import datetime as dt
 import uuid
-from collections.abc import Callable
+from dataclasses import dataclass
 from decimal import Decimal
-from functools import partial
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth.deps import ApiError
-from app.config import Settings
-from app.finance.budget import (
-    add_months,
-    amount_at,
-    link_budget_subscription,
-    link_budget_transaction,
-    monthly_budgeted,
-    months_between,
-    year_start,
-)
 from app.models import (
     Account,
     AppSettings,
+    Automation,
+    AutomationScope,
     Budget,
     BudgetAmount,
+    BudgetExclusion,
+    BudgetLink,
     BudgetPeriod,
     Category,
-    CategoryGroup,
     CategoryKind,
     PaymentFrequency,
     Subscription,
     Transaction,
-    budget_subscriptions,
-    budget_transactions,
 )
 from app.models.app_settings import SINGLETON_ID
-from tests.finance import add_account, add_category, add_group, add_transaction
+from tests.finance import (
+    TODAY,
+    add_account,
+    add_category,
+    add_group,
+    add_transaction,
+    linked_account,
+)
 from tests.helpers import error
 from tests.rates import FakeRates
 
-SEPTEMBER = dt.date(2026, 9, 1)
-
-
-def day(month: str, number: int = 15) -> dt.date:
-    year, month_number = month.split("-")
-    return dt.date(int(year), int(month_number), number)
-
-
-@pytest.fixture
-def checking(session: Session) -> Account:
-    return add_account(session)
-
-
-@pytest.fixture
-def categories(session: Session) -> dict[str, Category]:
-    """Income, two groups of spending, and transfers, which aren't budgeted."""
-    income = add_group(session, "Income", CategoryKind.INCOME)
-    food = add_group(session, "Food & drink")
-    lifestyle = add_group(session, "lifestyle")
-    transfers = add_group(session, "Transfers", CategoryKind.TRANSFER)
-    return {
-        name: add_category(session, name, group, emoji)
-        for name, group, emoji in (
-            ("Paycheck", income, "💼"),
-            ("Groceries", food, "🛒"),
-            ("restaurants", food, "🍽️"),
-            ("Travel", lifestyle, "✈️"),
-            ("Credit card payments", transfers, "💳"),
-        )
-    }
-
-
-def spend(
-    session: Session, account: Account, category: Category | None, amount: str, when: dt.date
-) -> None:
-    add_transaction(session, account, amount, date=when, category_id=category and category.id)
-
-
-def budget(
-    session: Session,
-    category: Category,
-    amounts: dict[str, str | None],
-    *,
-    period: BudgetPeriod = BudgetPeriod.MONTHLY,
-    rollover_since: str | None = None,
-) -> Budget:
-    """A budget with amounts starting in the months given as "2026-09"."""
-    row = Budget(
-        category_id=category.id,
-        period=period,
-        rollover_since=day(rollover_since, 1) if rollover_since else None,
-        amounts=[
-            BudgetAmount(
-                starts_on=day(month, 1), amount=None if amount is None else Decimal(amount)
-            )
-            for month, amount in amounts.items()
-        ],
-    )
-    session.add(row)
-    session.commit()
-    return row
+SEPTEMBER = "2026-09-01"
+IN_SEPTEMBER = dt.date(2026, 9, 1)
 
 
 def set_general(session: Session, **general: Any) -> None:
@@ -110,1639 +46,1486 @@ def set_general(session: Session, **general: Any) -> None:
     session.commit()
 
 
-def get_month(client: TestClient, month: str = "2026-09") -> dict[str, Any]:
-    response = client.get(f"/api/budget/months/{month}")
-    assert response.status_code == 200, response.text
-    body: dict[str, Any] = response.json()
-    return body
+def day(days: int) -> dt.date:
+    """A day in September 2026, counted from its 1st."""
+    return IN_SEPTEMBER + dt.timedelta(days=days - 1)
 
 
-def lines(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {line["name"]: line for group in body["groups"] for line in group["categories"]}
-
-
-def stored_amounts(session: Session, category: Category) -> dict[str, str | None]:
-    """A category's budget amounts as they're stored, by the month each starts."""
-    session.expire_all()
-    rows = session.scalars(
-        select(BudgetAmount)
-        .join(Budget)
-        .where(Budget.category_id == category.id)
-        .order_by(BudgetAmount.starts_on)
-    )
-    return {
-        f"{row.starts_on:%Y-%m}": None if row.amount is None else str(row.amount) for row in rows
+def make_budget(client: TestClient, **changes: Any) -> dict[str, Any]:
+    body = {
+        "name": "Monthly",
+        "period": "monthly",
+        "amount": "2000.00",
+        "today": TODAY.isoformat(),
+        **changes,
     }
+    response = client.post("/api/budgets", json=body)
+    assert response.status_code == 201, response.text
+    result: dict[str, Any] = response.json()
+    return result
 
 
-def stored_budget(session: Session, category: Category) -> Budget | None:
-    session.expire_all()
-    return session.scalar(select(Budget).where(Budget.category_id == category.id))
-
-
-def put_budget(client: TestClient, category: Category, **body: Any) -> dict[str, Any]:
-    response = client.put(f"/api/budget/categories/{category.id}", json=body)
+def view(
+    client: TestClient, budget: dict[str, Any], on: str | None = None, **params: Any
+) -> dict[str, Any]:
+    query = {"today": TODAY.isoformat(), **({"on": on} if on else {}), **params}
+    response = client.get(f"/api/budgets/{budget['id']}/period", params=query)
     assert response.status_code == 200, response.text
     result: dict[str, Any] = response.json()
     return result
 
 
-# ---- Months --------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("month", "count", "expected"),
-    [
-        (dt.date(2026, 9, 1), 0, dt.date(2026, 9, 1)),
-        (dt.date(2026, 9, 1), 4, dt.date(2027, 1, 1)),
-        (dt.date(2026, 1, 1), -1, dt.date(2025, 12, 1)),
-        (dt.date(2026, 3, 1), -26, dt.date(2024, 1, 1)),
-    ],
-)
-def test_adding_months_crosses_years(month: dt.date, count: int, expected: dt.date) -> None:
-    assert add_months(month, count) == expected
-    assert months_between(month, expected) == count
-
-
-@pytest.mark.parametrize(
-    ("month", "first_month", "expected"),
-    [
-        (dt.date(2026, 9, 1), 1, dt.date(2026, 1, 1)),
-        (dt.date(2026, 9, 1), 7, dt.date(2026, 7, 1)),
-        (dt.date(2026, 3, 1), 7, dt.date(2025, 7, 1)),
-        (dt.date(2026, 12, 1), 12, dt.date(2026, 12, 1)),
-    ],
-)
-def test_budget_years_start_in_the_chosen_month(
-    month: dt.date, first_month: int, expected: dt.date
-) -> None:
-    assert year_start(month, first_month) == expected
-
-
-def test_the_latest_amount_to_start_applies_whatever_the_order() -> None:
-    amounts = [
-        BudgetAmount(starts_on=dt.date(2026, 9, 1), amount=Decimal("650.00")),
-        BudgetAmount(starts_on=dt.date(2026, 6, 1), amount=Decimal("600.00")),
-    ]
-
-    assert amount_at(amounts, dt.date(2026, 5, 1)) is None
-    assert amount_at(amounts, dt.date(2026, 8, 1)) == Decimal("600.00")
-    assert amount_at(amounts, dt.date(2027, 1, 1)) == Decimal("650.00")
-
-
-# ---- A month's budget ----------------------------------------------------------------------
-
-
-def test_signing_in_is_needed_to_see_the_budget(client: TestClient) -> None:
-    assert error(client.get("/api/budget/months/2026-09")) == "not_signed_in"
-    assert error(client.get("/api/budget/years/2026")) == "not_signed_in"
-
-
-@pytest.mark.parametrize(
-    "month", ["2026-13", "2026-9", "26-09", "1969-12", "2200-01", "2026-09-01"]
-)
-def test_months_are_checked(viewer_client: TestClient, month: str) -> None:
-    response = viewer_client.get(f"/api/budget/months/{month}")
-
-    assert response.status_code == 422
-    assert "like 2026-09" in response.text
-
-
-def test_a_household_without_categories_has_nothing_budgeted(viewer_client: TestClient) -> None:
-    body = get_month(viewer_client)
-
-    assert body == {
-        "month": "2026-09",
-        "currency": "USD",
-        "year": 2026,
-        "year_start": "2026-01",
-        "year_end": "2026-12",
-        "income": {"budgeted": "0.00", "carried": "0.00", "actual": "0.00"},
-        "spending": {"budgeted": "0.00", "carried": "0.00", "actual": "0.00"},
-        "groups": [],
-        "uncategorized": {"received": "0.00", "spent": "0.00", "count": 0},
-        "converted_currencies": [],
-        "unconverted_currencies": [],
-    }
-
-
-def test_everyone_sees_income_then_spending_and_no_transfers(
-    viewer_client: TestClient, categories: dict[str, Category]
-) -> None:
-    body = get_month(viewer_client)
-
-    assert [(group["name"], group["kind"]) for group in body["groups"]] == [
-        ("Income", "income"),
-        ("Food & drink", "expense"),
-        ("lifestyle", "expense"),
-    ]
-    assert [line["name"] for line in body["groups"][1]["categories"]] == [
-        "Groceries",
-        "restaurants",
-    ]
-    assert body["groups"][1]["categories"][0] == {
-        "category_id": str(categories["Groceries"].id),
-        "name": "Groceries",
-        "emoji": "🛒",
-        "period": None,
-        "amount": None,
-        "budgeted": "0.00",
-        "rollover": False,
-        "carried": "0.00",
-        "actual": "0.00",
-        "year_to_date": None,
-        "average": "0.00",
-        "count": 0,
-    }
-
-
-def test_the_month_counts_what_was_spent_and_received(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    groceries, paycheck = categories["Groceries"], categories["Paycheck"]
-    spend(session, checking, groceries, "-84.12", day("2026-09", 1))
-    spend(session, checking, groceries, "-40.00", day("2026-09", 30))
-    # A refund takes off what was spent.
-    spend(session, checking, groceries, "4.12", day("2026-09", 20))
-    spend(session, checking, paycheck, "2400.00", day("2026-09", 13))
-    add_transaction(
-        session, checking, "-18.00", date=day("2026-09", 2), category_id=groceries.id, pending=True
+def link(
+    client: TestClient, budget: dict[str, Any], kind: str, *transactions: Transaction
+) -> dict[str, Any]:
+    response = client.post(
+        f"/api/budgets/{budget['id']}/transactions",
+        json={"ids": [str(item.id) for item in transactions], "kind": kind},
     )
-    # Other months, transfers and uncategorized transactions don't count toward categories.
-    spend(session, checking, groceries, "-99.00", day("2026-08", 31))
-    spend(session, checking, groceries, "-99.00", day("2026-10", 1))
-    spend(session, checking, categories["Credit card payments"], "-300.00", day("2026-09"))
-    spend(session, checking, None, "-45.00", day("2026-09", 3))
-    spend(session, checking, None, "12.50", day("2026-09", 4))
-    spend(session, checking, None, "-5.00", day("2026-09", 5))
-
-    body = get_month(viewer_client)
-
-    assert lines(body)["Groceries"]["actual"] == "138.00"
-    assert lines(body)["Groceries"]["count"] == 4
-    assert lines(body)["Paycheck"]["actual"] == "2400.00"
-    assert lines(body)["restaurants"]["actual"] == "0.00"
-    assert body["uncategorized"] == {"received": "12.50", "spent": "50.00", "count": 3}
-    # Uncategorized transactions count toward what came in and went out, but no budget.
-    assert body["income"]["actual"] == "2412.50"
-    assert body["spending"]["actual"] == "188.00"
-
-
-def test_accounts_in_other_currencies_count_at_each_days_rate(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-    rates: FakeRates,
-) -> None:
-    euros = add_account(session, "Paris account", currency="EUR")
-    pounds = add_account(session, "London account", currency="GBP")
-    groceries = categories["Groceries"]
-    rates.rate("EUR", "1.10")
-    rates.rate("GBP", {day("2026-09"): "1.30", day("2026-08"): "1.20"})
-    spend(session, checking, groceries, "-10.00", day("2026-09"))
-    spend(session, euros, groceries, "-20.00", day("2026-09"))
-    spend(session, euros, groceries, "5.00", day("2026-09", 20))
-    spend(session, pounds, None, "-30.00", day("2026-09"))
-    spend(session, pounds, None, "-30.00", day("2026-08"))
-
-    body = get_month(viewer_client)
-
-    # 20 euros out and 5 back in, at 1.10, and the 30 pounds at September's 1.30.
-    assert lines(body)["Groceries"]["actual"] == "26.50"
-    assert lines(body)["Groceries"]["count"] == 3
-    assert body["uncategorized"] == {"received": "0.00", "spent": "39.00", "count": 1}
-    assert body["spending"]["actual"] == "65.50"
-    assert (body["converted_currencies"], body["unconverted_currencies"]) == (["EUR", "GBP"], [])
-    august = get_month(viewer_client, "2026-08")
-    assert august["uncategorized"]["spent"] == "36.00"
-    assert (august["converted_currencies"], august["unconverted_currencies"]) == (["GBP"], [])
-
-
-def test_money_that_cant_be_converted_is_left_out_and_said_so(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-    rates: FakeRates,
-) -> None:
-    pounds = add_account(session, "London account", currency="GBP")
-    francs = add_account(session, "Zurich account", currency="CHF")
-    groceries = categories["Groceries"]
-    # The server only has pounds from the 10th, and doesn't know the franc.
-    rates.rate("GBP", {day("2026-09", 10): "1.30"})
-    spend(session, checking, groceries, "-10.00", day("2026-09"))
-    spend(session, pounds, groceries, "-20.00", day("2026-09", 5))
-    spend(session, francs, groceries, "-30.00", day("2026-09"))
-
-    body = get_month(viewer_client)
-
-    assert lines(body)["Groceries"]["actual"] == "10.00"
-    assert lines(body)["Groceries"]["count"] == 1
-    assert (body["converted_currencies"], body["unconverted_currencies"]) == ([], ["CHF", "GBP"])
-
-
-def test_without_a_rate_server_other_currencies_are_left_out(
-    viewer_client: TestClient,
-    session: Session,
-    settings: Settings,
-    checking: Account,
-    categories: dict[str, Category],
-    rates: FakeRates,
-) -> None:
-    settings.exchange_rate_url = ""
-    euros = add_account(session, "Paris account", currency="EUR")
-    rates.rate("EUR", "1.10")
-    spend(session, euros, categories["Groceries"], "-20.00", day("2026-09"))
-
-    body = get_month(viewer_client)
-
-    assert lines(body)["Groceries"]["actual"] == "0.00"
-    assert (body["converted_currencies"], body["unconverted_currencies"]) == ([], ["EUR"])
-    assert rates.requests == []
-
-
-def test_foreign_accounts_can_scope_a_budget_and_have_their_transactions_linked(
-    admin_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-    rates: FakeRates,
-) -> None:
-    paycheck, groceries = categories["Paycheck"], categories["Groceries"]
-    euros = add_account(session, "Paris account", currency="EUR")
-    rates.rate("EUR", "1.10")
-    budget(session, paycheck, {"2026-01": "4800.00"})
-    spend(session, checking, groceries, "-10.00", day("2026-09"))
-    spend(session, euros, groceries, "-20.00", day("2026-09"))
-    income = add_transaction(session, euros, "100.00", date=day("2026-09"))
-    expense = add_transaction(session, euros, "-40.00", date=day("2026-09", 20))
-
-    scoped = put_budget(
-        admin_client,
-        groceries,
-        month="2026-09",
-        amount="500",
-        account_ids=[str(euros.id)],
-    )
-    linked_income = admin_client.put(
-        f"/api/budget/categories/{paycheck.id}/transactions/{income.id}"
-    )
-    linked_expense = admin_client.put(
-        f"/api/budget/categories/{groceries.id}/transactions/{expense.id}"
-    )
-    body = get_month(admin_client)
-
-    assert lines(scoped)["Groceries"]["actual"] == "22.00"
-    assert (linked_income.status_code, linked_expense.status_code) == (204, 204)
-    # Only the Paris account counts toward Groceries: 20 and 40 euros, at 1.10. Paychecks
-    # include the 100 euros linked to them.
-    assert lines(body)["Groceries"]["actual"] == "66.00"
-    assert lines(body)["Paycheck"]["actual"] == "110.00"
-    assert body["spending"]["actual"] == "76.00"
-
-
-def test_a_categorys_history_converts_other_currencies(
-    viewer_client: TestClient,
-    session: Session,
-    categories: dict[str, Category],
-    rates: FakeRates,
-) -> None:
-    euros = add_account(session, "Paris account", currency="EUR")
-    groceries = categories["Groceries"]
-    rates.rate("EUR", "1.10")
-    spend(session, euros, groceries, "-20.00", day("2026-09"))
-
-    response = viewer_client.get(
-        f"/api/budget/categories/{groceries.id}/history", params={"month": "2026-09"}
-    )
-
-    assert response.status_code == 200
-    assert response.json()["months"][-1] == {
-        "month": "2026-09",
-        "budgeted": None,
-        "actual": "22.00",
-    }
-
-
-def test_weekly_and_biweekly_budgets_count_cycles_in_each_month_and_year(
-    admin_client: TestClient,
-    session: Session,
-    categories: dict[str, Category],
-) -> None:
-    groceries, restaurants = categories["Groceries"], categories["restaurants"]
-    put_budget(
-        admin_client,
-        groceries,
-        month="2026-09",
-        period="weekly",
-        amount="125",
-        cycle_anchor="2026-09-01",
-    )
-    put_budget(
-        admin_client,
-        restaurants,
-        month="2026-09",
-        period="biweekly",
-        amount="100",
-        cycle_anchor="2026-09-15",
-    )
-
-    september = get_month(admin_client)
-    year = admin_client.get("/api/budget/years/2026").json()
-
-    assert lines(september)["Groceries"]["budgeted"] == "625.00"
-    assert lines(september)["restaurants"]["budgeted"] == "200.00"
-    assert september["spending"]["budgeted"] == "825.00"
-    assert year["spending"]["budgeted"] == "3050.00"
-    stored = stored_budget(session, groceries)
-    assert stored is not None
-    assert stored.cycle_anchor == day("2026-09", 1)
-
-    put_budget(
-        admin_client,
-        groceries,
-        month="2026-09",
-        period="weekly",
-        amount="125",
-        cycle_anchor="2026-09-08",
-    )
-    assert lines(get_month(admin_client))["Groceries"]["budgeted"] == "500.00"
-    updated = stored_budget(session, groceries)
-    assert updated is not None
-    assert updated.cycle_anchor == day("2026-09", 8)
-
-    future = categories["Travel"]
-    put_budget(
-        admin_client,
-        future,
-        month="2026-09",
-        period="weekly",
-        amount="10",
-        cycle_anchor="2026-10-01",
-    )
-    assert lines(get_month(admin_client))["Travel"]["budgeted"] == "0.00"
-
-
-def test_weekly_budgets_without_a_cycle_anchor_are_rejected() -> None:
-    malformed = Budget(
-        period=BudgetPeriod.WEEKLY,
-        amounts=[BudgetAmount(starts_on=dt.date(2026, 9, 1), amount=Decimal("10.00"))],
-    )
-
-    month = dt.date(2026, 9, 1)
-
-    with pytest.raises(RuntimeError, match="must have a cycle anchor"):
-        monthly_budgeted(malformed, month)
-
-
-def test_budget_account_scope_filters_category_progress_but_not_household_actuals(
-    admin_client: TestClient,
-    checking: Account,
-    session: Session,
-    categories: dict[str, Category],
-) -> None:
-    savings = add_account(session, "Savings")
-    groceries = categories["Groceries"]
-    spend(session, checking, groceries, "-40.00", day("2026-09"))
-    spend(session, savings, groceries, "-60.00", day("2026-09"))
-
-    put_budget(
-        admin_client,
-        groceries,
-        month="2026-09",
-        amount="500",
-        account_ids=[str(checking.id)],
-    )
-    body = get_month(admin_client)
-
-    assert lines(body)["Groceries"]["actual"] == "40.00"
-    assert body["spending"]["actual"] == "100.00"
-    configurations = admin_client.get(
-        "/api/budget/configurations", params={"month": "2026-09"}
-    ).json()
-    assert configurations[0]["account_ids"] == [str(checking.id)]
-
-    put_budget(
-        admin_client,
-        groceries,
-        month="2026-09",
-        amount="500",
-        account_ids=[],
-    )
-    out_of_scope_transaction = session.scalar(
-        select(Transaction).where(
-            Transaction.account_id == savings.id,
-            Transaction.category_id == groceries.id,
-        )
-    )
-    assert out_of_scope_transaction is not None
-    admin_client.put(
-        f"/api/budget/categories/{groceries.id}/transactions/{out_of_scope_transaction.id}"
-    )
-    invalid_scope = admin_client.put(
-        f"/api/budget/categories/{groceries.id}",
-        json={
-            "month": "2026-09",
-            "amount": "500",
-            "account_ids": [str(checking.id)],
-        },
-    )
-    assert error(invalid_scope) == "linked_transaction_outside_accounts"
-
-
-def test_account_scopes_reject_missing_and_duplicate_accounts(
-    admin_client: TestClient,
-    session: Session,
-    categories: dict[str, Category],
-) -> None:
-    euros = add_account(session, "Paris account", currency="EUR")
-    groceries = categories["Groceries"]
-
-    missing = admin_client.put(
-        f"/api/budget/categories/{groceries.id}",
-        json={
-            "month": "2026-09",
-            "amount": "500",
-            "account_ids": [str(uuid.uuid4())],
-        },
-    )
-    duplicate = admin_client.put(
-        f"/api/budget/categories/{groceries.id}",
-        json={
-            "month": "2026-09",
-            "amount": "500",
-            "account_ids": [str(euros.id), str(euros.id)],
-        },
-    )
-
-    assert error(missing) == "unknown_account"
-    assert duplicate.status_code == 422
-
-
-def test_linked_income_transactions_are_idempotently_attributed_and_unlinked(
-    admin_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    paycheck = categories["Paycheck"]
-    budget(session, paycheck, {"2026-01": "4800.00"})
-    transaction = add_transaction(
-        session, checking, "2400.00", date=day("2026-09"), category_id=None
-    )
-
-    linked = admin_client.put(f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}")
-    repeated = admin_client.put(
-        f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}"
-    )
-    body = get_month(admin_client)
-    configurations = admin_client.get(
-        "/api/budget/configurations", params={"month": "2026-09"}
-    ).json()
-
-    assert linked.status_code == repeated.status_code == 204
-    assert lines(body)["Paycheck"]["actual"] == "2400.00"
-    assert body["income"]["actual"] == "2400.00"
-    assert body["uncategorized"]["received"] == "0.00"
-    assert configurations[0]["linked_transaction_ids"] == [str(transaction.id)]
-
-    unlinked = admin_client.delete(
-        f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}"
-    )
-    repeated_unlink = admin_client.delete(
-        f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}"
-    )
-    unlinked_body = get_month(admin_client)
-
-    assert unlinked.status_code == repeated_unlink.status_code == 204
-    assert unlinked_body["income"]["actual"] == "2400.00"
-    assert unlinked_body["uncategorized"]["received"] == "2400.00"
-
-
-def test_linked_transactions_must_match_budget_direction_and_scope(
-    admin_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    paycheck, groceries = categories["Paycheck"], categories["Groceries"]
-    savings = add_account(session, "Savings")
-    budget(session, paycheck, {"2026-01": "4800.00"})
-    budget(session, groceries, {"2026-01": "500.00"})
-    income = add_transaction(session, checking, "100.00", date=day("2026-09"))
-    expense = add_transaction(session, checking, "-100.00", date=day("2026-09"))
-    put_budget(
-        admin_client,
-        groceries,
-        month="2026-09",
-        amount="500",
-        account_ids=[str(checking.id)],
-    )
-    out_of_scope = add_transaction(session, savings, "-25.00", date=day("2026-09"))
-
-    wrong_income_sign = admin_client.put(
-        f"/api/budget/categories/{paycheck.id}/transactions/{expense.id}"
-    )
-    wrong_expense_sign = admin_client.put(
-        f"/api/budget/categories/{groceries.id}/transactions/{income.id}"
-    )
-    wrong_account = admin_client.put(
-        f"/api/budget/categories/{groceries.id}/transactions/{out_of_scope.id}"
-    )
-
-    assert error(wrong_income_sign) == "budget_transaction_direction"
-    assert error(wrong_expense_sign) == "budget_transaction_direction"
-    assert error(wrong_account) == "budget_account"
-
-
-def test_budget_transaction_links_are_exclusive_and_require_an_existing_budget(
-    admin_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    paycheck = categories["Paycheck"]
-    other_income = add_category(session, "Side income", paycheck.group)
-    budget(session, paycheck, {"2026-01": "4800.00"})
-    transaction = add_transaction(session, checking, "100.00", date=day("2026-09"))
-
-    missing_budget = admin_client.put(
-        f"/api/budget/categories/{other_income.id}/transactions/{transaction.id}"
-    )
-    missing_transaction = admin_client.put(
-        f"/api/budget/categories/{paycheck.id}/transactions/{uuid.uuid4()}"
-    )
-    assert error(missing_budget) == "budget_not_found"
-    assert error(missing_transaction) == "transaction_not_found"
-    budget(session, other_income, {"2026-01": "100.00"})
-
-    first_link = admin_client.put(
-        f"/api/budget/categories/{paycheck.id}/transactions/{transaction.id}"
-    )
-    assert first_link.status_code == 204
-    stored_link = session.scalar(
-        select(budget_transactions.c.budget_id).where(
-            budget_transactions.c.transaction_id == transaction.id
-        )
-    )
-    paycheck_budget = stored_budget(session, paycheck)
-    assert paycheck_budget is not None
-    assert stored_link == paycheck_budget.id
-    conflict = admin_client.put(
-        f"/api/budget/categories/{other_income.id}/transactions/{transaction.id}"
-    )
-    assert conflict.status_code == 409, conflict.text
-    assert error(conflict) == "transaction_already_linked"
-
-
-@pytest.mark.parametrize("link_kind", ["transaction", "subscription"])
-def test_racing_links_cannot_reassign_an_already_linked_record(
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-    monkeypatch: pytest.MonkeyPatch,
-    link_kind: str,
-) -> None:
-    groceries, restaurants = categories["Groceries"], categories["restaurants"]
-    budget(session, groceries, {"2026-01": "500.00"})
-    budget(session, restaurants, {"2026-01": "150.00"})
-    transaction = add_transaction(session, checking, "-25.00", date=day("2026-09"))
-    subscription = Subscription(
-        name="Internet",
-        payee="Internet provider",
-        amount=Decimal("25.00"),
-        frequency=PaymentFrequency.MONTHLY,
-        account_id=checking.id,
-        next_due_date=day("2026-09", 25),
-    )
-    session.add(subscription)
-    session.commit()
-
-    if link_kind == "transaction":
-        table = budget_transactions
-        record_id = transaction.id
-        key = "transaction_id"
-        competing_budget = stored_budget(session, restaurants)
-        operation: Callable[[], None] = partial(
-            link_budget_transaction, session, groceries.id, transaction.id
-        )
-    else:
-        table = budget_subscriptions
-        record_id = subscription.id
-        key = "subscription_id"
-        competing_budget = stored_budget(session, restaurants)
-        operation = partial(link_budget_subscription, session, groceries.id, subscription.id)
-    assert competing_budget is not None
-    execute = session.execute
-    inserted = False
-
-    def race(statement: Any, *args: Any, **kwargs: Any) -> Any:
-        nonlocal inserted
-        if not inserted and getattr(statement, "table", None) is table:
-            inserted = True
-            execute(
-                postgres_insert(table)
-                .values({key: record_id, "budget_id": competing_budget.id})
-                .on_conflict_do_nothing(index_elements=[key])
-            )
-        return execute(statement, *args, **kwargs)
-
-    monkeypatch.setattr(session, "execute", race)
-    with pytest.raises(ApiError) as caught:
-        operation()
-    assert caught.value.status_code == 409
-    assert "already linked to another budget" in str(caught.value.detail)
-    session.rollback()
-
-
-def test_budget_configuration_and_delete_are_household_scoped_and_idempotent(
-    admin_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    groceries = categories["Groceries"]
-    transaction = add_transaction(
-        session, checking, "-5.00", date=day("2026-09"), category_id=groceries.id
-    )
-    put_budget(
-        admin_client,
-        groceries,
-        month="2026-09",
-        amount="500",
-        account_ids=[str(checking.id)],
-    )
-    linked = admin_client.put(
-        f"/api/budget/categories/{groceries.id}/transactions/{transaction.id}"
-    )
-    assert linked.status_code == 204
-
-    first = admin_client.delete(f"/api/budget/categories/{groceries.id}")
-    second = admin_client.delete(f"/api/budget/categories/{groceries.id}")
-    configurations = admin_client.get(
-        "/api/budget/configurations", params={"month": "2026-09"}
-    ).json()
-
-    assert first.status_code == second.status_code == 204
-    assert configurations == []
-    assert stored_budget(session, groceries) is None
-    missing_transaction = admin_client.delete(
-        f"/api/budget/categories/{categories['restaurants'].id}/transactions/{uuid.uuid4()}"
-    )
-    missing_subscription = admin_client.delete(
-        f"/api/budget/categories/{categories['restaurants'].id}/subscriptions/{uuid.uuid4()}"
-    )
-    assert error(missing_transaction) == "budget_not_found"
-    assert error(missing_subscription) == "budget_not_found"
-
-
-def test_linked_subscriptions_route_bill_payments_into_a_spending_budget(
-    admin_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    groceries, restaurants = categories["Groceries"], categories["restaurants"]
-    budget(session, groceries, {"2026-01": "500.00"})
-    budget(session, restaurants, {"2026-01": "150.00"})
-    subscription = Subscription(
-        name="Electricity",
-        payee="City Power",
-        amount=Decimal("96.40"),
-        frequency=PaymentFrequency.MONTHLY,
-        account_id=checking.id,
-        next_due_date=day("2026-09", 28),
-    )
-    session.add(subscription)
-    session.commit()
-    payment = add_transaction(
-        session,
-        checking,
-        "-96.40",
-        "City Power",
-        date=day("2026-09", 8),
-        subscription_id=subscription.id,
-        category_id=None,
-    )
-
-    link = admin_client.put(
-        f"/api/budget/categories/{groceries.id}/subscriptions/{subscription.id}"
-    )
-    repeat = admin_client.put(
-        f"/api/budget/categories/{groceries.id}/subscriptions/{subscription.id}"
-    )
-    body = get_month(admin_client)
-    configs = admin_client.get("/api/budget/configurations", params={"month": "2026-09"}).json()
-
-    assert link.status_code == repeat.status_code == 204
-    assert lines(body)["Groceries"]["actual"] == "96.40"
-    assert body["spending"]["actual"] == "96.40"
-    assert body["uncategorized"]["spent"] == "0.00"
-    grocery_config = next(item for item in configs if item["category_id"] == str(groceries.id))
-    assert grocery_config["linked_subscription_ids"] == [str(subscription.id)]
-
-    conflict = admin_client.put(
-        f"/api/budget/categories/{restaurants.id}/subscriptions/{subscription.id}"
-    )
-    assert error(conflict) == "subscription_already_linked"
-
-    removed = admin_client.delete(
-        f"/api/budget/categories/{groceries.id}/subscriptions/{subscription.id}"
-    )
-    repeated_remove = admin_client.delete(
-        f"/api/budget/categories/{groceries.id}/subscriptions/{subscription.id}"
-    )
-    unlinked = get_month(admin_client)
-    assert removed.status_code == repeated_remove.status_code == 204
-    assert lines(unlinked)["Groceries"]["actual"] == "0.00"
-    assert unlinked["uncategorized"]["spent"] == "96.40"
-    assert session.get(Transaction, payment.id) is not None
-
-
-def test_subscription_links_validate_budget_kind_account_and_access(
-    admin_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    paycheck, groceries = categories["Paycheck"], categories["Groceries"]
-    savings = add_account(session, "Savings")
-    budget(session, paycheck, {"2026-01": "4800.00"})
-    budget(session, groceries, {"2026-01": "500.00"})
-
-    def subscription(account: Account, name: str) -> Subscription:
-        result = Subscription(
-            name=name,
-            payee=name,
-            amount=Decimal("25.00"),
-            frequency=PaymentFrequency.MONTHLY,
-            account_id=account.id,
-            next_due_date=day("2026-09", 25),
-        )
-        session.add(result)
-        session.commit()
-        return result
-
-    from_savings = subscription(savings, "Savings bill")
-    in_scope = subscription(checking, "Internet bill")
-    put_budget(
-        admin_client,
-        groceries,
-        month="2026-09",
-        amount="500",
-        account_ids=[str(checking.id)],
-    )
-
-    income_budget = admin_client.put(
-        f"/api/budget/categories/{paycheck.id}/subscriptions/{in_scope.id}"
-    )
-    missing_budget = admin_client.put(
-        f"/api/budget/categories/{categories['restaurants'].id}/subscriptions/{in_scope.id}"
-    )
-    missing_subscription = admin_client.put(
-        f"/api/budget/categories/{groceries.id}/subscriptions/{uuid.uuid4()}"
-    )
-    wrong_account = admin_client.put(
-        f"/api/budget/categories/{groceries.id}/subscriptions/{from_savings.id}"
-    )
-    assert error(income_budget) == "subscription_not_expense"
-    assert error(missing_budget) == "budget_not_found"
-    assert error(missing_subscription) == "subscription_not_found"
-    assert error(wrong_account) == "budget_account"
-    linked = admin_client.put(f"/api/budget/categories/{groceries.id}/subscriptions/{in_scope.id}")
-    account_change = admin_client.put(
-        f"/api/budget/categories/{groceries.id}",
-        json={
-            "month": "2026-09",
-            "period": "monthly",
-            "amount": "500",
-            "account_ids": [str(savings.id)],
-        },
-    )
-    assert linked.status_code == 204
-    assert error(account_change) == "linked_subscription_outside_accounts"
-
-
-def test_viewers_cannot_delete_or_link_budgets(
-    viewer_client: TestClient,
-) -> None:
-    category_id, transaction_id, subscription_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-
-    removed = viewer_client.delete(f"/api/budget/categories/{category_id}")
-    linked_transaction = viewer_client.put(
-        f"/api/budget/categories/{category_id}/transactions/{transaction_id}"
-    )
-    linked_subscription = viewer_client.put(
-        f"/api/budget/categories/{category_id}/subscriptions/{subscription_id}"
-    )
-
-    assert error(removed) == "admin_only"
-    assert error(linked_transaction) == "admin_only"
-    assert error(linked_subscription) == "admin_only"
-
-    missing_transaction = viewer_client.delete(
-        f"/api/budget/categories/{category_id}/transactions/{transaction_id}"
-    )
-    missing_subscription = viewer_client.delete(
-        f"/api/budget/categories/{category_id}/subscriptions/{subscription_id}"
-    )
-    assert error(missing_transaction) == "admin_only"
-    assert error(missing_subscription) == "admin_only"
-
-
-def test_the_households_currency_comes_from_its_settings(
-    viewer_client: TestClient,
-    session: Session,
-    categories: dict[str, Category],
-    rates: FakeRates,
-) -> None:
-    set_general(session, currency="EUR")
-    rates.rate("USD", "0.90")
-    euros = add_account(session, "Paris account", currency="EUR")
-    dollars = add_account(session, "Chicago account")
-    spend(session, euros, categories["Groceries"], "-20.00", day("2026-09"))
-    spend(session, dollars, categories["Groceries"], "-10.00", day("2026-09"))
-
-    body = get_month(viewer_client)
-
-    assert body["currency"] == "EUR"
-    assert lines(body)["Groceries"]["actual"] == "29.00"
-    assert body["converted_currencies"] == ["USD"]
-    assert "quotes=EUR" in str(rates.requests[0].url)
-
-
-def test_monthly_budgets_add_up_by_kind(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    budget(session, categories["Groceries"], {"2026-06": "600.00", "2026-09": "650.00"})
-    budget(session, categories["restaurants"], {"2026-01": "150.00"})
-    budget(session, categories["Paycheck"], {"2026-01": "4800.00"})
-    spend(session, checking, categories["restaurants"], "-60.00", day("2026-09"))
-
-    body = get_month(viewer_client)
-
-    assert lines(body)["Groceries"]["period"] == "monthly"
-    assert lines(body)["Groceries"]["amount"] == "650.00"
-    assert lines(body)["restaurants"]["amount"] == "150.00"
-    assert lines(body)["Paycheck"]["amount"] == "4800.00"
-    assert body["spending"] == {"budgeted": "800.00", "carried": "0.00", "actual": "60.00"}
-    assert body["income"]["budgeted"] == "4800.00"
-    # Past months keep the budget they had.
-    assert lines(get_month(viewer_client, "2026-07"))["Groceries"]["amount"] == "600.00"
-    assert lines(get_month(viewer_client, "2026-05"))["Groceries"]["amount"] is None
-
-
-def test_a_budget_stopped_from_a_month_on_is_still_monthly(
-    viewer_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    budget(session, categories["Groceries"], {"2026-06": "600.00", "2026-08": None})
-
-    line = lines(get_month(viewer_client))["Groceries"]
-
-    assert (line["period"], line["amount"]) == ("monthly", None)
-
-
-def test_yearly_budgets_count_the_year_so_far(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    travel = categories["Travel"]
-    budget(session, travel, {"2026-01": "3000.00"}, period=BudgetPeriod.YEARLY)
-    budget(session, categories["Groceries"], {"2026-01": "600.00"})
-    spend(session, checking, travel, "-612.00", day("2026-02"))
-    spend(session, checking, travel, "-486.20", day("2026-09"))
-    spend(session, checking, travel, "-100.00", day("2026-10"))
-    spend(session, checking, travel, "-100.00", day("2025-12"))
-
-    body = get_month(viewer_client)
-
-    assert lines(body)["Travel"] | {"category_id": None} == {
-        "category_id": None,
-        "name": "Travel",
-        "emoji": "✈️",
-        "period": "yearly",
-        "amount": "3000.00",
-        "budgeted": "250.00",
-        "rollover": False,
-        "carried": "0.00",
-        "actual": "486.20",
-        "year_to_date": "1098.20",
-        "average": "0.00",
-        "count": 1,
-    }
-    # Each month counts a twelfth of a yearly budget.
-    assert body["spending"]["budgeted"] == "850.00"
-    # Before the budgets started, there was nothing to count.
-    assert get_month(viewer_client, "2025-12")["spending"]["budgeted"] == "0.00"
-
-
-def test_yearly_budgets_follow_the_budget_year(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    set_general(session, fiscal_year_start_month=7)
-    travel = categories["Travel"]
-    budget(
-        session,
-        travel,
-        {"2025-07": "1000.00", "2026-07": "2000.00"},
-        period=BudgetPeriod.YEARLY,
-    )
-    spend(session, checking, travel, "-100.00", day("2026-06"))
-    spend(session, checking, travel, "-200.00", day("2026-07"))
-
-    september = get_month(viewer_client)
-    june = get_month(viewer_client, "2026-06")
-
-    assert (september["year"], september["year_start"], september["year_end"]) == (
-        2026,
-        "2026-07",
-        "2027-06",
-    )
-    assert (lines(september)["Travel"]["amount"], lines(september)["Travel"]["year_to_date"]) == (
-        "2000.00",
-        "200.00",
-    )
-    assert (june["year"], june["year_start"], june["year_end"]) == (2025, "2025-07", "2026-06")
-    assert (lines(june)["Travel"]["amount"], lines(june)["Travel"]["year_to_date"]) == (
-        "1000.00",
-        "100.00",
-    )
-
-
-def test_rollover_carries_what_was_left_into_the_next_month(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    groceries = categories["Groceries"]
-    budget(
-        session,
-        groceries,
-        {"2026-05": "500.00", "2026-07": "600.00", "2026-08": None},
-        rollover_since="2026-06",
-    )
-    spend(session, checking, groceries, "-999.00", day("2026-05"))
-    spend(session, checking, groceries, "-420.00", day("2026-06"))
-    spend(session, checking, groceries, "-650.00", day("2026-07"))
-    # Nothing's budgeted in August, so what's spent comes off what rolls over.
-    spend(session, checking, groceries, "-20.00", day("2026-08"))
-    spend(session, checking, groceries, "-100.00", day("2026-09"))
-
-    def carried(month: str) -> tuple[str, bool]:
-        line = lines(get_month(viewer_client, month))["Groceries"]
-        return line["carried"], line["rollover"]
-
-    assert carried("2026-05") == ("0.00", True)
-    assert carried("2026-06") == ("0.00", True)
-    assert carried("2026-07") == ("80.00", True)
-    assert carried("2026-08") == ("30.00", True)
-    assert carried("2026-09") == ("10.00", True)
-    body = get_month(viewer_client)
-    assert body["spending"] == {"budgeted": "0.00", "carried": "10.00", "actual": "100.00"}
-
-
-def test_only_monthly_spending_rolls_over(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    budget(session, categories["Paycheck"], {"2026-01": "4800.00"}, rollover_since="2026-01")
-    budget(
-        session,
-        categories["Travel"],
-        {"2026-01": "3000.00"},
-        period=BudgetPeriod.YEARLY,
-        rollover_since="2026-01",
-    )
-
-    body = get_month(viewer_client)
-
-    for name in ("Paycheck", "Travel"):
-        assert (lines(body)[name]["rollover"], lines(body)[name]["carried"]) == (False, "0.00")
-
-
-def test_averages_look_back_three_months_since_transactions_started(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
-) -> None:
-    groceries, paycheck = categories["Groceries"], categories["Paycheck"]
-    spend(session, checking, groceries, "-300.00", day("2026-07"))
-    spend(session, checking, groceries, "-200.00", day("2026-08"))
-    spend(session, checking, groceries, "-100.00", day("2026-09"))
-    spend(session, checking, paycheck, "1000.00", day("2026-08"))
-    # More refunded than spent averages nothing.
-    spend(session, checking, categories["restaurants"], "10.00", day("2026-08"))
-
-    def averages(month: str) -> tuple[str, str, str]:
-        found = lines(get_month(viewer_client, month))
-        return (
-            found["Groceries"]["average"],
-            found["Paycheck"]["average"],
-            found["restaurants"]["average"],
-        )
-
-    assert averages("2026-07") == ("0.00", "0.00", "0.00")
-    assert averages("2026-08") == ("300.00", "0.00", "0.00")
-    assert averages("2026-09") == ("250.00", "500.00", "0.00")
-    assert averages("2026-10") == ("200.00", "333.33", "0.00")
-    assert averages("2026-12") == ("33.33", "0.00", "0.00")
-
-
-def test_averages_are_nothing_without_transactions(
-    viewer_client: TestClient, categories: dict[str, Category]
-) -> None:
-    assert lines(get_month(viewer_client))["Groceries"]["average"] == "0.00"
-
-
-def test_a_category_moved_to_transfers_drops_out_of_the_budget(
-    viewer_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    groceries = categories["Groceries"]
-    budget(session, groceries, {"2026-01": "600.00"})
-    transfers = session.scalar(select(CategoryGroup).where(CategoryGroup.name == "Transfers"))
-    assert transfers is not None
-    groceries.group = transfers
-    session.commit()
-
-    body = get_month(viewer_client)
-
-    assert "Groceries" not in lines(body)
-    assert body["spending"]["budgeted"] == "0.00"
-
-
-def test_deleting_a_category_deletes_its_budget(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    budget(session, categories["Groceries"], {"2026-01": "600.00"})
-
-    response = admin_client.delete(f"/api/categories/{categories['Groceries'].id}")
-
-    assert response.status_code == 204
-    session.expire_all()
-    assert session.scalars(select(Budget)).all() == []
-    assert session.scalars(select(BudgetAmount)).all() == []
-
-
-# ---- A year --------------------------------------------------------------------------------
-
-
-def get_year(client: TestClient, year: int = 2026) -> dict[str, Any]:
-    response = client.get(f"/api/budget/years/{year}")
     assert response.status_code == 200, response.text
-    body: dict[str, Any] = response.json()
-    return body
+    result: dict[str, Any] = response.json()
+    return result
 
 
-def year_lines(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {line["name"]: line for group in body["groups"] for line in group["categories"]}
+def unlink(client: TestClient, budget: dict[str, Any], transaction: Transaction) -> None:
+    response = client.delete(f"/api/budgets/{budget['id']}/transactions/{transaction.id}")
+    assert response.status_code == 204, response.text
 
 
-@pytest.mark.parametrize("year", ["1969", "2200", "next"])
-def test_years_are_checked(viewer_client: TestClient, year: str) -> None:
-    assert viewer_client.get(f"/api/budget/years/{year}").status_code == 422
+def count(
+    client: TestClient, budget: dict[str, Any], kind: str, **target: uuid.UUID
+) -> dict[str, Any]:
+    response = client.post(
+        f"/api/budgets/{budget['id']}/sources",
+        json={"kind": kind, **{f"{name}_id": str(value) for name, value in target.items()}},
+    )
+    assert response.status_code == 201, response.text
+    result: dict[str, Any] = response.json()
+    return result
 
 
-def test_the_year_shows_each_month(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
+def counted(
+    client: TestClient, budget: dict[str, Any], on: str | None = None, **params: Any
+) -> list[dict[str, Any]]:
+    """What the budget counts in the period, newest first, as (payee, kind, via)."""
+    query = {"today": TODAY.isoformat(), "page_size": 100, **({"on": on} if on else {}), **params}
+    response = client.get(f"/api/budgets/{budget['id']}/transactions", params=query)
+    assert response.status_code == 200, response.text
+    items: list[dict[str, Any]] = response.json()["items"]
+    return items
+
+
+def summary(items: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
+    return [(item["payee"], item["kind"], item["via"]) for item in items]
+
+
+def amounts(body: dict[str, Any]) -> tuple[str, str, str, str]:
+    """What a period came to: the amount, income, spending and what's left."""
+    return body["amount"], body["income"], body["spent"], body["left"]
+
+
+@dataclass
+class Household:
+    """A household's September 2026, with some of everything to count."""
+
+    checking: Account
+    card: Account
+    paycheck: Category
+    groceries: Category
+    rent: Category
+    subscriptions: Category
+    transfers: Category
+    salary: Transaction
+    rent_payment: Transaction
+    shop: Transaction
+    card_payment: Transaction
+    hardware: Transaction
+    snacks: Transaction
+    streaming: Transaction
+    refund: Transaction
+    netflix: Subscription
+
+
+def household(session: Session) -> Household:
+    checking = add_account(session)
+    card = linked_account(session)
+    income = add_group(session, "Income", CategoryKind.INCOME)
+    paycheck = add_category(session, "Paycheck", income, "💼")
+    food = add_group(session, "Food & drink")
+    groceries = add_category(session, "Groceries", food)
+    rent = add_category(session, "Rent & mortgage", add_group(session, "Housing"))
+    subscriptions = add_category(session, "Subscriptions", add_group(session, "Bills"))
+    transfers = add_category(
+        session, "Credit card payments", add_group(session, "Transfers", CategoryKind.TRANSFER)
+    )
+    netflix = Subscription(
+        name="Netflix",
+        payee="Netflix",
+        amount=Decimal("15.49"),
+        frequency=PaymentFrequency.MONTHLY,
+        account_id=card.id,
+        next_due_date=dt.date(2026, 10, 5),
+    )
+    session.add(netflix)
+    session.commit()
+    streaming = add_transaction(
+        session,
+        card,
+        "-15.49",
+        "Netflix",
+        date=day(5),
+        category_id=subscriptions.id,
+        subscription_id=netflix.id,
+    )
+    return Household(
+        checking=checking,
+        card=card,
+        paycheck=paycheck,
+        groceries=groceries,
+        rent=rent,
+        subscriptions=subscriptions,
+        transfers=transfers,
+        salary=add_transaction(
+            session, checking, "2400.00", "Acme Corp", date=day(15), category_id=paycheck.id
+        ),
+        rent_payment=add_transaction(
+            session, checking, "-1850.00", "Parkside", date=day(1), category_id=rent.id
+        ),
+        shop=add_transaction(
+            session, checking, "-84.12", "Whole Foods", date=day(3), category_id=groceries.id
+        ),
+        card_payment=add_transaction(
+            session,
+            checking,
+            "-300.00",
+            "Tartan Bank",
+            date=day(7),
+            category_id=transfers.id,
+        ),
+        hardware=add_transaction(session, checking, "-12.00", "Hardware Hank", date=day(20)),
+        snacks=add_transaction(
+            session, card, "-40.00", "Trader Joes", date=day(10), category_id=groceries.id
+        ),
+        streaming=streaming,
+        refund=add_transaction(
+            session, card, "18.20", "Target", date=day(12), category_id=groceries.id
+        ),
+        netflix=netflix,
+    )
+
+
+# ---- Who can do what -----------------------------------------------------------------------
+
+
+def test_signing_in_is_required(client: TestClient) -> None:
+    assert error(client.get("/api/budgets")) == "not_signed_in"
+
+
+def test_viewers_can_see_budgets_but_not_change_them(
+    viewer_client: TestClient, session: Session
 ) -> None:
-    set_general(session, fiscal_year_start_month=7)
-    groceries, travel, paycheck = (
-        categories["Groceries"],
-        categories["Travel"],
-        categories["Paycheck"],
-    )
-    budget(session, groceries, {"2026-07": "600.00", "2026-10": "650.00", "2027-05": None})
-    budget(session, travel, {"2026-07": "1200.00"}, period=BudgetPeriod.YEARLY)
-    budget(session, paycheck, {"2026-09": "5000.00"})
-    spend(session, checking, groceries, "-420.00", day("2026-07"))
-    spend(session, checking, groceries, "-80.00", day("2027-06"))
-    spend(session, checking, travel, "-612.00", day("2026-08"))
-    spend(session, checking, paycheck, "4800.00", day("2026-09"))
-    spend(session, checking, None, "-45.00", day("2026-07"))
-    spend(session, checking, None, "20.00", day("2026-12"))
-    # Before and after the budget year.
-    spend(session, checking, groceries, "-999.00", day("2026-06"))
-    spend(session, checking, groceries, "-999.00", day("2027-07"))
-    spend(session, add_account(session, "Paris", currency="EUR"), None, "-5.00", day("2026-08"))
+    budget = Budget(name="Monthly", period=BudgetPeriod.MONTHLY, starts_on=IN_SEPTEMBER)
+    budget.amounts.append(BudgetAmount(starts_on=IN_SEPTEMBER, amount=Decimal("2000.00")))
+    session.add(budget)
+    session.commit()
+    path = f"/api/budgets/{budget.id}"
+    ids = {"ids": [str(uuid.uuid4())], "kind": "income"}
+    source = {"kind": "spending", "account_id": str(uuid.uuid4())}
+    params = {"today": TODAY.isoformat()}
 
-    body = get_year(viewer_client)
-
-    assert (body["year"], body["start"], body["end"], body["currency"]) == (
-        2026,
-        "2026-07",
-        "2027-06",
-        "USD",
-    )
-    assert [month["month"] for month in body["months"]][:2] == ["2026-07", "2026-08"]
-    assert len(body["months"]) == 12
-    found = year_lines(body)
-    assert found["Groceries"]["period"] == "monthly"
-    assert [cell["budgeted"] for cell in found["Groceries"]["months"]] == [
-        "600.00",
-        "600.00",
-        "600.00",
-        *["650.00"] * 7,
-        None,
-        None,
+    reads = [
+        viewer_client.get("/api/budgets", params=params),
+        viewer_client.get(f"{path}/period", params=params),
+        viewer_client.get(f"{path}/history", params=params),
+        viewer_client.get(f"{path}/transactions", params=params),
     ]
-    assert found["Groceries"]["amount"] == "6350.00"
-    assert found["Groceries"]["actual"] == "500.00"
-    assert found["Groceries"]["months"][0] == {"budgeted": "600.00", "actual": "420.00"}
-    assert found["Travel"]["amount"] == "1200.00"
-    assert found["Travel"]["months"][1] == {"budgeted": "100.00", "actual": "612.00"}
-    assert (found["restaurants"]["period"], found["restaurants"]["amount"]) == (None, None)
-    assert found["Paycheck"]["amount"] == "50000.00"
-    assert body["income"] == {"budgeted": "50000.00", "actual": "4820.00"}
-    assert body["spending"] == {"budgeted": "7550.00", "actual": "1157.00"}
-    assert body["months"][0] == {
-        "month": "2026-07",
-        "income": {"budgeted": "0.00", "actual": "0.00"},
-        "spending": {"budgeted": "700.00", "actual": "465.00"},
-    }
-    assert body["months"][11]["spending"] == {"budgeted": "100.00", "actual": "80.00"}
-    assert body["uncategorized"]["count"] == 2
-    assert body["uncategorized"]["months"][0] == {"received": "0.00", "spent": "45.00"}
-    assert body["uncategorized"]["months"][5] == {"received": "20.00", "spent": "0.00"}
-    assert (body["uncategorized"]["received"], body["uncategorized"]["spent"]) == (
-        "20.00",
-        "45.00",
-    )
-    # The server doesn't know the euro, so the 5 euros spent in August aren't counted.
-    assert (body["converted_currencies"], body["unconverted_currencies"]) == ([], ["EUR"])
+    assert [response.status_code for response in reads] == [200] * 4
+    attempts = [
+        viewer_client.post("/api/budgets", json={"name": "New", "period": "weekly", "amount": "5"}),
+        viewer_client.patch(path, json={"name": "Changed"}),
+        viewer_client.delete(path),
+        viewer_client.post(f"{path}/transactions", json=ids),
+        viewer_client.delete(f"{path}/transactions/{uuid.uuid4()}"),
+        viewer_client.post(f"{path}/sources", json=source),
+        viewer_client.delete(f"{path}/sources/{uuid.uuid4()}"),
+    ]
+    assert [error(response) for response in attempts] == ["admin_only"] * 7
 
 
-def test_a_year_without_categories_is_empty(viewer_client: TestClient) -> None:
-    body = get_year(viewer_client, 2025)
+def test_a_budget_that_is_gone_is_not_found(admin_client: TestClient) -> None:
+    gone = f"/api/budgets/{uuid.uuid4()}"
+    other = uuid.uuid4()
+    attempts = [
+        admin_client.get(f"{gone}/period"),
+        admin_client.get(f"{gone}/history"),
+        admin_client.get(f"{gone}/transactions"),
+        admin_client.patch(gone, json={"name": "Changed"}),
+        admin_client.delete(gone),
+        admin_client.post(f"{gone}/transactions", json={"ids": [str(other)], "kind": "income"}),
+        admin_client.delete(f"{gone}/transactions/{other}"),
+        admin_client.post(f"{gone}/sources", json={"kind": "income", "account_id": str(other)}),
+        admin_client.delete(f"{gone}/sources/{other}"),
+    ]
+    assert [error(response) for response in attempts] == ["not_found"] * 9
 
-    assert (body["start"], body["end"], body["groups"]) == ("2025-01", "2025-12", [])
-    assert body["spending"] == {"budgeted": "0.00", "actual": "0.00"}
+
+# ---- Making them ---------------------------------------------------------------------------
 
 
-# ---- One category's history ----------------------------------------------------------------
-
-
-def test_a_categorys_last_twelve_months(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
+@pytest.mark.parametrize(
+    ("period", "starts_on", "ends_on"),
+    [
+        # Today, September 20th 2026, is a Sunday, which starts the household's weeks.
+        ("weekly", "2026-09-20", "2026-09-26"),
+        ("biweekly", "2026-09-20", "2026-10-03"),
+        ("monthly", "2026-09-01", "2026-09-30"),
+        ("yearly", "2026-01-01", "2026-12-31"),
+    ],
+)
+def test_a_budget_is_in_the_period_it_usually_starts_with(
+    admin_client: TestClient, period: str, starts_on: str, ends_on: str
 ) -> None:
-    groceries = categories["Groceries"]
-    budget(session, groceries, {"2026-03": "600.00"})
-    spend(session, checking, groceries, "-420.00", day("2025-10"))
-    spend(session, checking, groceries, "-80.00", day("2026-09"))
-    spend(session, checking, groceries, "-999.00", day("2025-09"))
-    spend(session, checking, categories["restaurants"], "-60.00", day("2026-09"))
+    budget = make_budget(admin_client, name="  Spending  ", period=period, amount="150.5")
 
-    response = viewer_client.get(
-        f"/api/budget/categories/{groceries.id}/history", params={"month": "2026-09"}
+    assert budget["name"] == "Spending"
+    assert (budget["period"], budget["starts_on"], budget["amount"]) == (
+        period,
+        starts_on,
+        "150.50",
     )
+    assert budget["current"] == {
+        "start": starts_on,
+        "end": ends_on,
+        "amount": "150.50",
+        "income": "0.00",
+        "spent": "0.00",
+    }
+
+
+def test_weeks_start_on_the_first_day_of_the_week_the_household_chose(
+    admin_client: TestClient, session: Session
+) -> None:
+    set_general(session, week_starts_on="monday")
+
+    assert make_budget(admin_client, period="weekly")["starts_on"] == "2026-09-14"
+
+
+@pytest.mark.parametrize(("first_month", "starts_on"), [(4, "2026-04-01"), (10, "2025-10-01")])
+def test_years_start_in_the_month_the_budget_year_does(
+    admin_client: TestClient, session: Session, first_month: int, starts_on: str
+) -> None:
+    set_general(session, fiscal_year_start_month=first_month)
+
+    assert make_budget(admin_client, period="yearly")["starts_on"] == starts_on
+
+
+def test_a_budget_can_start_on_any_day_of_the_month(admin_client: TestClient) -> None:
+    budget = make_budget(admin_client, starts_on="2026-09-15")
+
+    assert budget["starts_on"] == "2026-09-15"
+    assert (budget["current"]["start"], budget["current"]["end"]) == ("2026-09-15", "2026-10-14")
+
+
+def test_budgets_are_listed_by_how_often_they_repeat_and_then_in_the_order_made(
+    admin_client: TestClient,
+) -> None:
+    yearly = make_budget(admin_client, name="Year", period="yearly")
+    first = make_budget(admin_client, name="First month")
+    weekly = make_budget(admin_client, name="Week", period="weekly")
+    second = make_budget(admin_client, name="Second month")
+    biweekly = make_budget(admin_client, name="Pay period", period="biweekly")
+
+    listed = admin_client.get("/api/budgets", params={"today": TODAY.isoformat()}).json()
+
+    assert [item["id"] for item in listed] == [
+        weekly["id"],
+        biweekly["id"],
+        first["id"],
+        second["id"],
+        yearly["id"],
+    ]
+
+
+def test_budgets_say_how_the_period_they_are_in_is_going(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client, name="Everyday", amount="500")
+    count(admin_client, budget, "income", category=things.paycheck.id)
+    count(admin_client, budget, "spending", category=things.groceries.id)
+
+    [listed] = admin_client.get("/api/budgets", params={"today": TODAY.isoformat()}).json()
+
+    assert listed["current"] == {
+        "start": "2026-09-01",
+        "end": "2026-09-30",
+        "amount": "500.00",
+        "income": "2400.00",
+        "spent": "105.92",
+    }
+
+
+def test_the_period_a_budget_is_in_follows_the_servers_date_unless_told_otherwise(
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for module in ("app.api.budget", "app.finance.budget"):
+        monkeypatch.setattr(f"{module}.utcnow", lambda: dt.datetime(2026, 11, 14, tzinfo=dt.UTC))
+    response = admin_client.post(
+        "/api/budgets", json={"name": "Monthly", "period": "monthly", "amount": "10"}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["starts_on"] == "2026-11-01"
+    [listed] = admin_client.get("/api/budgets").json()
+    assert listed["current"]["start"] == "2026-11-01"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"name": ""},
+        {"name": "   "},
+        {"name": "x" * 121},
+        {"amount": "0"},
+        {"amount": "-5.00"},
+        {"amount": "10.005"},
+        {"amount": "1000000000000"},
+        {"period": "daily"},
+        {"starts_on": "1969-12-31"},
+        {"starts_on": "2200-01-01"},
+        {"today": "tomorrow"},
+        {"colour": "red"},
+    ],
+)
+def test_a_budget_needs_a_name_a_period_and_an_amount_above_zero(
+    admin_client: TestClient, changes: dict[str, Any]
+) -> None:
+    body = {"name": "Monthly", "period": "monthly", "amount": "100", **changes}
+
+    assert admin_client.post("/api/budgets", json=body).status_code == 422
+
+
+# ---- Changing them ----------------------------------------------------------------------
+
+
+def stored_amounts(session: Session, budget: dict[str, Any]) -> dict[str, str]:
+    session.expire_all()
+    rows = session.scalars(
+        select(BudgetAmount)
+        .where(BudgetAmount.budget_id == uuid.UUID(budget["id"]))
+        .order_by(BudgetAmount.starts_on)
+    )
+    return {str(row.starts_on): str(row.amount) for row in rows}
+
+
+def test_a_budget_is_renamed(admin_client: TestClient) -> None:
+    budget = make_budget(admin_client)
+
+    response = admin_client.patch(f"/api/budgets/{budget['id']}", json={"name": " Home "})
 
     assert response.status_code == 200
-    body = response.json()
-    assert (body["category_id"], body["kind"]) == (str(groceries.id), "expense")
-    assert [month["month"] for month in body["months"]] == [
-        "2025-10",
-        "2025-11",
-        "2025-12",
-        *[f"2026-{number:02d}" for number in range(1, 10)],
+    assert response.json()["name"] == "Home"
+    assert response.json()["amount"] == "2000.00"
+
+
+def test_a_new_amount_applies_from_the_period_it_is_set_in(
+    admin_client: TestClient, session: Session
+) -> None:
+    budget = make_budget(admin_client)
+    october = {"today": "2026-10-05"}
+
+    response = admin_client.patch(
+        f"/api/budgets/{budget['id']}", json={"amount": "2500", **october}
+    )
+
+    assert response.json()["amount"] == "2500.00"
+    assert stored_amounts(session, budget) == {"2026-09-01": "2000.00", "2026-10-01": "2500.00"}
+    # Periods that are over keep what they had, the one before the first amount included.
+    assert view(admin_client, budget, "2026-08-10")["amount"] == "2000.00"
+    assert view(admin_client, budget, "2026-09-10")["amount"] == "2000.00"
+    assert view(admin_client, budget, "2026-10-10")["amount"] == "2500.00"
+    # Changing it again in the same period replaces it.
+    admin_client.patch(f"/api/budgets/{budget['id']}", json={"amount": "2600", **october})
+    assert stored_amounts(session, budget) == {"2026-09-01": "2000.00", "2026-10-01": "2600.00"}
+
+
+def test_the_day_periods_start_on_can_change(admin_client: TestClient) -> None:
+    budget = make_budget(admin_client)
+
+    response = admin_client.patch(
+        f"/api/budgets/{budget['id']}", json={"starts_on": "2026-09-15", "today": "2026-09-20"}
+    )
+
+    assert response.json()["starts_on"] == "2026-09-15"
+    assert response.json()["current"]["start"] == "2026-09-15"
+
+
+def test_changing_how_often_a_budget_repeats_starts_its_amounts_over(
+    admin_client: TestClient, session: Session
+) -> None:
+    budget = make_budget(admin_client)
+    admin_client.patch(
+        f"/api/budgets/{budget['id']}", json={"amount": "2500", "today": "2026-10-05"}
+    )
+
+    response = admin_client.patch(
+        f"/api/budgets/{budget['id']}", json={"period": "weekly", "today": "2026-10-07"}
+    )
+
+    # Without an amount it keeps what the budget has now, from the day the new weeks start.
+    assert response.json()["period"] == "weekly"
+    assert response.json()["starts_on"] == "2026-10-04"
+    assert response.json()["amount"] == "2500.00"
+    assert stored_amounts(session, budget) == {"2026-10-04": "2500.00"}
+
+    response = admin_client.patch(
+        f"/api/budgets/{budget['id']}",
+        json={"period": "yearly", "amount": "30000", "starts_on": "2026-04-01"},
+    )
+
+    assert (response.json()["starts_on"], response.json()["amount"]) == ("2026-04-01", "30000.00")
+    assert stored_amounts(session, budget) == {"2026-04-01": "30000.00"}
+
+
+def test_sending_the_period_a_budget_has_changes_nothing_about_it(
+    admin_client: TestClient, session: Session
+) -> None:
+    budget = make_budget(admin_client)
+
+    response = admin_client.patch(
+        f"/api/budgets/{budget['id']}", json={"period": "monthly", "name": "Same"}
+    )
+
+    assert response.json()["name"] == "Same"
+    assert stored_amounts(session, budget) == {"2026-09-01": "2000.00"}
+
+
+def test_deleting_a_budget_deletes_what_counted_toward_it_but_nothing_else(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    other = make_budget(admin_client, name="Other")
+    link(admin_client, budget, "spending", things.rent_payment)
+    count(admin_client, budget, "spending", category=things.groceries.id)
+    unlink(admin_client, budget, things.shop)
+    link(admin_client, other, "spending", things.rent_payment)
+
+    assert admin_client.delete(f"/api/budgets/{budget['id']}").status_code == 204
+
+    session.expire_all()
+    assert session.scalar(select(func.count()).select_from(BudgetLink)) == 1
+    assert session.scalar(select(func.count()).select_from(BudgetExclusion)) == 0
+    assert session.scalar(select(func.count()).select_from(Budget)) == 1
+    assert session.get(Transaction, things.rent_payment.id) is not None
+    assert [item["id"] for item in admin_client.get("/api/budgets").json()] == [other["id"]]
+
+
+# ---- A period of a budget -----------------------------------------------------------------
+
+
+def count_everything(client: TestClient, budget: dict[str, Any], things: Household) -> None:
+    """Income by a category; spending by a category, a subscription, two accounts and one
+    transaction on its own, which between them overlap a good deal."""
+    count(client, budget, "income", category=things.paycheck.id)
+    count(client, budget, "spending", category=things.groceries.id)
+    count(client, budget, "spending", subscription=things.netflix.id)
+    count(client, budget, "spending", account=things.card.id)
+    link(client, budget, "spending", things.rent_payment)
+    count(client, budget, "spending", account=things.checking.id)
+
+
+def test_a_period_says_what_came_in_what_went_out_and_what_is_left(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    count_everything(admin_client, budget, things)
+
+    period = view(admin_client, budget)
+
+    assert (period["start"], period["end"], period["current"]) == (
+        "2026-09-01",
+        "2026-09-30",
+        True,
+    )
+    # Spending is the groceries (less the refund), Netflix, the rent and one more purchase.
+    assert amounts(period) == ("2000.00", "2400.00", "1983.41", "16.59")
+    assert period["saved"] == "416.59"
+    assert (period["days"], period["days_gone"]) == (30, 20)
+    # Twenty of the thirty days have gone, so this much is what an even pace would have spent.
+    assert (period["expected"], period["projected"]) == ("1333.33", "2975.12")
+    assert (period["transactions"], period["removed"]) == (7, 0)
+    assert (period["previous"], period["next"]) == (None, None)
+    assert (period["converted"], period["unavailable"]) == ([], [])
+    assert period["budget"]["id"] == budget["id"]
+    assert [(item["day"], item["income"], item["spent"]) for item in period["daily"]] == [
+        ("2026-09-01", "0.00", "1850.00"),
+        ("2026-09-03", "0.00", "84.12"),
+        ("2026-09-05", "0.00", "15.49"),
+        ("2026-09-10", "0.00", "40.00"),
+        ("2026-09-12", "0.00", "-18.20"),
+        ("2026-09-15", "2400.00", "0.00"),
+        ("2026-09-20", "0.00", "12.00"),
     ]
-    assert body["months"][0] == {"month": "2025-10", "budgeted": None, "actual": "420.00"}
-    assert body["months"][-1] == {"month": "2026-09", "budgeted": "600.00", "actual": "80.00"}
-    assert body["months"][4]["budgeted"] is None
-    assert body["months"][5]["budgeted"] == "600.00"
+    assert [
+        (item["category_id"], item["amount"], item["count"]) for item in period["categories"]
+    ] == [
+        (str(things.rent.id), "1850.00", 1),
+        (str(things.groceries.id), "105.92", 3),
+        (str(things.subscriptions.id), "15.49", 1),
+        (None, "12.00", 1),
+    ]
+    assert [
+        (item["type"], item["name"], item["kind"], item["amount"], item["count"], item["active"])
+        for item in period["sources"]
+    ] == [
+        ("category", "Paycheck", "income", "2400.00", 1, True),
+        ("category", "Groceries", "spending", "105.92", 3, True),
+        ("subscription", "Netflix", "spending", "15.49", 1, True),
+        # Everything the card and the checking account had was counted by something else first,
+        # except the one purchase with no category, and moving money between accounts.
+        ("account", "Rewards Visa", "spending", "0.00", 0, True),
+        ("account", "Everyday checking", "spending", "12.00", 1, True),
+    ]
 
 
-def test_yearly_and_income_history_has_no_monthly_budget(
-    viewer_client: TestClient,
-    session: Session,
-    checking: Account,
-    categories: dict[str, Category],
+def test_a_period_that_is_over_or_has_not_begun_has_no_pace(
+    admin_client: TestClient, session: Session
 ) -> None:
-    paycheck = categories["Paycheck"]
-    budget(session, paycheck, {"2026-01": "50000.00"}, period=BudgetPeriod.YEARLY)
-    spend(session, checking, paycheck, "2400.00", day("2026-09"))
+    household(session)
+    budget = make_budget(admin_client)
 
-    response = viewer_client.get(
-        f"/api/budget/categories/{paycheck.id}/history", params={"month": "2026-09"}
-    )
+    over = view(admin_client, budget, "2026-08-10")
+    ahead = view(admin_client, budget, "2026-11-15")
 
-    assert response.json()["kind"] == "income"
-    assert response.json()["months"][-1] == {
-        "month": "2026-09",
-        "budgeted": None,
-        "actual": "2400.00",
-    }
-
-
-def test_history_needs_a_budgetable_category_and_a_month(
-    viewer_client: TestClient, categories: dict[str, Category]
-) -> None:
-    transfers = categories["Credit card payments"]
-
-    missing = viewer_client.get(
-        f"/api/budget/categories/{uuid.uuid4()}/history", params={"month": "2026-09"}
-    )
-    transfer = viewer_client.get(
-        f"/api/budget/categories/{transfers.id}/history", params={"month": "2026-09"}
-    )
-    no_month = viewer_client.get(f"/api/budget/categories/{transfers.id}/history")
-
-    assert error(missing) == "not_found"
-    assert error(transfer) == "transfer_category"
-    assert transfer.json()["detail"]["message"] == (
-        "Credit card payments is for money moving between your own accounts, which isn't budgeted."
-    )
-    assert no_month.status_code == 422
-
-
-# ---- Budgeting a category ------------------------------------------------------------------
-
-
-def test_an_admin_budgets_a_category_from_a_month_on(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    groceries = categories["Groceries"]
-
-    body = put_budget(admin_client, groceries, month="2026-09", amount="600")
-
-    assert body["month"] == "2026-09"
-    assert lines(body)["Groceries"]["amount"] == "600.00"
-    assert body["spending"]["budgeted"] == "600.00"
-    assert stored_amounts(session, groceries) == {"2026-09": "600.00"}
-    assert lines(get_month(admin_client, "2027-02"))["Groceries"]["amount"] == "600.00"
-    assert lines(get_month(admin_client, "2026-08"))["Groceries"]["amount"] is None
-
-
-def test_a_new_amount_replaces_later_ones_and_leaves_earlier_ones(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    groceries = categories["Groceries"]
-    budget(
-        session,
-        groceries,
-        {"2026-01": "500.00", "2026-06": "550.00", "2026-10": "700.00", "2026-12": "900.00"},
-    )
-
-    put_budget(admin_client, groceries, month="2026-09", amount="650.00")
-
-    assert stored_amounts(session, groceries) == {
-        "2026-01": "500.00",
-        "2026-06": "550.00",
-        "2026-09": "650.00",
-    }
-
-
-def test_an_amount_for_one_month_leaves_the_rest(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    groceries, restaurants = categories["Groceries"], categories["restaurants"]
-    budget(session, groceries, {"2026-01": "500.00", "2026-12": "900.00"})
-
-    put_budget(admin_client, groceries, month="2026-09", amount="650", scope="only")
-    put_budget(admin_client, groceries, month="2026-11", amount="800", scope="only")
-    put_budget(admin_client, restaurants, month="2026-09", amount="100", scope="only")
-
-    assert stored_amounts(session, groceries) == {
-        "2026-01": "500.00",
-        "2026-09": "650.00",
-        "2026-10": "500.00",
-        "2026-11": "800.00",
-        "2026-12": "900.00",
-    }
-    # Before, it had no budget, so after, it has none again.
-    assert stored_amounts(session, restaurants) == {"2026-09": "100.00", "2026-10": None}
-
-
-def test_amounts_that_change_nothing_are_not_kept(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    groceries = categories["Groceries"]
-    budget(session, groceries, {"2026-01": "500.00", "2026-09": "650.00"})
-
-    put_budget(admin_client, groceries, month="2026-05", amount="500", scope="only")
-    put_budget(admin_client, groceries, month="2026-09", amount="500")
-
-    assert stored_amounts(session, groceries) == {"2026-01": "500.00"}
-
-
-def test_stopping_a_budget_from_a_month_on_keeps_earlier_months(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    groceries = categories["Groceries"]
-    budget(session, groceries, {"2026-01": "500.00", "2026-10": "700.00"})
-
-    body = put_budget(admin_client, groceries, month="2026-09", amount=None)
-
-    assert (lines(body)["Groceries"]["period"], lines(body)["Groceries"]["amount"]) == (
-        "monthly",
+    assert (over["start"], over["end"], over["current"]) == ("2026-08-01", "2026-08-31", False)
+    assert (over["days"], over["days_gone"], over["expected"], over["projected"]) == (
+        31,
+        31,
+        None,
         None,
     )
-    assert stored_amounts(session, groceries) == {"2026-01": "500.00", "2026-09": None}
+    assert (over["previous"], over["next"]) == (None, "2026-09-01")
+    assert (ahead["start"], ahead["end"], ahead["current"]) == ("2026-11-01", "2026-11-30", False)
+    assert (ahead["days"], ahead["days_gone"], ahead["expected"]) == (30, 0, None)
+    assert (ahead["previous"], ahead["next"]) == ("2026-10-01", None)
+    # The first day of a period that has just begun has nothing to go on yet.
+    assert view(admin_client, budget, on="2026-09-01", today="2026-09-01")["projected"] == "0.00"
 
 
-def test_stopping_a_budget_for_one_month(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
+def test_the_first_period_to_look_at_is_the_one_with_the_first_transaction(
+    admin_client: TestClient, session: Session
 ) -> None:
-    groceries = categories["Groceries"]
-    budget(session, groceries, {"2026-01": "500.00"})
+    things = household(session)
+    add_transaction(session, things.checking, "-5.00", "Old", date=dt.date(2026, 6, 10))
+    budget = make_budget(admin_client)
 
-    put_budget(admin_client, groceries, month="2026-09", amount=None, scope="only")
+    assert view(admin_client, budget, "2026-07-20")["previous"] == "2026-06-01"
+    assert view(admin_client, budget, "2026-06-20")["previous"] is None
+    assert view(admin_client, budget, "2026-06-20")["next"] == "2026-07-01"
 
-    assert stored_amounts(session, groceries) == {
-        "2026-01": "500.00",
-        "2026-09": None,
-        "2026-10": "500.00",
+
+def test_a_budget_with_no_transactions_goes_back_to_the_period_it_was_made_for(
+    admin_client: TestClient,
+) -> None:
+    budget = make_budget(admin_client)
+
+    assert view(admin_client, budget)["previous"] is None
+    assert view(admin_client, budget, "2026-10-20")["previous"] == "2026-09-01"
+
+
+# ---- What counts --------------------------------------------------------------------------
+
+
+def test_a_transaction_counts_once_through_the_first_thing_that_links_it(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    automation = Automation(
+        name="Netflix",
+        payees=["Netflix"],
+        category_id=things.subscriptions.id,
+        apply_to=AutomationScope.ALL,
+        active=True,
+    )
+    session.add(automation)
+    session.commit()
+    layers: dict[str, dict[str, uuid.UUID]] = {
+        "transaction": {},
+        "automation": {"automation": automation.id},
+        "subscription": {"subscription": things.netflix.id},
+        "category": {"category": things.subscriptions.id},
+        "account": {"account": things.card.id},
     }
 
+    for index, via in enumerate(layers):
+        budget = make_budget(admin_client, name=via)
+        for later in list(layers)[index:]:
+            if later == "transaction":
+                link(admin_client, budget, "spending", things.streaming)
+            else:
+                count(admin_client, budget, "spending", **layers[later])
+        [item] = [item for item in counted(admin_client, budget) if item["payee"] == "Netflix"]
+        sources = {source["type"]: source["id"] for source in view(admin_client, budget)["sources"]}
 
-def test_a_budget_with_nothing_left_budgeted_is_deleted(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
+        assert item["via"] == via
+        assert item["source_id"] == sources.get(via)
+        assert view(admin_client, budget)["spent"] != "0.00"
+
+
+def test_an_accounts_money_in_and_out_count_as_income_and_spending_apart(
+    admin_client: TestClient, session: Session
 ) -> None:
-    groceries = categories["Groceries"]
-    budget(session, groceries, {"2026-09": "500.00"}, rollover_since="2026-09")
+    things = household(session)
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "income", account=things.checking.id)
+    count(admin_client, budget, "spending", account=things.checking.id)
 
-    body = put_budget(admin_client, groceries, month="2026-08", amount=None)
+    period = view(admin_client, budget)
 
-    assert lines(body)["Groceries"]["period"] is None
-    assert stored_budget(session, groceries) is None
+    # The rent, the groceries and the hardware went out, and the paycheck came in. Paying the
+    # card was money moving between the household's own accounts, so it isn't spending.
+    assert amounts(period) == ("2000.00", "2400.00", "1946.12", "53.88")
+    assert "Tartan Bank" not in [item["payee"] for item in counted(admin_client, budget)]
+    assert summary(counted(admin_client, budget, kind="income")) == [
+        ("Acme Corp", "income", "account")
+    ]
 
 
-def test_stopping_a_budget_that_isnt_there_changes_nothing(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
+def test_an_account_that_counts_as_one_thing_leaves_the_other_direction_out(
+    admin_client: TestClient, session: Session
 ) -> None:
-    put_budget(admin_client, categories["Groceries"], month="2026-09", amount=None, rollover=True)
+    things = household(session)
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", account=things.checking.id)
 
-    assert stored_budget(session, categories["Groceries"]) is None
+    assert amounts(view(admin_client, budget)) == ("2000.00", "0.00", "1946.12", "53.88")
 
 
-def test_a_yearly_budget_is_for_the_budget_year(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
+def test_a_transaction_linked_by_itself_counts_as_what_it_was_linked_as(
+    admin_client: TestClient, session: Session
 ) -> None:
-    set_general(session, fiscal_year_start_month=7)
-    travel = categories["Travel"]
+    things = household(session)
+    budget = make_budget(admin_client)
+    link(admin_client, budget, "income", things.shop)
+    link(admin_client, budget, "spending", things.salary)
 
-    body = put_budget(admin_client, travel, month="2026-09", period="yearly", amount="3000")
-    put_budget(admin_client, travel, month="2028-02", period="yearly", amount="4000", scope="only")
+    period = view(admin_client, budget)
 
-    assert (lines(body)["Travel"]["period"], lines(body)["Travel"]["amount"]) == (
-        "yearly",
-        "3000.00",
+    # Linked the other way round, money out takes from the income and money in from the spending.
+    assert (period["income"], period["spent"]) == ("-84.12", "-2400.00")
+    assert summary(counted(admin_client, budget)) == [
+        ("Acme Corp", "spending", "transaction"),
+        ("Whole Foods", "income", "transaction"),
+    ]
+
+
+def test_an_automation_counts_what_it_sorts_now_and_what_arrives_later(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    automation = Automation(
+        name="Paycheck",
+        payees=["Acme Corp"],
+        category_id=things.paycheck.id,
+        apply_to=AutomationScope.ALL,
+        active=True,
     )
-    assert body["spending"]["budgeted"] == "250.00"
-    assert stored_amounts(session, travel) == {
-        "2026-07": "3000.00",
-        "2027-07": "4000.00",
-        "2028-07": "3000.00",
-    }
+    session.add(automation)
+    session.commit()
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "income", automation=automation.id)
+    assert amounts(view(admin_client, budget))[1] == "2400.00"
 
-
-def test_switching_between_monthly_and_yearly_starts_the_budget_afresh(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    travel = categories["Travel"]
-    budget(session, travel, {"2025-01": "100.00", "2026-01": "250.00"}, rollover_since="2025-06")
-
-    put_budget(admin_client, travel, month="2026-09", period="yearly", amount="3000")
-
-    stored = stored_budget(session, travel)
-    assert stored is not None
-    assert (stored.period, stored.rollover_since) == (BudgetPeriod.YEARLY, None)
-    assert stored_amounts(session, travel) == {"2026-01": "3000.00"}
-
-    put_budget(admin_client, travel, month="2026-01", period="monthly", amount="250")
-
-    assert stored_amounts(session, travel) == {"2026-01": "250.00"}
-
-
-def test_rollover_starts_from_the_month_it_was_turned_on(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
-) -> None:
-    groceries = categories["Groceries"]
-
-    body = put_budget(admin_client, groceries, month="2026-06", amount="600", rollover=True)
-    put_budget(admin_client, groceries, month="2026-09", amount="650", rollover=True)
-
-    assert lines(body)["Groceries"]["rollover"] is True
-    stored = stored_budget(session, groceries)
-    assert stored is not None
-    assert stored.rollover_since == dt.date(2026, 6, 1)
-
-    put_budget(admin_client, groceries, month="2026-09", amount="650")
-
-    stored = stored_budget(session, groceries)
-    assert stored is not None
-    assert stored.rollover_since is None
-
-
-def test_only_monthly_spending_budgets_roll_over(
-    admin_client: TestClient, categories: dict[str, Category]
-) -> None:
-    yearly = admin_client.put(
-        f"/api/budget/categories/{categories['Travel'].id}",
-        json={"month": "2026-09", "period": "yearly", "amount": "3000", "rollover": True},
-    )
-    income = admin_client.put(
-        f"/api/budget/categories/{categories['Paycheck'].id}",
-        json={"month": "2026-09", "amount": "4800", "rollover": True},
+    admin_client.post(
+        "/api/transactions",
+        json={
+            "account_id": str(things.checking.id),
+            "date": TODAY.isoformat(),
+            "amount": "2450.00",
+            "payee": "ACME CORP",
+        },
     )
 
-    assert yearly.status_code == 422
-    assert "Only monthly budgets can roll over" in yearly.text
-    assert error(income) == "rollover_income"
+    period = view(admin_client, budget)
+    assert period["income"] == "4850.00"
+    assert period["sources"][0]["name"] == "Paycheck"
+    assert (period["sources"][0]["amount"], period["sources"][0]["count"]) == ("4850.00", 2)
+
+
+def test_an_automation_that_looks_at_text_and_amounts_counts_only_those(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    add_transaction(session, things.card, "-9.99", "STREAMFLIX*PLUS", date=day(6))
+    add_transaction(session, things.card, "-2.99", "STREAMFLIX*BASIC", date=day(6))
+    automation = Automation(
+        name="Streaming",
+        payees=["streamflix"],
+        match="contains",
+        min_amount=Decimal("5.00"),
+        max_amount=Decimal("15.00"),
+        category_id=things.subscriptions.id,
+        apply_to=AutomationScope.ALL,
+        active=True,
+    )
+    session.add(automation)
+    session.commit()
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", automation=automation.id)
+
+    assert summary(counted(admin_client, budget)) == [("STREAMFLIX*PLUS", "spending", "automation")]
+
+
+def test_an_automation_for_the_future_counts_only_what_arrived_after_it(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    made = dt.datetime(2026, 9, 10, 12, tzinfo=dt.UTC)
+    automation = Automation(
+        name="Coffee",
+        payees=["Blue Bottle"],
+        category_id=things.groceries.id,
+        apply_to=AutomationScope.FUTURE,
+        active=True,
+        created_at=made,
+    )
+    session.add(automation)
+    add_transaction(
+        session,
+        things.card,
+        "-4.50",
+        "Blue Bottle",
+        date=day(8),
+        created_at=made - dt.timedelta(days=2),
+    )
+    add_transaction(
+        session,
+        things.card,
+        "-5.25",
+        "Blue Bottle",
+        date=day(14),
+        created_at=made + dt.timedelta(days=2),
+    )
+    session.commit()
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", automation=automation.id)
+
+    [item] = counted(admin_client, budget)
+
+    assert (item["payee"], item["amount"]) == ("Blue Bottle", "-5.25")
+
+
+def test_a_paused_automation_or_subscription_counts_nothing_until_it_is_resumed(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    automation = Automation(
+        name="Paycheck",
+        payees=["Acme Corp"],
+        category_id=things.paycheck.id,
+        apply_to=AutomationScope.ALL,
+        active=False,
+    )
+    session.add(automation)
+    things.netflix.active = False
+    session.commit()
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "income", automation=automation.id)
+    count(admin_client, budget, "spending", subscription=things.netflix.id)
+
+    period = view(admin_client, budget)
+
+    assert amounts(period) == ("2000.00", "0.00", "15.49", "1984.51")
+    assert [(item["name"], item["active"]) for item in period["sources"]] == [
+        ("Paycheck", False),
+        ("Netflix", False),
+    ]
+
+
+# ---- Taking transactions off, and putting them back ----------------------------------------
+
+
+def stored(session: Session, model: type[BudgetLink | BudgetExclusion]) -> int:
+    session.expire_all()
+    return session.scalar(select(func.count()).select_from(model)) or 0
+
+
+def test_taking_off_a_transaction_only_its_own_link_counts_forgets_it(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    link(admin_client, budget, "spending", things.rent_payment)
+
+    unlink(admin_client, budget, things.rent_payment)
+
+    assert (stored(session, BudgetLink), stored(session, BudgetExclusion)) == (0, 0)
+    assert amounts(view(admin_client, budget)) == ("2000.00", "0.00", "0.00", "2000.00")
+    assert counted(admin_client, budget, removed=True) == []
+
+
+def test_taking_off_a_transaction_something_else_counts_remembers_it(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    category = count(admin_client, budget, "spending", category=things.groceries.id)
+
+    unlink(admin_client, budget, things.shop)
+    unlink(admin_client, budget, things.shop)
+
+    period = view(admin_client, budget)
+    # The others in the category still count: the 40.00 and the 18.20 refund.
+    assert (period["spent"], period["transactions"], period["removed"]) == ("21.80", 2, 1)
+    assert summary(counted(admin_client, budget)) == [
+        ("Target", "spending", "category"),
+        ("Trader Joes", "spending", "category"),
+    ]
+    [removed] = counted(admin_client, budget, removed=True)
+    assert (removed["payee"], removed["via"], removed["source_id"]) == (
+        "Whole Foods",
+        "category",
+        category["id"],
+    )
+    assert (stored(session, BudgetLink), stored(session, BudgetExclusion)) == (1, 1)
+
+
+def test_a_transaction_with_its_own_link_and_a_source_comes_off_of_both(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", category=things.groceries.id)
+    link(admin_client, budget, "income", things.shop)
+
+    unlink(admin_client, budget, things.shop)
+
+    assert stored(session, BudgetExclusion) == 1
+    assert "Whole Foods" not in [item["payee"] for item in counted(admin_client, budget)]
+    assert [item["kind"] for item in counted(admin_client, budget, removed=True)] == ["spending"]
+
+
+def test_putting_a_transaction_back_that_something_counts_needs_no_link(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", category=things.groceries.id)
+    unlink(admin_client, budget, things.shop)
+
+    assert link(admin_client, budget, "spending", things.shop) == {"count": 1}
+
+    assert (stored(session, BudgetLink), stored(session, BudgetExclusion)) == (1, 0)
+    assert view(admin_client, budget)["spent"] == "105.92"
+    assert view(admin_client, budget)["removed"] == 0
+
+
+def test_putting_a_transaction_back_as_something_else_links_it(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", category=things.groceries.id)
+    unlink(admin_client, budget, things.shop)
+
+    link(admin_client, budget, "income", things.shop)
+
+    assert (stored(session, BudgetLink), stored(session, BudgetExclusion)) == (2, 0)
+    assert ("Whole Foods", "income", "transaction") in summary(counted(admin_client, budget))
+
+
+def test_taking_off_a_transaction_nothing_counts_changes_nothing(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+
+    unlink(admin_client, budget, things.hardware)
+
+    assert (stored(session, BudgetLink), stored(session, BudgetExclusion)) == (0, 0)
+
+
+def test_a_transaction_that_is_gone_cannot_be_taken_off_or_linked(
+    admin_client: TestClient,
+) -> None:
+    budget = make_budget(admin_client)
+    gone = uuid.uuid4()
+
+    assert error(admin_client.delete(f"/api/budgets/{budget['id']}/transactions/{gone}")) == (
+        "unknown_transaction"
+    )
+    response = admin_client.post(
+        f"/api/budgets/{budget['id']}/transactions", json={"ids": [str(gone)], "kind": "income"}
+    )
+    assert (response.status_code, error(response)) == (404, "unknown_transaction")
+
+
+def test_linking_is_repeatable_and_can_change_what_a_transaction_counts_as(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+
+    assert link(admin_client, budget, "spending", things.shop, things.hardware) == {"count": 2}
+    link(admin_client, budget, "spending", things.shop)
+    assert stored(session, BudgetLink) == 2
+
+    link(admin_client, budget, "income", things.shop)
+
+    assert stored(session, BudgetLink) == 2
+    assert summary(counted(admin_client, budget)) == [
+        ("Hardware Hank", "spending", "transaction"),
+        ("Whole Foods", "income", "transaction"),
+    ]
+
+
+def test_a_transaction_that_already_counts_that_way_needs_no_link_of_its_own(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", category=things.groceries.id)
+
+    link(admin_client, budget, "spending", things.shop)
+    assert stored(session, BudgetLink) == 1
+
+    # Counting it the other way does need one, which then has the last word.
+    link(admin_client, budget, "income", things.shop)
+    assert stored(session, BudgetLink) == 2
 
 
 @pytest.mark.parametrize(
     "body",
     [
-        {"month": "2026-09", "amount": "-5"},
-        {"month": "2026-09", "amount": "5.001"},
-        {"month": "2026-09", "amount": "1000000000000"},
-        {"month": "2026-09"},
-        {"month": "September", "amount": "5"},
-        {"month": "2026-09", "amount": "5", "scope": "always"},
-        {"month": "2026-09", "amount": "5", "period": "quarterly"},
-        {"month": "2026-09", "amount": "5", "period": "weekly", "rollover": True},
-        {"month": "2026-09", "amount": "5", "cycle_anchor": "2026-09-01"},
-        {
-            "month": "2026-09",
-            "amount": "5",
-            "account_ids": [str(uuid.uuid4()), str(uuid.uuid4())],
-        },
-        {"month": "2026-09", "amount": "5", "note": "extra"},
+        {"ids": [], "kind": "income"},
+        {"ids": [str(uuid.uuid4())] * 501, "kind": "income"},
+        {"ids": ["abc"], "kind": "income"},
+        {"ids": [str(uuid.uuid4())], "kind": "profit"},
+        {"ids": [str(uuid.uuid4())]},
+        {"ids": [str(uuid.uuid4())], "kind": "income", "extra": True},
     ],
 )
-def test_budget_changes_are_checked(
-    admin_client: TestClient, categories: dict[str, Category], body: dict[str, Any]
+def test_linking_needs_transactions_and_what_they_count_as(
+    admin_client: TestClient, body: dict[str, Any]
 ) -> None:
-    response = admin_client.put(f"/api/budget/categories/{categories['Groceries'].id}", json=body)
+    budget = make_budget(admin_client)
+
+    response = admin_client.post(f"/api/budgets/{budget['id']}/transactions", json=body)
 
     assert response.status_code == 422
 
 
-def test_transfers_and_missing_categories_cant_be_budgeted(
-    admin_client: TestClient, categories: dict[str, Category]
+# ---- Things that count --------------------------------------------------------------------
+
+
+def test_accounts_categories_subscriptions_and_automations_count_toward_a_budget(
+    admin_client: TestClient, session: Session
 ) -> None:
-    body = {"month": "2026-09", "amount": "300"}
-
-    transfer = admin_client.put(
-        f"/api/budget/categories/{categories['Credit card payments'].id}", json=body
+    things = household(session)
+    automation = Automation(
+        name="Paycheck",
+        payees=["Acme Corp"],
+        category_id=things.paycheck.id,
+        apply_to=AutomationScope.ALL,
+        active=True,
     )
-    missing = admin_client.put(f"/api/budget/categories/{uuid.uuid4()}", json=body)
+    session.add(automation)
+    session.commit()
+    budget = make_budget(admin_client)
 
-    assert error(transfer) == "transfer_category"
-    assert error(missing) == "not_found"
+    added = [
+        count(admin_client, budget, "spending", account=things.card.id),
+        count(admin_client, budget, "income", category=things.paycheck.id),
+        count(admin_client, budget, "spending", subscription=things.netflix.id),
+        count(admin_client, budget, "income", automation=automation.id),
+    ]
+
+    assert [
+        (item["type"], item["kind"], item["name"], item["target_id"], item["active"])
+        for item in added
+    ] == [
+        ("account", "spending", "Rewards Visa", str(things.card.id), True),
+        ("category", "income", "Paycheck", str(things.paycheck.id), True),
+        ("subscription", "spending", "Netflix", str(things.netflix.id), True),
+        ("automation", "income", "Paycheck", str(automation.id), True),
+    ]
+    assert all(uuid.UUID(item["id"]) for item in added)
 
 
-def test_viewers_cannot_change_budgets(
-    viewer_client: TestClient, session: Session, categories: dict[str, Category]
+def test_an_account_can_count_as_both_income_and_spending_but_not_twice(
+    admin_client: TestClient, session: Session
 ) -> None:
-    groceries = categories["Groceries"]
+    things = household(session)
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "income", account=things.checking.id)
+    count(admin_client, budget, "spending", account=things.checking.id)
 
-    single = viewer_client.put(
-        f"/api/budget/categories/{groceries.id}", json={"month": "2026-09", "amount": "600"}
+    repeated = admin_client.post(
+        f"/api/budgets/{budget['id']}/sources",
+        json={"kind": "income", "account_id": str(things.checking.id)},
     )
-    plan = viewer_client.put(
-        "/api/budget/months/2026-09",
-        json={"amounts": [{"category_id": str(groceries.id), "amount": "600"}]},
+
+    assert (repeated.status_code, error(repeated)) == (409, "already_counted")
+    assert [item["kind"] for item in view(admin_client, budget)["sources"]] == [
+        "income",
+        "spending",
+    ]
+
+
+@pytest.mark.parametrize("target", ["category", "subscription", "automation"])
+def test_a_category_subscription_or_automation_counts_only_once_for_a_budget(
+    admin_client: TestClient, session: Session, target: str
+) -> None:
+    things = household(session)
+    automation = Automation(
+        name="Paycheck",
+        payees=["Acme Corp"],
+        category_id=things.paycheck.id,
+        apply_to=AutomationScope.ALL,
+        active=True,
+    )
+    session.add(automation)
+    session.commit()
+    ids = {
+        "category": things.groceries.id,
+        "subscription": things.netflix.id,
+        "automation": automation.id,
+    }
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", **{target: ids[target]})
+
+    repeated = admin_client.post(
+        f"/api/budgets/{budget['id']}/sources",
+        json={"kind": "spending", f"{target}_id": str(ids[target])},
     )
 
-    assert error(single) == "admin_only"
-    assert error(plan) == "admin_only"
-    assert stored_budget(session, groceries) is None
+    assert (repeated.status_code, error(repeated)) == (409, "already_counted")
+    # It's another budget's, too.
+    other = make_budget(admin_client, name="Other")
+    count(admin_client, other, "spending", **{target: ids[target]})
 
 
-# ---- Budgeting a month ---------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"kind": "income"},
+        {"kind": "income", "account_id": str(uuid.uuid4()), "category_id": str(uuid.uuid4())},
+        {"kind": "income", "subscription_id": str(uuid.uuid4())},
+        {"kind": "spending", "account_id": "abc"},
+        {"account_id": str(uuid.uuid4())},
+        {"kind": "profit", "account_id": str(uuid.uuid4())},
+    ],
+)
+def test_a_source_is_one_thing_and_a_subscription_is_only_ever_spending(
+    admin_client: TestClient, body: dict[str, Any]
+) -> None:
+    budget = make_budget(admin_client)
+
+    assert admin_client.post(f"/api/budgets/{budget['id']}/sources", json=body).status_code == 422
 
 
-def put_plan(client: TestClient, month: str, **body: Any) -> dict[str, Any]:
-    response = client.put(f"/api/budget/months/{month}", json=body)
+@pytest.mark.parametrize(
+    ("target", "code"),
+    [
+        ("account", "unknown_account"),
+        ("category", "unknown_category"),
+        ("subscription", "unknown_subscription"),
+        ("automation", "unknown_automation"),
+    ],
+)
+def test_something_that_is_gone_cannot_count(
+    admin_client: TestClient, target: str, code: str
+) -> None:
+    budget = make_budget(admin_client)
+
+    response = admin_client.post(
+        f"/api/budgets/{budget['id']}/sources",
+        json={"kind": "spending", f"{target}_id": str(uuid.uuid4())},
+    )
+
+    assert (response.status_code, error(response)) == (422, code)
+
+
+def test_a_source_can_stop_counting(admin_client: TestClient, session: Session) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    category = count(admin_client, budget, "spending", category=things.groceries.id)
+    link(admin_client, budget, "spending", things.rent_payment)
+    assert view(admin_client, budget)["spent"] == "1955.92"
+
+    response = admin_client.delete(f"/api/budgets/{budget['id']}/sources/{category['id']}")
+
+    assert response.status_code == 204
+    assert view(admin_client, budget)["spent"] == "1850.00"
+    assert view(admin_client, budget)["sources"] == []
+
+
+def test_only_sources_can_be_removed_as_sources(admin_client: TestClient, session: Session) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    other = make_budget(admin_client, name="Other")
+    category = count(admin_client, other, "spending", category=things.groceries.id)
+    link(admin_client, budget, "spending", things.rent_payment)
+    own_link = session.scalar(select(BudgetLink.id).where(BudgetLink.transaction_id.is_not(None)))
+
+    attempts = [
+        admin_client.delete(f"/api/budgets/{budget['id']}/sources/{own_link}"),
+        admin_client.delete(f"/api/budgets/{budget['id']}/sources/{category['id']}"),
+        admin_client.delete(f"/api/budgets/{budget['id']}/sources/{uuid.uuid4()}"),
+    ]
+
+    assert [error(response) for response in attempts] == ["not_found"] * 3
+    assert stored(session, BudgetLink) == 2
+
+
+def test_sources_are_listed_with_income_first(admin_client: TestClient, session: Session) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", category=things.groceries.id)
+    count(admin_client, budget, "income", category=things.paycheck.id)
+    count(admin_client, budget, "spending", account=things.card.id)
+
+    sources = view(admin_client, budget)["sources"]
+
+    assert [(item["kind"], item["name"]) for item in sources] == [
+        ("income", "Paycheck"),
+        ("spending", "Groceries"),
+        ("spending", "Rewards Visa"),
+    ]
+
+
+# ---- Other currencies -------------------------------------------------------------------
+
+
+def test_accounts_in_other_currencies_count_in_the_households_a_day_at_a_time(
+    admin_client: TestClient, session: Session, rates: FakeRates
+) -> None:
+    euros = add_account(session, "Euro account", currency="EUR")
+    add_transaction(session, euros, "-100.00", "Cafe", date=day(10))
+    add_transaction(session, euros, "-50.00", "Bistro", date=day(11))
+    add_transaction(session, euros, "40.00", "Pay", date=day(12))
+    rates.rate("EUR", {day(10): "1.10", day(11): "1.20", day(12): "1.00"})
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", account=euros.id)
+    count(admin_client, budget, "income", account=euros.id)
+
+    period = view(admin_client, budget)
+
+    assert (period["income"], period["spent"]) == ("40.00", "170.00")
+    assert (period["converted"], period["unavailable"]) == (["EUR"], [])
+    assert [(item["payee"], item["amount"]) for item in counted(admin_client, budget)] == [
+        ("Pay", "40.00"),
+        ("Bistro", "-50.00"),
+        ("Cafe", "-100.00"),
+    ]
+
+
+def test_currencies_without_a_rate_are_left_out_and_said_so(
+    admin_client: TestClient, session: Session, rates: FakeRates
+) -> None:
+    euros = add_account(session, "Euro account", currency="EUR")
+    pounds = add_account(session, "Pound account", currency="GBP")
+    add_transaction(session, euros, "-100.00", "Cafe", date=day(10))
+    add_transaction(session, pounds, "-70.00", "Pub", date=day(10))
+    rates.rate("EUR", "1.10")
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", account=euros.id)
+    count(admin_client, budget, "spending", account=pounds.id)
+
+    period = view(admin_client, budget)
+
+    assert period["spent"] == "110.00"
+    assert (period["converted"], period["unavailable"]) == (["EUR"], ["GBP"])
+
+
+def test_nothing_in_another_currency_counts_when_the_rate_server_cannot_be_reached(
+    admin_client: TestClient, session: Session, rates: FakeRates
+) -> None:
+    euros = add_account(session, "Euro account", currency="EUR")
+    add_transaction(session, euros, "-100.00", "Cafe", date=day(10))
+    rates.unreachable = True
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", account=euros.id)
+
+    period = view(admin_client, budget)
+
+    assert (period["spent"], period["converted"], period["unavailable"]) == ("0.00", [], ["EUR"])
+
+
+# ---- Bills still to come ----------------------------------------------------------------
+
+
+def subscription(session: Session, account: Account, name: str, **fields: Any) -> Subscription:
+    item = Subscription(
+        name=name,
+        payee=name,
+        amount=fields.pop("amount", Decimal("10.00")),
+        frequency=fields.pop("frequency", PaymentFrequency.MONTHLY),
+        account_id=account.id,
+        next_due_date=fields.pop("next_due_date", dt.date(2026, 9, 25)),
+        **fields,
+    )
+    session.add(item)
+    session.commit()
+    return item
+
+
+def test_the_bills_still_to_come_are_the_payments_due_before_the_period_ends(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    gym = subscription(
+        session,
+        things.checking,
+        "Gym",
+        frequency=PaymentFrequency.WEEKLY,
+        next_due_date=dt.date(2026, 9, 22),
+    )
+    power = subscription(
+        session, things.checking, "Power", amount=Decimal("100.00"), amount_varies=True
+    )
+    paused = subscription(session, things.checking, "Old magazine", active=False)
+    unlinked = subscription(session, things.checking, "Not counted")
+    for index, amount in enumerate(["-120.00", "-140.00"]):
+        add_transaction(
+            session,
+            things.checking,
+            amount,
+            "Power",
+            date=dt.date(2026, 8, 1 + index),
+            subscription_id=power.id,
+        )
+    budget = make_budget(admin_client)
+    for item in (gym, power, paused, things.netflix):
+        count(admin_client, budget, "spending", subscription=item.id)
+
+    period = view(admin_client, budget)
+
+    # The gym is due twice more in September, and the power bill is what it usually comes to.
+    # Netflix isn't due until next month, so it isn't in this period, and a paused one never is.
+    assert [(item["name"], item["due_on"], item["amount"]) for item in period["upcoming"]] == [
+        ("Gym", "2026-09-22", "10.00"),
+        ("Power", "2026-09-25", "130.00"),
+        ("Gym", "2026-09-29", "10.00"),
+    ]
+    assert unlinked.id not in [item["subscription_id"] for item in period["upcoming"]]
+    # They're only for the period the person is in.
+    assert view(admin_client, budget, "2026-08-10")["upcoming"] == []
+    assert view(admin_client, budget, "2026-10-10")["upcoming"] == []
+
+
+def test_bills_still_to_come_in_other_currencies_are_converted_or_left_out(
+    admin_client: TestClient, session: Session, rates: FakeRates
+) -> None:
+    euros = add_account(session, "Euro account", currency="EUR")
+    pounds = add_account(session, "Pound account", currency="GBP")
+    rates.rate("EUR", "1.10")
+    abroad = subscription(session, euros, "Streamflix", amount=Decimal("20.00"))
+    unknown = subscription(session, pounds, "Pub club", amount=Decimal("30.00"))
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", subscription=abroad.id)
+    count(admin_client, budget, "spending", subscription=unknown.id)
+
+    period = view(admin_client, budget)
+
+    assert [(item["name"], item["amount"]) for item in period["upcoming"]] == [
+        ("Streamflix", "22.00")
+    ]
+
+
+# ---- How it went, period by period ---------------------------------------------------------
+
+
+def history(
+    client: TestClient, budget: dict[str, Any], on: str | None = None, **params: Any
+) -> dict[str, Any]:
+    query = {"today": TODAY.isoformat(), **({"on": on} if on else {}), **params}
+    response = client.get(f"/api/budgets/{budget['id']}/history", params=query)
     assert response.status_code == 200, response.text
     result: dict[str, Any] = response.json()
     return result
 
 
-def test_an_admin_budgets_several_categories_at_once(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
+def test_the_history_gives_what_each_of_the_latest_periods_came_to(
+    admin_client: TestClient, session: Session
 ) -> None:
-    set_general(session, fiscal_year_start_month=4)
-    groceries, restaurants, travel, paycheck = (
-        categories["Groceries"],
-        categories["restaurants"],
-        categories["Travel"],
-        categories["Paycheck"],
+    things = household(session)
+    add_transaction(
+        session, things.checking, "1000.00", "Acme", date=dt.date(2026, 8, 15),
+        category_id=things.paycheck.id,
+    )  # fmt: skip
+    for month, amount in ((8, "-50.00"), (7, "-30.00")):
+        add_transaction(
+            session, things.checking, amount, "Market", date=dt.date(2026, month, 2),
+            category_id=things.groceries.id,
+        )  # fmt: skip
+    budget = make_budget(admin_client, today="2026-07-05")
+    admin_client.patch(
+        f"/api/budgets/{budget['id']}", json={"amount": "1800", "today": "2026-08-05"}
     )
-    budget(session, restaurants, {"2026-01": "150.00"})
-    budget(session, travel, {"2026-04": "1200.00"}, period=BudgetPeriod.YEARLY)
+    count(admin_client, budget, "income", category=things.paycheck.id)
+    count(admin_client, budget, "spending", category=things.groceries.id)
 
-    body = put_plan(
-        admin_client,
-        "2026-09",
-        amounts=[
-            {"category_id": str(groceries.id), "amount": "600"},
-            {"category_id": str(restaurants.id), "amount": None},
-            {"category_id": str(travel.id), "amount": "2400"},
-            {"category_id": str(paycheck.id), "amount": "4800.00"},
-        ],
-    )
+    body = history(admin_client, budget, count=3)
 
-    assert body["month"] == "2026-09"
-    assert body["spending"]["budgeted"] == "800.00"
-    assert body["income"]["budgeted"] == "4800.00"
-    assert stored_amounts(session, groceries) == {"2026-09": "600.00"}
-    assert stored_amounts(session, restaurants) == {"2026-01": "150.00", "2026-09": None}
-    assert stored_amounts(session, travel) == {"2026-04": "2400.00"}
-    stored = stored_budget(session, travel)
-    assert stored is not None
-    assert stored.period == BudgetPeriod.YEARLY
+    assert [
+        (item["start"], item["end"], item["amount"], item["income"], item["spent"], item["current"])
+        for item in body["periods"]
+    ] == [
+        ("2026-07-01", "2026-07-31", "2000.00", "0.00", "30.00", False),
+        ("2026-08-01", "2026-08-31", "1800.00", "1000.00", "50.00", False),
+        ("2026-09-01", "2026-09-30", "1800.00", "2400.00", "105.92", True),
+    ]
+    assert (body["converted"], body["unavailable"]) == ([], [])
 
 
-def test_a_plan_for_one_month_leaves_the_rest(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
+def test_the_history_ends_with_the_period_asked_about_and_goes_back_before_the_budget(
+    admin_client: TestClient,
 ) -> None:
-    groceries, restaurants = categories["Groceries"], categories["restaurants"]
-    budget(session, groceries, {"2026-01": "500.00"})
+    budget = make_budget(admin_client)
 
-    put_plan(
-        admin_client,
-        "2026-12",
-        scope="only",
-        amounts=[
-            {"category_id": str(groceries.id), "amount": "900"},
-            {"category_id": str(restaurants.id), "amount": None},
-        ],
-    )
+    body = history(admin_client, budget, on="2026-03-15")
 
-    assert stored_amounts(session, groceries) == {
-        "2026-01": "500.00",
-        "2026-12": "900.00",
-        "2027-01": "500.00",
-    }
-    assert stored_budget(session, restaurants) is None
+    assert len(body["periods"]) == 12
+    assert [body["periods"][0]["start"], body["periods"][-1]["start"]] == [
+        "2025-04-01",
+        "2026-03-01",
+    ]
+    assert not any(item["current"] for item in body["periods"])
+    assert len(history(admin_client, budget)["periods"]) == 12
 
 
-@pytest.mark.parametrize(
-    "amounts",
-    [
-        [],
-        [{"category_id": "not-an-id", "amount": "5"}],
-        [{"category_id": "{groceries}", "amount": "-5"}],
-        [{"category_id": "{groceries}"}],
-        [
-            {"category_id": "{groceries}", "amount": "5"},
-            {"category_id": "{groceries}", "amount": "6"},
-        ],
-    ],
-)
-def test_plans_are_checked(
-    admin_client: TestClient, categories: dict[str, Category], amounts: list[dict[str, Any]]
+@pytest.mark.parametrize("count_of", [0, 61, -1])
+def test_the_history_covers_at_least_one_and_at_most_sixty_periods(
+    admin_client: TestClient, count_of: int
 ) -> None:
-    for item in amounts:
-        item["category_id"] = item["category_id"].format(groceries=categories["Groceries"].id)
+    budget = make_budget(admin_client)
 
-    response = admin_client.put("/api/budget/months/2026-09", json={"amounts": amounts})
+    response = admin_client.get(f"/api/budgets/{budget['id']}/history", params={"count": count_of})
 
     assert response.status_code == 422
 
 
-def test_a_plan_says_when_a_category_cant_be_budgeted(
-    admin_client: TestClient, session: Session, categories: dict[str, Category]
+def test_weeks_have_their_own_history(admin_client: TestClient, session: Session) -> None:
+    things = household(session)
+    budget = make_budget(admin_client, period="weekly", amount="300")
+    for days, amount in ((dt.date(2026, 9, 19), "-5.00"), (dt.date(2026, 9, 20), "-7.00")):
+        add_transaction(session, things.checking, amount, "Week", date=days)
+    add_transaction(session, things.checking, "-9.00", "Week", date=dt.date(2026, 9, 26))
+    add_transaction(session, things.checking, "-11.00", "Week", date=dt.date(2026, 9, 27))
+    count(admin_client, budget, "spending", account=things.checking.id)
+
+    body = history(admin_client, budget, on="2026-09-27", count=3)
+
+    assert [
+        (item["start"], item["end"], item["spent"], item["current"]) for item in body["periods"]
+    ] == [
+        ("2026-09-13", "2026-09-19", "5.00", False),
+        # The 12.00 for hardware that the household had that week is there too.
+        ("2026-09-20", "2026-09-26", "28.00", True),
+        ("2026-09-27", "2026-10-03", "11.00", False),
+    ]
+
+
+def test_years_have_their_own_history_in_the_household_currency(
+    admin_client: TestClient, session: Session, rates: FakeRates
 ) -> None:
-    groceries = {"category_id": str(categories["Groceries"].id), "amount": "600"}
+    euros = add_account(session, "Euro account", currency="EUR")
+    add_transaction(session, euros, "-100.00", "Cafe", date=dt.date(2025, 12, 31))
+    add_transaction(session, euros, "-100.00", "Cafe", date=dt.date(2026, 1, 1))
+    rates.rate("EUR", "1.10")
+    budget = make_budget(admin_client, period="yearly", amount="12000")
+    count(admin_client, budget, "spending", account=euros.id)
 
-    missing = admin_client.put(
-        "/api/budget/months/2026-09",
-        json={"amounts": [groceries, {"category_id": str(uuid.uuid4()), "amount": "5"}]},
-    )
-    transfer = admin_client.put(
-        "/api/budget/months/2026-09",
-        json={
-            "amounts": [
-                groceries,
-                {"category_id": str(categories["Credit card payments"].id), "amount": "5"},
-            ]
-        },
-    )
+    body = history(admin_client, budget, count=2)
 
-    assert error(missing) == "not_found"
-    assert error(transfer) == "transfer_category"
-    assert stored_budget(session, categories["Groceries"]) is None
+    assert [(item["start"], item["spent"]) for item in body["periods"]] == [
+        ("2025-01-01", "110.00"),
+        ("2026-01-01", "110.00"),
+    ]
+    assert body["converted"] == ["EUR"]
+
+
+# ---- Listing what counts ---------------------------------------------------------------------
+
+
+def test_what_counts_is_listed_newest_first_with_what_counts_it(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    count_everything(admin_client, budget, things)
+
+    items = counted(admin_client, budget)
+
+    assert summary(items) == [
+        ("Hardware Hank", "spending", "account"),
+        ("Acme Corp", "income", "category"),
+        ("Target", "spending", "category"),
+        ("Trader Joes", "spending", "category"),
+        ("Netflix", "spending", "subscription"),
+        ("Whole Foods", "spending", "category"),
+        ("Parkside", "spending", "transaction"),
+    ]
+    assert items[0]["id"] == str(things.hardware.id)
+    assert (items[0]["date"], items[0]["amount"], items[0]["account_id"]) == (
+        "2026-09-20",
+        "-12.00",
+        str(things.checking.id),
+    )
+    assert (items[1]["category_id"], items[3]["category_id"]) == (
+        str(things.paycheck.id),
+        str(things.groceries.id),
+    )
+    assert counted(admin_client, budget, "2026-08-10") == []
+
+
+def test_the_list_can_be_paged_and_narrowed_to_income_or_spending(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    count_everything(admin_client, budget, things)
+    params: dict[str, Any] = {"today": TODAY.isoformat(), "page_size": 3}
+
+    pages = [
+        admin_client.get(f"/api/budgets/{budget['id']}/transactions", params={**params, "page": n})
+        for n in (1, 2, 3, 4)
+    ]
+
+    assert [response.json()["total"] for response in pages] == [7] * 4
+    assert [len(response.json()["items"]) for response in pages] == [3, 3, 1, 0]
+    assert [item["payee"] for item in pages[2].json()["items"]] == ["Parkside"]
+    assert summary(counted(admin_client, budget, kind="income")) == [
+        ("Acme Corp", "income", "category")
+    ]
+    assert len(counted(admin_client, budget, kind="spending")) == 6
+
+
+@pytest.mark.parametrize(
+    "params", [{"page": 0}, {"page_size": 0}, {"page_size": 101}, {"kind": "profit"}]
+)
+def test_the_list_needs_a_sensible_page_and_kind(
+    admin_client: TestClient, params: dict[str, Any]
+) -> None:
+    budget = make_budget(admin_client)
+
+    response = admin_client.get(f"/api/budgets/{budget['id']}/transactions", params=params)
+
+    assert response.status_code == 422
+
+
+def test_the_list_follows_the_servers_date_unless_told_otherwise(
+    admin_client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    things = household(session)
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", account=things.checking.id)
+    monkeypatch.setattr("app.api.budget.utcnow", lambda: dt.datetime(2026, 9, 12, tzinfo=dt.UTC))
+
+    response = admin_client.get(f"/api/budgets/{budget['id']}/transactions")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 3

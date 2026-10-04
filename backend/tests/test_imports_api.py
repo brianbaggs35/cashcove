@@ -873,3 +873,102 @@ def test_undoing_an_import_that_added_up_its_transactions(
     admin_client.delete(f"/api/imports/{record['id']}")
 
     assert balance_of(session, card) == Decimal("-612.40")
+
+
+def test_imported_transactions_are_sorted_by_automations_and_subscriptions(
+    admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
+) -> None:
+    automation = admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Coffee",
+            "payees": ["blue bottle coffee"],
+            "category_id": categories["Groceries"],
+            "apply_to": "future",
+        },
+    )
+    assert automation.status_code == 201, automation.text
+    subscription = admin_client.post(
+        "/api/subscriptions",
+        json={
+            "name": "Power",
+            "payee": "City Power & Light",
+            "amount": "96.40",
+            "frequency": "monthly",
+            "account_id": str(checking.id),
+            "next_due_date": "2026-09-05",
+            "category_id": categories["Utilities"],
+        },
+    ).json()
+
+    imported(admin_client, CHECKING_CSV, checking)
+
+    rows = {row.payee: row for row in transactions(session)}
+    assert [row.category_id for row in transactions(session) if "BOTTLE" in row.payee] == [
+        uuid.UUID(categories["Groceries"])
+    ] * 2
+    power = rows["CITY POWER & LIGHT"]
+    assert (power.subscription_id, power.category_id) == (
+        uuid.UUID(subscription["id"]),
+        uuid.UUID(categories["Utilities"]),
+    )
+    assert (
+        admin_client.get(f"/api/subscriptions/{subscription['id']}").json()["next_due_date"]
+        == "2026-10-05"
+    )
+    assert rows["NORTHWIND HEALTH PAYROLL PPD"].subscription_id is None
+
+
+def test_a_statement_files_noisy_descriptions_are_sorted_by_text_in_them(
+    admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
+) -> None:
+    created = admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Whole Foods",
+            "payees": ["wholefds mkt"],
+            "match": "starts_with",
+            "category_id": categories["Groceries"],
+            "apply_to": "future",
+        },
+    )
+    assert created.status_code == 201, created.text
+    # Stores and towns differ from line to line, so what they share is all there is to go on.
+    file = CHECKING_CSV + "09/09/2026,WHOLEFDS MKT #99999 DALLAS TX,-12.30,2673.18,T1006\n"
+
+    imported(admin_client, file, checking)
+
+    sorted_rows = [row for row in transactions(session) if "WHOLEFDS" in row.payee]
+    assert len(sorted_rows) == 2
+    assert {row.category_id for row in sorted_rows} == {uuid.UUID(categories["Groceries"])}
+    assert [row.category_id for row in transactions(session) if "WHOLEFDS" not in row.payee] == [
+        None
+    ] * 4
+
+
+def test_a_files_history_in_a_linked_account_is_sorted_like_the_banks_own(
+    admin_client: TestClient, session: Session, categories: dict[str, str]
+) -> None:
+    linked = linked_account(session, "Rewards Visa", mask="3333", type=AccountType.CREDIT_CARD)
+    # The bank, through Plaid, already shared this one, which the household sorted by hand.
+    add_transaction(session, linked, "-15.49", "Netflix", original_description="NETFLIX.COM")
+    created = admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Streaming",
+            "payees": ["netflix"],
+            "match": "contains",
+            "account_id": str(linked.id),
+            "category_id": categories["Utilities"],
+            "apply_to": "all",
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["applied"] == 1
+
+    imported(admin_client, CARD_OFX, linked)
+
+    # The statement's NETFLIX.COM is the same one, in the same account.
+    netflix = [row for row in transactions(session) if "NETFLIX" in row.payee.upper()]
+    assert len(netflix) == 2
+    assert {row.category_id for row in netflix} == {uuid.UUID(categories["Utilities"])}

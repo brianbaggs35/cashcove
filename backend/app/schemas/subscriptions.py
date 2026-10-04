@@ -26,6 +26,8 @@ class SubscriptionCreate(BaseModel):
 
     name: SubscriptionName
     amount: SubscriptionAmount
+    # The amount is a different one each time, like a utility bill.
+    amount_varies: bool = False
     frequency: PaymentFrequency
     account_id: uuid.UUID
     next_due_date: dt.date
@@ -40,6 +42,7 @@ class SubscriptionUpdate(BaseModel):
 
     name: SubscriptionName | None = None
     amount: SubscriptionAmount | None = None
+    amount_varies: bool | None = None
     frequency: PaymentFrequency | None = None
     account_id: uuid.UUID | None = None
     next_due_date: dt.date | None = None
@@ -57,6 +60,7 @@ class SubscriptionOut(BaseModel):
     name: str
     payee: str
     amount: AmountOut
+    amount_varies: bool
     frequency: PaymentFrequency
     account_id: uuid.UUID
     next_due_date: dt.date
@@ -64,5 +68,21 @@ class SubscriptionOut(BaseModel):
     notes: str | None
     active: bool
     payment_count: int = 0
+    # The day of the latest payment linked to it, which is what moves its due date along, and
+    # what that payment was for.
+    last_payment_on: dt.date | None = None
+    last_payment_amount: AmountOut | None = None
+    # What its recent payments average, and so what to expect of one that changes every time.
+    typical_amount: AmountOut | None = None
+    # What its next payment is expected to be: the amount, or for a bill that changes every time,
+    # the typical amount once there is one.
+    expected_amount: AmountOut | None = None
     created_at: dt.datetime
     updated_at: dt.datetime
+
+
+class PaymentsLinked(BaseModel):
+    """What linking payments did: how many changed, and the subscription as it is now."""
+
+    count: int
+    subscription: SubscriptionOut

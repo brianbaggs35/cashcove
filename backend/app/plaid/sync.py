@@ -18,7 +18,7 @@ from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.crypto import DecryptionError, SecretBox
-from app.finance.subscriptions import apply_subscription_rule
+from app.finance.automations import RuleBook
 from app.models import (
     Account,
     Connection,
@@ -178,6 +178,7 @@ def _apply_account(
     account: Account,
     changes: AccountChanges,
     chooser: CategoryChooser,
+    rules: RuleBook,
     counts: Counts,
 ) -> None:
     wanted = [item.transaction_id for item in itertools.chain(changes.added, changes.modified)]
@@ -200,7 +201,8 @@ def _apply_account(
             external_id=transaction.transaction_id,
         )
         _update_from_bank(row, transaction)
-        apply_subscription_rule(db, row)
+        # What the household chose for the pending transaction it replaces stays.
+        rules.sort(row, keep_category=before is not None and before.category_id is not None)
         db.add(row)
         rows[transaction.transaction_id] = row
         counts.added += 1
@@ -332,6 +334,7 @@ def _apply(
     connection.available_accounts = [item.model_dump(mode="json") for item in accounts.values()]
     connection.consent_expires_at = shared.item.consent_expiration_time
     chooser = CategoryChooser(db)
+    rules = RuleBook.load(db)
     counts = Counts()
     statuses: list[str] = []
     for account in linked_accounts(db, connection):
@@ -345,7 +348,7 @@ def _apply(
         account_changes = changes.get(current.id)
         # An account imported while this sync ran waits for the next one.
         if account_changes is not None:
-            _apply_account(db, account, account_changes, chooser, counts)
+            _apply_account(db, account, account_changes, chooser, rules, counts)
             account.sync_cursor = _next_cursor(account, account_changes)
             statuses.append(account_changes.history)
     connection.history = _history(statuses, connection.history)
