@@ -38,9 +38,10 @@ however you like (Cashcove doesn't send email), and each person is either an **a
 can change anything, or a **viewer**, who sees everything and changes nothing.
 
 Setup also adds 37 suggested categories, such as Groceries and Rent & mortgage, in groups
-like Food & drink. Rename, regroup or delete them in **Settings > Categories**. Until you
-connect a bank through Plaid, add accounts by hand on the **Accounts** tab and record their
-transactions on **Transactions**; an account kept by hand moves its balance with them.
+like Food & drink. Add, rename, regroup or delete categories and their groups on the
+**Categories** tab. Until you connect a bank through Plaid, add accounts by hand on the
+**Accounts** tab and record their transactions on **Transactions**; an account kept by hand
+moves its balance with them.
 
 ### Using your own domain
 
@@ -100,7 +101,7 @@ instead, which suits phones better:
 
 1. In the dashboard, add `https://<CASHCOVE_SERVER_NAME>/connect/oauth` to **Developers > API
    > Allowed redirect URIs**, with your server's name and any port that isn't 443
-   (`https://cashcove.example.com/connect/oauth`).
+   > (`https://cashcove.example.com/connect/oauth`).
 2. Set `CASHCOVE_PLAID_OAUTH_REDIRECT=true` in `.env` and run `make up`.
 
 Banks outside the US need their countries in `CASHCOVE_PLAID_COUNTRY_CODES`, a
@@ -148,6 +149,77 @@ budget and the Budget tab says so, until they can be.
   `http://frankfurter:8080`.
 - **No lookups at all:** set `CASHCOVE_EXCHANGE_RATE_URL=` to nothing. Only rates already kept
   are used, so accounts in other currencies count only for days Cashcove already has rates for.
+
+### Subscriptions and automations
+
+The **Subscriptions** tab keeps track of recurring payments: what each costs, how often, which
+account pays it and when the next payment is due, with a reminder beforehand (**Settings >
+Alerts** sets how many days). A subscription tracks the payments from its account that have
+its payee, and **Link payments** adds ones from any account by hand, or takes them off again.
+Linked payments take the subscription's category, and the latest of them moves its due date
+on, so the next payment is always the one to come. Open a linked transaction on the
+Transactions tab to see which subscription it belongs to.
+
+The **Automations** tab does the sorting for you. Tick the transactions you want sorted (or
+type text to look for), say what should happen to them, and Cashcove finds every other
+transaction like them:
+
+- **What they get:** a category, a subscription their payments are linked to (only money going
+  out is linked), and/or counting toward budgets as income or spending. Any one of them is
+  enough.
+- **What they look for:** text in a transaction's payee or in what the bank called it, which
+  differ between Plaid and statement files ("Amazon" and "AMZN Mktp US\*2K4TT3Y81"): the whole
+  of it, the start of it or anywhere in it, ignoring letter case. An automation can also look
+  only in one account, or only at an amount or a range of amounts, which tells apart a payee
+  that bills several subscriptions, while a bill that changes every month leaves the amount open.
+- **Which transactions:** an automation can cover **past and future** transactions, sorting the
+  ones you already have as soon as you save it, or **future** ones only, leaving what's there
+  alone.
+- **When it happens:** as transactions come in, whether Plaid syncs them, a statement file
+  brings them or you add them by hand, and when you change an automation, or resume a paused
+  one, that covers the past.
+- **Never takes anything away:** automations only add. A category you choose yourself, such
+  as in a transaction's own form, stays, and deleting an automation leaves what it sorted as
+  it is.
+- **Overlaps are fine:** when several automations would give a transaction a category or a
+  subscription, the oldest wins, and the dialog tells you which others already do the same
+  thing before you save.
+
+A subscription whose amount changes every time, like electricity, can be set up as such: it
+expects what its recent payments averaged, and says when the latest payment wasn't the price
+it has (**Update amount** takes the new one). Anything an automation gets wrong is fixed by
+hand: choose the subscription on a transaction's details, or select several payments on the
+Transactions tab and **Link to subscription**.
+
+### Budgets
+
+A **budget** is an amount for a period of time: every week, two weeks, month or year. Make as
+many as you like, such as a monthly one for the household and a yearly one for the year, and
+switch between them with the cards at the top of the Budget tab, which show how each is going.
+
+What counts toward a budget is whatever you link to it, as income (money coming in) or as
+spending (money going out, which is taken off the amount):
+
+- **Transactions** one at a time, such as a paycheck. Tick **count every later one like them**
+  and Cashcove makes an automation, so every later paycheck counts too, whether Plaid syncs it,
+  a statement file brings it or you add it by hand.
+- **An account**: its money out counts as spending, or its money in as income. Moving money
+  between your own accounts, like paying a card, isn't counted.
+- **A category**, a **subscription** (its payments, and the ones still to come this period), or
+  an **automation**, which counts everything it finds, including what arrives later.
+
+A transaction counts once toward a budget, however many of those link it, and can count toward
+several budgets at once. Take one off a budget, even one that an account or category counts,
+and it stops counting there only. It's listed under **Taken off**, where you can put it back.
+
+Periods follow transaction dates, so you can look back at earlier ones, and the amount is
+measured against what was counted that period. Changing a budget's amount applies from the
+period you're in, so earlier periods keep what they had. For each period the tab shows what's
+left to spend, spending against an even pace through the period, income and spending in each
+of the latest periods, where the money went, and the bills still to come, and every chart has
+a table view that reads the same numbers. **Settings > General** sets the first day of the
+week and the month the budget year starts in, and **Settings > Alerts** how much of the amount
+counts as close to it.
 
 ### Importing statement files
 
