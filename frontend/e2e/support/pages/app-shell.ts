@@ -8,6 +8,8 @@ export const TABS = {
   budget: 'Budget',
   subscriptions: 'Subscriptions',
   transactions: 'Transactions',
+  categories: 'Categories',
+  automations: 'Automations',
   import: 'Import',
   connect: 'Connect',
   settings: 'Settings',

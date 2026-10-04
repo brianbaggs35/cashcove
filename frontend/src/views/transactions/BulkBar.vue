@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { Tags, Trash2, X } from '@lucide/vue'
+import { Repeat, Tags, Trash2, WandSparkles, X } from '@lucide/vue'
 
-/** What an admin can do with the transactions they've selected. */
-defineProps<{ count: number }>()
-const emit = defineEmits<{ categorize: []; delete: []; clear: [] }>()
+/**
+ * What an admin can do with the transactions they've selected. `payments` is how many of them
+ * are money going out, which are the ones a subscription can be linked to.
+ */
+defineProps<{ count: number; payments: number }>()
+const emit = defineEmits<{ categorize: []; link: []; automate: []; delete: []; clear: [] }>()
 </script>
 
 <template>
@@ -17,6 +20,23 @@ const emit = defineEmits<{ categorize: []; delete: []; clear: [] }>()
       @click="emit('categorize')"
     >
       Categorize
+    </v-btn>
+    <v-btn
+      variant="text"
+      :prepend-icon="Repeat"
+      :disabled="!payments"
+      data-test="bulk-link"
+      @click="emit('link')"
+    >
+      Link to subscription
+    </v-btn>
+    <v-btn
+      variant="text"
+      :prepend-icon="WandSparkles"
+      data-test="bulk-automate"
+      @click="emit('automate')"
+    >
+      Automate
     </v-btn>
     <v-btn
       variant="text"

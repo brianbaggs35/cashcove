@@ -6,11 +6,21 @@ import {
   Plug,
   Repeat,
   Settings,
+  Tags,
+  WandSparkles,
   type LucideIcon,
 } from '@lucide/vue'
 
 export type NavName =
-  'accounts' | 'budget' | 'subscriptions' | 'transactions' | 'import' | 'connect' | 'settings'
+  | 'accounts'
+  | 'budget'
+  | 'subscriptions'
+  | 'transactions'
+  | 'categories'
+  | 'automations'
+  | 'import'
+  | 'connect'
+  | 'settings'
 
 export interface NavItem {
   name: NavName
@@ -18,8 +28,6 @@ export interface NavItem {
   path: string
   icon: LucideIcon
   summary: string
-  /** What's coming, which a tab shows until it's built. */
-  planned?: string[]
 }
 
 // The single source for the nav menu, routes and each tab's header.
@@ -36,12 +44,7 @@ export const navItems: NavItem[] = [
     title: 'Budget',
     path: '/budget',
     icon: PiggyBank,
-    summary: 'Plan your month and your year, then see how you are tracking.',
-    planned: [
-      'Monthly and yearly budgets by category',
-      'Spent versus planned, updated from your transactions',
-      'Roll over what is left to next month',
-    ],
+    summary: 'Budgets for a week, a month or a year, and what counts toward each.',
   },
   {
     name: 'subscriptions',
@@ -49,11 +52,6 @@ export const navItems: NavItem[] = [
     path: '/subscriptions',
     icon: Repeat,
     summary: 'Keep track of every recurring charge before it surprises you.',
-    planned: [
-      'Add, edit and cancel subscriptions',
-      'Alerts before a payment is due',
-      'Monthly and yearly cost totals',
-    ],
   },
   {
     name: 'transactions',
@@ -61,6 +59,20 @@ export const navItems: NavItem[] = [
     path: '/transactions',
     icon: ArrowLeftRight,
     summary: 'Search, filter and edit everything that moved money.',
+  },
+  {
+    name: 'categories',
+    title: 'Categories',
+    path: '/categories',
+    icon: Tags,
+    summary: 'Group your transactions for budgets and reports.',
+  },
+  {
+    name: 'automations',
+    title: 'Automations',
+    path: '/automations',
+    icon: WandSparkles,
+    summary: 'Sort matching transactions into categories and subscriptions for you.',
   },
   {
     name: 'import',

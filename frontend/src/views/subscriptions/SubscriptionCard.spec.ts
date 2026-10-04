@@ -32,7 +32,7 @@ describe('SubscriptionCard', () => {
     expect(wrapper.find('[data-test="subscription-amount"]').text()).toBe('$14.99')
     expect(wrapper.text()).toContain('$14.99 / month')
     expect(wrapper.text()).toContain('Everyday checking')
-    expect(wrapper.text()).toContain('🛒 Groceries')
+    expect(wrapper.find('[data-test="category-chip"]').text()).toContain('Groceries')
     expect(wrapper.find('[data-test="subscription-payment-count"]').text()).toContain(
       '2 payments tracked',
     )
@@ -44,6 +44,7 @@ describe('SubscriptionCard', () => {
 
   it.each([
     [-2, 'Overdue by 2 days', false],
+    [-1, 'Overdue by 1 day', false],
     [0, 'Due today', true],
     [1, 'Due tomorrow', true],
     [8, 'Due Oct 15, 2026', false],
@@ -51,6 +52,79 @@ describe('SubscriptionCard', () => {
     const { wrapper } = await render({}, { daysUntilDue: days })
     expect(wrapper.text()).toContain(text)
     expect(wrapper.find('[data-test="subscription-due-alert"]').exists()).toBe(alert)
+  })
+
+  it('shows an overdue payment in the error color, and no other', async () => {
+    const { wrapper: overdue } = await render({}, { daysUntilDue: -3 })
+    expect(overdue.find('[data-test="subscription-due"]').classes()).toContain('text-error')
+    const { wrapper: upcoming } = await render({}, { daysUntilDue: 3 })
+    expect(upcoming.find('[data-test="subscription-due"]').classes()).not.toContain('text-error')
+  })
+
+  it('says when the latest payment was made, once there is one', async () => {
+    const { wrapper } = await render({ last_payment_on: '2026-09-15' })
+    expect(wrapper.find('[data-test="subscription-last-payment"]').text()).toBe(
+      'Last payment Sep 15, 2026 · $14.99',
+    )
+    const { wrapper: none } = await render({ last_payment_on: null, payment_count: 0 })
+    expect(none.find('[data-test="subscription-last-payment"]').exists()).toBe(false)
+  })
+
+  it('says when the latest payment was made, even without what it was for', async () => {
+    const { wrapper } = await render({ last_payment_on: '2026-09-15', last_payment_amount: null })
+    expect(wrapper.find('[data-test="subscription-last-payment"]').text()).toBe(
+      'Last payment Sep 15, 2026',
+    )
+  })
+
+  it('shows a bill that changes every time as an estimate, and what was last paid', async () => {
+    const { wrapper } = await render({
+      name: 'Power',
+      amount: '100.00',
+      amount_varies: true,
+      expected_amount: '115.00',
+      typical_amount: '115.00',
+      last_payment_amount: '140.01',
+    })
+
+    expect(wrapper.find('[data-test="subscription-amount"]').text()).toBe('~ $115.00')
+    expect(wrapper.find('[data-test="subscription-varies"]').text()).toBe('Amount varies')
+    expect(wrapper.text()).toContain('$115.00 / month')
+    expect(wrapper.find('[data-test="subscription-last-payment"]').text()).toContain('$140.01')
+    // Its payments are never a change of price.
+    expect(wrapper.find('[data-test="subscription-price-change"]').exists()).toBe(false)
+  })
+
+  it('does not call a fixed amount an estimate', async () => {
+    const { wrapper } = await render()
+    expect(wrapper.find('[data-test="subscription-amount"]').text()).toBe('$14.99')
+    expect(wrapper.find('[data-test="subscription-varies"]').exists()).toBe(false)
+  })
+
+  it('notices when the last payment was not what the subscription says, and offers the new amount', async () => {
+    const subscription = makeSubscription({ amount: '15.49', last_payment_amount: '17.99' })
+    const { wrapper } = await render({ amount: '15.49', last_payment_amount: '17.99' })
+
+    expect(wrapper.find('[data-test="subscription-price-change"]').text()).toContain(
+      'The last payment was $17.99, not $15.49.',
+    )
+    await wrapper.find('[data-test="subscription-update-amount"]').trigger('click')
+
+    expect(wrapper.emitted('update-amount')?.[0]).toEqual([subscription])
+  })
+
+  it('leaves the price alone for viewers, and says nothing when payments match or there are none', async () => {
+    const { wrapper: viewer } = await render(
+      { amount: '15.49', last_payment_amount: '17.99' },
+      { readonly: true },
+    )
+    expect(viewer.find('[data-test="subscription-price-change"]').exists()).toBe(true)
+    expect(viewer.find('[data-test="subscription-update-amount"]').exists()).toBe(false)
+
+    const { wrapper: same } = await render()
+    expect(same.find('[data-test="subscription-price-change"]').exists()).toBe(false)
+    const { wrapper: none } = await render({ last_payment_amount: null, last_payment_on: null })
+    expect(none.find('[data-test="subscription-price-change"]').exists()).toBe(false)
   })
 
   it('hides the alert when reminders are disabled or outside the chosen window', async () => {
@@ -90,6 +164,8 @@ describe('SubscriptionCard', () => {
     )
     expect(wrapper.find('[data-test="subscription-paused-chip"]').text()).toBe('Paused')
     expect(wrapper.find('[data-test="subscription-actions"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="subscription-link-payments"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="category-chip"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('Account unavailable')
     expect(wrapper.find('[data-test="subscription-payment-count"]').text()).toContain(
       '0 payments tracked',
@@ -119,6 +195,15 @@ describe('SubscriptionCard', () => {
     await page().find('[data-test="subscription-delete"]').trigger('click')
     await flushPromises()
     expect(wrapper.emitted('delete')?.[0]).toEqual([subscription])
+  })
+
+  it('asks to link payments from its button', async () => {
+    const subscription = makeSubscription()
+    const { wrapper } = await render()
+
+    await wrapper.find('[data-test="subscription-link-payments"]').trigger('click')
+
+    expect(wrapper.emitted('link')?.[0]).toEqual([subscription])
   })
 
   it('offers resume for a paused subscription', async () => {

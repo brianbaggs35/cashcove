@@ -10,7 +10,7 @@ describe('settings sections', () => {
     expect(
       settingsGroups.map((group) => [group.title, group.sections.map((section) => section.key)]),
     ).toEqual([
-      ['Household', ['general', 'categories', 'users', 'alerts', 'sync']],
+      ['Household', ['general', 'users', 'alerts', 'sync']],
       ['You', ['account', 'security', 'appearance']],
       ['Cashcove', ['system']],
     ])
@@ -19,7 +19,6 @@ describe('settings sections', () => {
   it('lists every section in order with General first', () => {
     expect(settingsSections.map((section) => section.key)).toEqual([
       'general',
-      'categories',
       'users',
       'alerts',
       'sync',

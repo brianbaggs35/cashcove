@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CalendarClock, Plus, Repeat, Search } from '@lucide/vue'
+import { CalendarClock, CalendarDays, CalendarRange, Plus, Repeat, Search } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 
 import {
@@ -14,21 +14,23 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import ReadOnlyNotice from '@/components/ui/ReadOnlyNotice.vue'
 import { confirmAndRun } from '@/composables/confirm'
 import { notify } from '@/composables/notify'
+import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import { usePreferencesStore } from '@/stores/preferences'
 import { todayIso } from '@/utils/dates'
-import { formatMoney } from '@/utils/format'
 import { toCents, fromCents } from '@/utils/money'
 import SubscriptionCard from '@/views/subscriptions/SubscriptionCard.vue'
 import SubscriptionDialog from '@/views/subscriptions/SubscriptionDialog.vue'
-import { estimatedAmount } from '@/views/subscriptions/recurrence'
+import SubscriptionPaymentsDialog from '@/views/subscriptions/SubscriptionPaymentsDialog.vue'
+import { estimatedAmount, expectedAmount } from '@/views/subscriptions/recurrence'
 
 const auth = useAuthStore()
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const preferences = usePreferencesStore()
+const { money } = useHousehold()
 const subscriptions = ref<Subscription[]>([])
 const loading = ref(false)
 const loaded = ref(false)
@@ -37,6 +39,8 @@ const search = ref('')
 const activeFilter = ref<'active' | 'paused'>('active')
 const dialog = ref(false)
 const editing = ref<Subscription | null>(null)
+const paymentsOpen = ref(false)
+const linking = ref<Subscription | null>(null)
 let request = 0
 
 async function load() {
@@ -83,7 +87,7 @@ function sumByCurrency(items: Subscription[], period: 'month' | 'year') {
   const totals = new Map<string, number>()
   for (const item of items) {
     const currency = accounts.find(item.account_id)?.currency ?? 'USD'
-    const amount = estimatedAmount(item.amount, item.frequency, period)
+    const amount = estimatedAmount(expectedAmount(item), item.frequency, period)
     totals.set(currency, (totals.get(currency) ?? 0) + toCents(amount))
   }
   return [...totals].map(([currency, cents]) => ({ currency, amount: fromCents(cents) }))
@@ -117,6 +121,11 @@ function edit(subscription: Subscription) {
   dialog.value = true
 }
 
+function linkPayments(subscription: Subscription) {
+  linking.value = subscription
+  paymentsOpen.value = true
+}
+
 async function remove(subscription: Subscription) {
   const done = await confirmAndRun(
     {
@@ -145,6 +154,18 @@ async function toggle(subscription: Subscription) {
 async function saved() {
   await load()
 }
+
+/** A price rise, say: the amount a payment really was becomes the subscription's. */
+async function updateAmount(subscription: Subscription) {
+  if (subscription.last_payment_amount === null) return
+  try {
+    await updateSubscription(subscription.id, { amount: subscription.last_payment_amount })
+    notify(`Updated ${subscription.name} to ${money(subscription.last_payment_amount)}`)
+    await load()
+  } catch (updateError) {
+    error.value = errorMessage(updateError)
+  }
+}
 </script>
 
 <template>
@@ -170,6 +191,7 @@ async function saved() {
       v-if="error"
       type="error"
       variant="tonal"
+      class="mb-4"
       title="Couldn't load or update subscriptions"
       :text="error"
       data-test="subscriptions-error"
@@ -182,10 +204,10 @@ async function saved() {
     </v-alert>
 
     <div v-if="loading && !loaded" data-test="subscriptions-loading">
-      <v-skeleton-loader type="heading, paragraph, card@3" />
+      <v-skeleton-loader type="heading, paragraph, card@3" class="rounded-xl" />
     </div>
 
-    <v-card v-else-if="noSubscriptions" rounded="xl" class="subscription-empty">
+    <v-card v-else-if="noSubscriptions">
       <EmptyState
         :icon="Repeat"
         title="Know what’s coming up"
@@ -207,7 +229,7 @@ async function saved() {
     <template v-else-if="loaded">
       <v-row class="mb-2" density="compact">
         <v-col cols="12" md="4">
-          <v-card rounded="xl" class="subscription-stat h-100" data-test="subscriptions-count">
+          <v-card class="h-100" data-test="subscriptions-count">
             <v-card-text class="d-flex align-center ga-4 pa-5">
               <v-avatar color="primary" variant="tonal" rounded="lg">
                 <v-icon :icon="Repeat" />
@@ -222,32 +244,44 @@ async function saved() {
           </v-card>
         </v-col>
         <v-col cols="12" md="4">
-          <v-card rounded="xl" class="subscription-stat h-100" data-test="subscriptions-monthly">
-            <v-card-text class="pa-5">
-              <p class="text-body-small text-medium-emphasis mb-1">Estimated monthly</p>
-              <p
-                v-for="total in monthTotals"
-                :key="total.currency"
-                class="text-headline-small font-weight-bold ma-0"
-              >
-                {{ formatMoney(total.amount, total.currency) }}
-              </p>
-              <p v-if="!monthTotals.length" class="text-title-medium font-weight-bold ma-0">—</p>
+          <v-card class="h-100" data-test="subscriptions-monthly">
+            <v-card-text class="d-flex align-center ga-4 pa-5">
+              <v-avatar color="primary" variant="tonal" rounded="lg">
+                <v-icon :icon="CalendarDays" />
+              </v-avatar>
+              <div>
+                <p class="text-body-small text-medium-emphasis mb-1">Estimated monthly</p>
+                <p
+                  v-for="total in monthTotals"
+                  :key="total.currency"
+                  class="text-headline-small font-weight-bold ma-0"
+                >
+                  {{ money(total.amount, total.currency) }}
+                </p>
+                <p v-if="!monthTotals.length" class="text-headline-small font-weight-bold ma-0">
+                  —
+                </p>
+              </div>
             </v-card-text>
           </v-card>
         </v-col>
         <v-col cols="12" md="4">
-          <v-card rounded="xl" class="subscription-stat h-100" data-test="subscriptions-yearly">
-            <v-card-text class="pa-5">
-              <p class="text-body-small text-medium-emphasis mb-1">Estimated yearly</p>
-              <p
-                v-for="total in yearTotals"
-                :key="total.currency"
-                class="text-headline-small font-weight-bold ma-0"
-              >
-                {{ formatMoney(total.amount, total.currency) }}
-              </p>
-              <p v-if="!yearTotals.length" class="text-title-medium font-weight-bold ma-0">—</p>
+          <v-card class="h-100" data-test="subscriptions-yearly">
+            <v-card-text class="d-flex align-center ga-4 pa-5">
+              <v-avatar color="primary" variant="tonal" rounded="lg">
+                <v-icon :icon="CalendarRange" />
+              </v-avatar>
+              <div>
+                <p class="text-body-small text-medium-emphasis mb-1">Estimated yearly</p>
+                <p
+                  v-for="total in yearTotals"
+                  :key="total.currency"
+                  class="text-headline-small font-weight-bold ma-0"
+                >
+                  {{ money(total.amount, total.currency) }}
+                </p>
+                <p v-if="!yearTotals.length" class="text-headline-small font-weight-bold ma-0">—</p>
+              </div>
             </v-card-text>
           </v-card>
         </v-col>
@@ -273,8 +307,6 @@ async function saved() {
           v-model="search"
           :prepend-inner-icon="Search"
           label="Search subscriptions"
-          density="comfortable"
-          variant="outlined"
           hide-details
           clearable
           class="subscription-search"
@@ -294,14 +326,14 @@ async function saved() {
         </v-btn-toggle>
       </div>
 
-      <div v-if="!visibleSubscriptions.length" class="subscription-no-results">
+      <v-card v-if="!visibleSubscriptions.length" data-test="subscriptions-none-match">
         <EmptyState
           :icon="Search"
           title="No matches"
           text="Try a different search or switch between active and paused subscriptions."
           compact
         />
-      </div>
+      </v-card>
       <v-row v-else density="compact">
         <v-col
           v-for="subscription in visibleSubscriptions"
@@ -319,6 +351,8 @@ async function saved() {
             @edit="edit"
             @delete="remove"
             @toggle="toggle"
+            @link="linkPayments"
+            @update-amount="updateAmount"
           />
         </v-col>
       </v-row>
@@ -330,19 +364,16 @@ async function saved() {
       :subscription="editing"
       @saved="saved"
     />
+    <SubscriptionPaymentsDialog
+      v-if="auth.isAdmin"
+      v-model="paymentsOpen"
+      :subscription="linking"
+      @changed="load"
+    />
   </TabPage>
 </template>
 
 <style scoped>
-.subscription-stat {
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-}
-
-.subscription-empty,
-.subscription-no-results {
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-}
-
 .subscription-search {
   max-width: 420px;
 }

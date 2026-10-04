@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { FileSpreadsheet, Landmark, Link, Pencil } from '@lucide/vue'
+import { FileSpreadsheet, Landmark, Link, Pencil, Repeat } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 
-import { updateTransaction, type Transaction } from '@/api/transactions'
+import { linkSubscriptionPayments, unlinkSubscriptionPayment } from '@/api/subscriptions'
+import { fetchTransaction, updateTransaction, type Transaction } from '@/api/transactions'
 import CategoryPicker from '@/components/finance/CategoryPicker.vue'
 import CategoryChip from '@/components/finance/CategoryChip.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
@@ -11,7 +12,10 @@ import { useAction } from '@/composables/useAction'
 import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { useImportsStore } from '@/stores/imports'
+import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { fromIsoDate } from '@/utils/dates'
+import { toCents } from '@/utils/money'
+import { expectedAmount, frequencyTitle } from '@/views/subscriptions/recurrence'
 import { formatShortDate } from '@/utils/format'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
 
@@ -27,10 +31,14 @@ const emit = defineEmits<{
 
 const accounts = useAccountsStore()
 const imports = useImportsStore()
-const { locale } = useHousehold()
+const subscriptions = useSubscriptionsStore()
+const { locale, money } = useHousehold()
 const displayed = ref<Transaction | null>(null)
 const account = computed(() => accounts.find(displayed.value?.account_id))
 const importName = computed(() => imports.findImport(displayed.value?.import_id)?.file_name)
+const subscriptionName = computed(
+  () => subscriptions.find(displayed.value?.subscription_id)?.name ?? 'A subscription',
+)
 const originalDescription = computed(() => {
   const transaction = displayed.value
   return transaction?.original_description &&
@@ -47,6 +55,38 @@ const source = computed(() => {
   return displayed.value?.source === 'file' ? 'Imported from a file' : 'Added manually'
 })
 
+const error = computed(() => categorizing.error.value ?? linking.error.value)
+
+/** Only money going out is a payment a subscription can have. */
+const isPayment = computed(() => !!displayed.value && toCents(displayed.value.amount) < 0)
+const subscriptionItems = computed(() =>
+  subscriptions.subscriptions
+    .filter((item) => item.active || item.id === displayed.value?.subscription_id)
+    .map((item) => ({
+      value: item.id,
+      title: item.name,
+      props: {
+        subtitle: `${frequencyTitle(item.frequency)} · ${money(expectedAmount(item), accounts.find(item.account_id)?.currency)}`,
+      },
+    })),
+)
+
+/** Links the transaction to a subscription, moves it or takes it off, e.g. when an automation got it wrong. */
+const linking = useAction(async (transaction: Transaction, subscriptionId: string | null) => {
+  if (subscriptionId === transaction.subscription_id) return
+  if (subscriptionId === null) {
+    await unlinkSubscriptionPayment(transaction.subscription_id as string, transaction.id)
+    notify('Took it off the subscription')
+  } else {
+    await linkSubscriptionPayments(subscriptionId, [transaction.id])
+    notify(`Linked it to ${subscriptions.find(subscriptionId)?.name ?? 'the subscription'}`)
+  }
+  // The subscription's category may have changed the transaction's too.
+  const saved = await fetchTransaction(transaction.id)
+  displayed.value = saved
+  emit('saved', saved)
+})
+
 const categorizing = useAction(async (transaction: Transaction, categoryId: string | null) => {
   if (categoryId === transaction.category_id) return
   const saved = await updateTransaction(transaction.id, { category_id: categoryId })
@@ -60,7 +100,16 @@ watch(
   ([isOpen, transaction]) => {
     displayed.value = isOpen ? transaction : null
     if (isOpen && transaction?.import_id) void imports.ensureLoaded()
+    // An admin chooses the subscription a payment is for, and anyone is told which it is, among
+    // subscriptions that may have been added since they were loaded.
+    if (isOpen && transaction) {
+      const choosing = props.editable && toCents(transaction.amount) < 0
+      const unknown =
+        !!transaction.subscription_id && !subscriptions.find(transaction.subscription_id)
+      if (choosing || unknown) void subscriptions.load()
+    }
     categorizing.clear()
+    linking.clear()
   },
   { immediate: true },
 )
@@ -69,6 +118,11 @@ function changeCategory(transaction: Transaction, categoryId: string | null) {
   if (categorizing.busy.value) return
   void categorizing.run(transaction, categoryId)
 }
+
+function changeSubscription(transaction: Transaction, subscriptionId: string | null) {
+  if (linking.busy.value) return
+  void linking.run(transaction, subscriptionId)
+}
 </script>
 
 <template>
@@ -76,7 +130,7 @@ function changeCategory(transaction: Transaction, categoryId: string | null) {
     v-model="open"
     :title="displayed?.payee ?? 'Transaction details'"
     :icon="Landmark"
-    :persistent="categorizing.busy.value"
+    :persistent="categorizing.busy.value || linking.busy.value"
     max-width="560"
     fullscreen-on-mobile
     data-test="transaction-info-dialog"
@@ -138,6 +192,34 @@ function changeCategory(transaction: Transaction, categoryId: string | null) {
           <dt>File</dt>
           <dd>{{ importName }}</dd>
         </div>
+        <div v-if="editable && isPayment" class="transaction-info__row">
+          <dt>Subscription</dt>
+          <dd>
+            <v-select
+              :model-value="displayed.subscription_id"
+              :items="subscriptionItems"
+              label="Subscription"
+              placeholder="Not a subscription payment"
+              persistent-placeholder
+              clearable
+              hide-details
+              :prepend-inner-icon="Repeat"
+              :disabled="linking.busy.value"
+              no-data-text="Add a subscription in the Subscriptions tab first"
+              data-test="transaction-info-subscription-select"
+              @update:model-value="(id: string | null) => changeSubscription(displayed!, id)"
+            />
+          </dd>
+        </div>
+        <div v-else-if="displayed.subscription_id" class="transaction-info__row">
+          <dt>Subscription</dt>
+          <dd>
+            <span class="d-inline-flex align-center ga-2" data-test="transaction-info-subscription">
+              <v-icon :icon="Repeat" size="16" />
+              {{ subscriptionName }}
+            </span>
+          </dd>
+        </div>
         <div v-if="originalDescription" class="transaction-info__row">
           <dt>Original description</dt>
           <dd>{{ originalDescription }}</dd>
@@ -152,12 +234,12 @@ function changeCategory(transaction: Transaction, categoryId: string | null) {
       </section>
 
       <v-alert
-        v-if="categorizing.error.value"
+        v-if="error"
         type="error"
         variant="tonal"
         density="compact"
         class="mt-4"
-        :text="categorizing.error.value"
+        :text="error"
         data-test="transaction-info-error"
       />
     </template>

@@ -24,3 +24,28 @@ ul.v-list,
 ul.v-list ul {
   list-style: none;
 }
+
+// Colors for charts. The two series are the first two of the data-viz palette, checked for
+// contrast and color-blind safety on the card surfaces (#ffffff and #111a2e): income is blue and
+// spending orange. Text and gridlines wear the theme's own colors, never a series'.
+.chart {
+  --chart-income: #2a78d6;
+  --chart-spent: #eb6834;
+  --chart-ink: rgb(var(--v-theme-on-surface));
+  --chart-muted: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+  --chart-grid: rgba(var(--v-theme-on-surface), 0.14);
+  --chart-surface: rgb(var(--v-theme-surface));
+}
+
+.v-theme--dark .chart {
+  --chart-income: #3987e5;
+  --chart-spent: #d95926;
+}
+
+@media (forced-colors: active) {
+  .chart {
+    --chart-income: Highlight;
+    --chart-spent: CanvasText;
+    --chart-grid: GrayText;
+  }
+}

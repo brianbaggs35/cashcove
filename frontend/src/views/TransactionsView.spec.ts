@@ -339,6 +339,8 @@ describe('TransactionsView', () => {
     expect(find('transaction-add').exists()).toBe(false)
     expect(component('TransactionTable').props('selectable')).toBe(false)
     expect(component('CategorizeDialog').exists()).toBe(false)
+    expect(component('LinkSubscriptionDialog').exists()).toBe(false)
+    expect(component('AutomationDialog').exists()).toBe(false)
     component('TransactionTable').vm.$emit('open', latte)
     await flushPromises()
     expect(component('TransactionInfoDialog').props()).toMatchObject({
@@ -382,6 +384,48 @@ describe('TransactionsView', () => {
       dialog.vm.$emit('update:modelValue', false)
       await flushPromises()
       expect(fetch).toHaveBeenCalledTimes(2)
+      expect(find('bulk-bar').exists()).toBe(false)
+      expect(dialog.props('modelValue')).toBe(false)
+    })
+
+    it('links the payments among them to a subscription', async () => {
+      const { fetch, bar, find, component } = await select([latte.id, salary.id, wholeFoods.id])
+      expect(bar().props()).toMatchObject({ count: 3, payments: 2 })
+
+      bar().vm.$emit('link')
+      await flushPromises()
+      const dialog = component('LinkSubscriptionDialog')
+      // Money coming in isn't a payment, so only the other two can be linked.
+      expect(dialog.props()).toMatchObject({
+        modelValue: true,
+        ids: [latte.id, wholeFoods.id],
+        selected: 3,
+      })
+      const before = fetch.mock.calls.length
+      dialog.vm.$emit('done')
+      dialog.vm.$emit('update:modelValue', false)
+      await flushPromises()
+      expect(fetch).toHaveBeenCalledTimes(before + 1)
+      expect(find('bulk-bar').exists()).toBe(false)
+      expect(dialog.props('modelValue')).toBe(false)
+    })
+
+    it('starts an automation from them', async () => {
+      const { fetch, bar, find, component } = await select([latte.id, wholeFoods.id])
+
+      bar().vm.$emit('automate')
+      await flushPromises()
+      const dialog = component('AutomationDialog')
+      expect(dialog.props()).toMatchObject({
+        modelValue: true,
+        automation: null,
+        seed: [latte, wholeFoods],
+      })
+      const before = fetch.mock.calls.length
+      dialog.vm.$emit('saved')
+      dialog.vm.$emit('update:modelValue', false)
+      await flushPromises()
+      expect(fetch).toHaveBeenCalledTimes(before + 1)
       expect(find('bulk-bar').exists()).toBe(false)
       expect(dialog.props('modelValue')).toBe(false)
     })

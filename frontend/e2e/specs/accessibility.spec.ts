@@ -4,7 +4,6 @@ import { bankDate, csvFile, expect, expectAccessible, simpleCsv, TABS, test } fr
 
 const SETTINGS = [
   'general',
-  'categories',
   'users',
   'alerts',
   'sync',
@@ -28,15 +27,22 @@ const LOADED: Record<string, string> = {
   '/transactions': 'transaction-totals',
   '/connect': 'connection-card',
   '/import': 'import-item',
-  '/settings/categories': 'category-row',
+  '/categories': 'category-row',
+  '/subscriptions': 'empty-state',
+  '/automations': 'empty-state',
+  '/budget': 'budget-summary',
 }
 
 /** An open dialog or menu. */
 const OVERLAY = '.v-overlay--active'
+/** What an overlay shows, until it has finished fading out. */
+const OVERLAY_CONTENT = '.v-overlay__content:visible'
 
 async function closeOverlay(page: Page): Promise<void> {
   await page.keyboard.press('Escape')
   await expect(page.locator(OVERLAY)).toHaveCount(0)
+  // Not just on its way out: clicking what opened a menu while it fades out doesn't open it again.
+  await expect(page.locator(OVERLAY_CONTENT)).toHaveCount(0)
 }
 
 /** Opens each dialog or menu in turn, checks it with axe, and closes it again. */
@@ -114,8 +120,10 @@ test.describe('Accessibility', () => {
           '/transactions',
           '/connect',
           '/import',
+          '/subscriptions',
+          '/categories',
+          '/automations',
           '/settings/general',
-          '/settings/categories',
           '/settings/users',
         ]) {
           await test.step(path, async () => {
@@ -266,6 +274,104 @@ test.describe('Accessibility', () => {
               .getByTestId('import-item-undo')
               .click(),
         })
+      })
+
+      test('the automation dialogs and a card’s menu', async ({
+        page,
+        signInAs,
+        apiAs,
+        automationsPage,
+      }) => {
+        const api = await apiAs('admin')
+        const groups =
+          await api.get<{ categories: { id: string; name: string }[] }[]>('/categories')
+        const gifts = groups
+          .flatMap((group) => group.categories)
+          .find((category) => category.name === 'Gifts & donations')!
+        await api.post('/automations', {
+          name: 'Venmo payments',
+          payees: ['Venmo'],
+          category_id: gifts.id,
+          apply_to: 'future',
+        })
+        await signInAs('admin')
+        await automationsPage.goto()
+
+        await expectAccessibleOverlays(page, {
+          'a new automation': () => automationsPage.addButton.click(),
+          'a new automation with a transaction ticked': async () => {
+            await automationsPage.addButton.click()
+            await automationsPage.findIn({ payees: ['Whole Foods'] })
+          },
+          'fine-tuning what a new automation matches': async () => {
+            await automationsPage.addButton.click()
+            await automationsPage.findIn({
+              payees: ['Whole Foods'],
+              match: 'Contains',
+              account: 'Everyday checking',
+              amount: { from: '80', to: '90' },
+            })
+          },
+          'what a new automation does': async () => {
+            await automationsPage.addButton.click()
+            await automationsPage.fillIn({ payees: ['Whole Foods'], category: 'Restaurants' })
+          },
+          'an automation’s menu': () =>
+            automationsPage.card('Venmo payments').getByTestId('automation-actions').click(),
+          'changing an automation': () => automationsPage.act('Venmo payments', 'edit'),
+          'deleting an automation': () => automationsPage.act('Venmo payments', 'delete'),
+        })
+      })
+
+      test('the subscription dialogs', async ({ page, signInAs, apiAs, baseline }) => {
+        const api = await apiAs('admin')
+        await api.post('/subscriptions', {
+          name: 'Netflix Plus',
+          amount: '15.49',
+          frequency: 'monthly',
+          account_id: baseline.accounts.card.id,
+          next_due_date: new Date().toISOString().slice(0, 10),
+          category_id: null,
+          notes: null,
+          payee: 'Netflix',
+          seed_transaction_id: null,
+        })
+        await signInAs('admin')
+        await page.goto('/subscriptions')
+        const card = page.getByTestId('subscription-card')
+        await expect(card).toBeVisible()
+
+        await expectAccessibleOverlays(page, {
+          'a subscription’s menu': () => card.getByTestId('subscription-actions').click(),
+          'adding a subscription': () => page.getByTestId('subscription-add').click(),
+          'linking payments': () => card.getByTestId('subscription-link-payments').click(),
+        })
+      })
+
+      test('the budget dialogs, menu and charts', async ({ page, signInAs, budgetPage }) => {
+        await signInAs('admin')
+        await budgetPage.goto()
+        await budgetPage.choose('Household')
+
+        await expectAccessibleOverlays(page, {
+          'a new budget': () => budgetPage.openNew(),
+          'changing a budget': () => budgetPage.openEdit(),
+          'a budget’s menu': () => page.getByTestId('budget-actions').click(),
+          'adding income': () => budgetPage.openLink('income'),
+          'adding spending from an account': async () => {
+            await budgetPage.openLink('spending')
+            await budgetPage.chooseTab('account')
+          },
+          'deleting a budget': async () => {
+            await page.getByTestId('budget-actions').click()
+            await page.locator(OVERLAY).getByTestId('budget-delete').click()
+          },
+        })
+        // The charts as tables, which is how their numbers are read without the picture.
+        for (const index of [0, 1]) {
+          await page.getByTestId('chart-frame').nth(index).getByTestId('chart-view-table').click()
+        }
+        await expectAccessible(page)
       })
 
       test('the category dialogs', async ({ page, signInAs, categoriesPage }) => {
