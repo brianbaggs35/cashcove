@@ -104,6 +104,7 @@ export function queryString(query: object): string {
 
 export const fetchTransactions = (query: TransactionQuery = {}) =>
   apiGet<TransactionPage>(`/transactions${queryString(query)}`)
+export const fetchTransaction = (id: string) => apiGet<Transaction>(`/transactions/${id}`)
 export const fetchPayees = (q = '', limit = 8) =>
   apiGet<PayeeSuggestion[]>(`/transactions/payees${queryString({ q: q.trim(), limit })}`)
 export const createTransaction = (input: TransactionInput) =>

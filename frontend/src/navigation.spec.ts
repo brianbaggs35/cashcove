@@ -1,12 +1,14 @@
 import { findNavItem, navItems, type NavName } from '@/navigation'
 
 describe('navigation', () => {
-  it('lists the seven tabs in menu order', () => {
+  it('lists the nine tabs in menu order', () => {
     expect(navItems.map((item) => item.title)).toEqual([
       'Accounts',
       'Budget',
       'Subscriptions',
       'Transactions',
+      'Categories',
+      'Automations',
       'Import',
       'Connect',
       'Settings',
@@ -18,12 +20,6 @@ describe('navigation', () => {
       expect(item.path).toBe(`/${item.name}`)
       expect(item.summary).not.toBe('')
     }
-  })
-
-  it('lists what is planned only for tabs still to come', () => {
-    const planned = navItems.filter((item) => item.planned).map((item) => item.name)
-    expect(planned).toEqual(['budget', 'subscriptions'])
-    for (const name of planned) expect(findNavItem(name).planned?.length).toBeGreaterThan(0)
   })
 
   it('finds a tab by name', () => {

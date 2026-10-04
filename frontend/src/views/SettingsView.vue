@@ -9,7 +9,6 @@ import { usePreferencesStore } from '@/stores/preferences'
 import AccountSection from '@/views/settings/AccountSection.vue'
 import AlertsSection from '@/views/settings/AlertsSection.vue'
 import AppearanceSection from '@/views/settings/AppearanceSection.vue'
-import CategoriesSection from '@/views/settings/CategoriesSection.vue'
 import GeneralSection from '@/views/settings/GeneralSection.vue'
 import SaveBar from '@/views/settings/SaveBar.vue'
 import SecuritySection from '@/views/settings/SecuritySection.vue'
@@ -25,7 +24,6 @@ import UsersSection from '@/views/settings/UsersSection.vue'
 
 const components: Record<SettingsSectionKey, Component> = {
   general: GeneralSection,
-  categories: CategoriesSection,
   users: UsersSection,
   alerts: AlertsSection,
   sync: SyncSection,

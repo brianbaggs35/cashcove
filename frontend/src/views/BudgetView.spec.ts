@@ -1,1176 +1,605 @@
-import * as budgetApi from '@/api/budget'
-import * as subscriptionsApi from '@/api/subscriptions'
+import { flushPromises } from '@vue/test-utils'
+
+import * as api from '@/api/budget'
+import type { Budget, BudgetHistory, BudgetPeriodView } from '@/api/budget'
+import { ApiError } from '@/api/client'
 import * as transactionsApi from '@/api/transactions'
-import type { BudgetConfiguration, BudgetLine, BudgetMonth, BudgetYear } from '@/api/budget'
-import type { Subscription } from '@/api/subscriptions'
-import type { Transaction } from '@/api/transactions'
 import { confirmRequest } from '@/composables/confirm'
 import { notices } from '@/composables/notify'
 import { answer } from '@/test/confirm'
-import {
-  checking,
-  coffee,
-  groceries,
-  makeAccount,
-  makeCategory,
-  makeGroups,
-  makePage,
-  makeTransaction,
-  paycheck,
-  savings,
-  seedFinance,
-} from '@/test/finance'
-import { makePreferences, makeSessionState, makeUser } from '@/test/fixtures'
-import { page } from '@/test/dom'
-import { flushPromises, mountWithPlugins } from '@/test/mount'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBudget, makeHistory, makePeriod, makeSource } from '@/test/budgets'
+import { makePage, seedFinance } from '@/test/finance'
+import { makeSessionState, makeUser } from '@/test/fixtures'
+import { mountWithPlugins } from '@/test/mount'
 import BudgetView from '@/views/BudgetView.vue'
 
-const currentMonth = () => new Date().toISOString().slice(0, 7)
-const travel = makeCategory({
-  id: 'category-travel',
-  name: 'Travel',
-  emoji: '✈️',
-})
-const canadianAccount = makeAccount({
-  id: 'account-canadian',
-  name: 'Canadian chequing',
-  currency: 'CAD',
-})
-const accountWithoutInstitution = makeAccount({
-  id: 'account-no-institution',
-  name: 'Cash envelope',
-  institution: null,
+const monthly = makeBudget()
+const weekly = makeBudget({
+  id: 'budget-weekly',
+  name: 'Spending money',
+  period: 'weekly',
+  current: {
+    start: '2026-09-20',
+    end: '2026-09-26',
+    amount: '150.00',
+    income: '0.00',
+    spent: '40.00',
+  },
 })
 
-function line(
-  category: typeof groceries,
-  changes: Partial<BudgetMonth['groups'][number]['categories'][number]> = {},
-) {
-  return {
-    category_id: category.id,
-    name: category.name,
-    emoji: category.emoji,
-    period: 'monthly' as const,
-    amount: null,
-    budgeted: '0.00',
-    rollover: false,
-    carried: '0.00',
-    actual: '0.00',
-    year_to_date: null,
-    average: '0.00',
-    count: 0,
-    ...changes,
-  }
+function periodOf(budget: Budget, changes: Partial<BudgetPeriodView> = {}): BudgetPeriodView {
+  return makePeriod({ budget, ...changes })
 }
 
-function makeMonth(month = currentMonth()): BudgetMonth {
-  const year = Number(month.slice(0, 4))
-  return {
-    month,
-    currency: 'USD',
-    year,
-    year_start: `${year}-01`,
-    year_end: `${year}-12`,
-    income: { budgeted: '4200.00', carried: '0.00', actual: '2600.00' },
-    spending: { budgeted: '600.00', carried: '25.00', actual: '575.00' },
-    groups: [
-      {
-        id: 'group-income',
-        name: 'Income',
-        kind: 'income',
-        categories: [
-          line(paycheck, {
-            period: 'monthly',
-            amount: '4200.00',
-            budgeted: '4200.00',
-            actual: '2600.00',
-            count: 2,
-          }),
-        ],
-      },
-      {
-        id: 'group-food',
-        name: 'Food & drink',
-        kind: 'expense',
-        categories: [
-          line(groceries, {
-            period: 'monthly',
-            amount: '500.00',
-            budgeted: '500.00',
-            actual: '470.00',
-            count: 7,
-          }),
-          line(coffee, { period: null, count: 1, actual: '12.00' }),
-          line(travel, {
-            period: 'yearly',
-            amount: '1000.00',
-            budgeted: '83.33',
-            actual: '90.00',
-            year_to_date: '950.00',
-            count: 1,
-          }),
-        ],
-      },
-    ],
-    uncategorized: { received: '0.00', spent: '93.00', count: 2 },
-    converted_currencies: [],
-    unconverted_currencies: [],
-  }
-}
-
-function makeYear(year: number, selected = currentMonth()): BudgetYear {
-  return {
-    year,
-    start: `${year}-01`,
-    end: `${year}-12`,
-    currency: 'USD',
-    income: { budgeted: '50400.00', actual: '31200.00' },
-    spending: { budgeted: '7200.00', actual: '6900.00' },
-    months: Array.from({ length: 12 }, (_, index) => {
-      const month = `${year}-${String(index + 1).padStart(2, '0')}`
-      return {
-        month,
-        income: { budgeted: '4200.00', actual: month === selected ? '2600.00' : '0.00' },
-        spending: {
-          budgeted: '600.00',
-          actual: month === selected ? '470.00' : '0.00',
-        },
-      }
-    }),
-    converted_currencies: [],
-    unconverted_currencies: [],
-  }
-}
-
-const paycheckTransaction: Transaction = makeTransaction({
-  id: 'transaction-paycheck',
-  date: `${currentMonth()}-15`,
-  amount: '2400.00',
-  payee: 'Acme Corp',
-  category_id: null,
-})
-
-const billTransaction: Transaction = makeTransaction({
-  id: 'transaction-power',
-  date: `${currentMonth()}-09`,
-  amount: '-96.40',
-  payee: 'City Power & Light',
-  category_id: null,
-})
-const orphanIncomeTransaction: Transaction = makeTransaction({
-  id: 'transaction-orphan',
-  account_id: 'account-no-longer-available',
-  date: `${currentMonth()}-18`,
-  amount: '100.00',
-  payee: 'Old employer',
-  category_id: null,
-})
-const powerSubscription: Subscription = makeSubscription({
-  id: 'subscription-power',
-  name: 'City Power',
-  payee: 'City Power & Light',
-  amount: '96.40',
-  account_id: checking.id,
-  category_id: null,
-})
-const savingsSubscription: Subscription = makeSubscription({
-  id: 'subscription-savings',
-  name: 'Storage bill',
-  account_id: savings.id,
-})
-const orphanSubscription: Subscription = makeSubscription({
-  id: 'subscription-orphan',
-  name: 'Old storage',
-  account_id: 'account-no-longer-available',
-})
-const canadianSubscription: Subscription = makeSubscription({
-  id: 'subscription-canadian',
-  name: 'Canadian storage',
-  account_id: canadianAccount.id,
-})
-
-function makeConfigurations(
-  linked: string[] = [],
-  linkedSubscriptions: string[] = [],
-  linkedElsewhere = false,
-  multipleLinks = false,
-  allAccounts = false,
-): BudgetConfiguration[] {
-  return [
-    {
-      id: 'budget-paycheck',
-      category_id: paycheck.id,
-      period: 'monthly',
-      amount: '4200.00',
-      rollover: false,
-      cycle_anchor: null,
-      account_ids: [],
-      linked_transaction_ids: linked.includes(paycheckTransaction.id)
-        ? [paycheckTransaction.id, ...(multipleLinks ? [orphanIncomeTransaction.id] : [])]
-        : [],
-      linked_subscription_ids: [],
-    },
-    {
-      id: 'budget-groceries',
-      category_id: groceries.id,
-      period: 'monthly',
-      amount: '500.00',
-      rollover: false,
-      cycle_anchor: null,
-      account_ids: allAccounts ? [] : [checking.id],
-      linked_transaction_ids: linked.includes(billTransaction.id)
-        ? [billTransaction.id, ...(multipleLinks ? [orphanIncomeTransaction.id] : [])]
-        : [],
-      linked_subscription_ids: linkedSubscriptions.includes(powerSubscription.id)
-        ? [powerSubscription.id, ...(multipleLinks ? [savingsSubscription.id] : [])]
-        : [],
-    },
-    {
-      id: 'budget-travel',
-      category_id: travel.id,
-      period: 'yearly',
-      amount: '1000.00',
-      rollover: false,
-      cycle_anchor: null,
-      account_ids: ['missing-account'],
-      linked_transaction_ids: linkedElsewhere ? [billTransaction.id] : [],
-      linked_subscription_ids: linkedElsewhere ? [savingsSubscription.id] : [],
-    },
-  ]
-}
-
-interface DeferredMonth {
-  month: string
-  resolve: (month: BudgetMonth) => void
-  reject: (reason?: unknown) => void
-}
-
-interface RenderOptions {
+interface Options {
   role?: 'admin' | 'viewer'
-  empty?: boolean
-  fail?: boolean
-  linked?: boolean
-  alertEnabled?: boolean
-  allUnbudgeted?: boolean
-  convertedCurrencies?: boolean
-  unconvertedCurrencies?: boolean
-  withoutPreferences?: boolean
-  withoutYear?: boolean
-  linkedElsewhere?: boolean
-  multipleLinks?: boolean
-  allAccounts?: boolean
-  rollover?: boolean
-  noRollover?: boolean
-  threshold?: number
-  emptySubscriptions?: boolean
-  failSubscriptions?: boolean
-  failTransactions?: boolean
-  emptyTransactions?: boolean
-  deferredMonths?: { requests: DeferredMonth[] }
-  missingCurrency?: boolean
-  missingThreshold?: boolean
+  route?: string
+  budgets?: Budget[]
+  period?: (budget: Budget) => BudgetPeriodView
 }
 
 async function render({
   role = 'admin',
-  empty = false,
-  fail = false,
-  linked = false,
-  alertEnabled = true,
-  allUnbudgeted = false,
-  convertedCurrencies = false,
-  unconvertedCurrencies = false,
-  withoutPreferences = false,
-  withoutYear = false,
-  linkedElsewhere = false,
-  multipleLinks = false,
-  allAccounts = false,
-  rollover = false,
-  noRollover = false,
-  threshold = 90,
-  emptySubscriptions = false,
-  failSubscriptions = false,
-  failTransactions = false,
-  emptyTransactions = false,
-  deferredMonths,
-  missingCurrency = false,
-  missingThreshold = false,
-}: RenderOptions = {}) {
-  const buildMonth = (month: string) => {
-    const data = makeMonth(month)
-    if (allUnbudgeted) {
-      data.groups = data.groups.map((group) => ({
-        ...group,
-        categories: group.categories.map((item) => ({
-          ...item,
-          period: null,
-          amount: null,
-          budgeted: '0.00',
-        })),
-      }))
-    }
-    if (rollover) {
-      data.groups = data.groups.map((group) => ({
-        ...group,
-        categories: group.categories.map((item) =>
-          item.category_id === groceries.id ? { ...item, rollover: true } : item,
-        ),
-      }))
-    }
-    if (convertedCurrencies) data.converted_currencies = ['CAD']
-    if (unconvertedCurrencies) data.unconverted_currencies = ['EUR', 'GBP']
-    if (noRollover) data.spending.carried = '0.00'
-    if (missingCurrency) data.currency = undefined as unknown as string
-    return data
-  }
-  const monthFetch = vi.spyOn(budgetApi, 'fetchBudgetMonth')
-  if (deferredMonths) {
-    monthFetch.mockImplementation(
-      (month) =>
-        new Promise((resolve, reject) => {
-          deferredMonths.requests.push({ month, resolve, reject })
-        }),
-    )
-  } else if (fail) {
-    monthFetch
-      .mockRejectedValueOnce(new Error('Temporary problem'))
-      .mockImplementation((month) => Promise.resolve(buildMonth(month)))
-  } else if (empty) {
-    monthFetch.mockImplementation((month) => Promise.resolve({ ...makeMonth(month), groups: [] }))
-  } else {
-    monthFetch.mockImplementation((month) => Promise.resolve(buildMonth(month)))
-  }
-  const yearFetch = vi
-    .spyOn(budgetApi, 'fetchBudgetYear')
-    .mockImplementation((year) =>
-      Promise.resolve(withoutYear ? (null as unknown as BudgetYear) : makeYear(year)),
-    )
-  const linkedTransactions = new Set(linked ? [paycheckTransaction.id] : [])
-  const linkedSubscriptions = new Set<string>()
-  if (multipleLinks) {
-    linkedTransactions.add(billTransaction.id)
-    linkedTransactions.add(orphanIncomeTransaction.id)
-    linkedSubscriptions.add(powerSubscription.id)
-    linkedSubscriptions.add(savingsSubscription.id)
-  }
-  const configurationsFetch = vi
-    .spyOn(budgetApi, 'fetchBudgetConfigurations')
-    .mockImplementation(() =>
-      Promise.resolve(
-        makeConfigurations(
-          [...linkedTransactions],
-          [...linkedSubscriptions],
-          linkedElsewhere,
-          multipleLinks,
-          allAccounts,
-        ),
-      ),
-    )
-  const subscriptionFetch = vi.spyOn(subscriptionsApi, 'fetchSubscriptions')
-  if (failSubscriptions) {
-    subscriptionFetch
-      .mockRejectedValueOnce(new Error('Subscriptions unavailable'))
-      .mockResolvedValue([
-        powerSubscription,
-        savingsSubscription,
-        canadianSubscription,
-        orphanSubscription,
-      ])
-  } else {
-    subscriptionFetch.mockResolvedValue(
-      emptySubscriptions
-        ? []
-        : [powerSubscription, savingsSubscription, canadianSubscription, orphanSubscription],
-    )
-  }
-  const transactionFetch = vi.spyOn(transactionsApi, 'fetchTransactions')
-  if (failTransactions) {
-    transactionFetch
-      .mockRejectedValueOnce(new Error('Transactions unavailable'))
-      .mockImplementation((query) =>
-        Promise.resolve(
-          makePage(
-            query?.direction === 'out'
-              ? [billTransaction]
-              : [paycheckTransaction, orphanIncomeTransaction],
-          ),
-        ),
-      )
-  } else {
-    transactionFetch.mockImplementation((query) =>
-      Promise.resolve(
-        emptyTransactions
-          ? makePage([])
-          : makePage(
-              query?.direction === 'out'
-                ? [billTransaction]
-                : [paycheckTransaction, orphanIncomeTransaction],
-            ),
-      ),
-    )
-  }
+  route = '/budget',
+  budgets = [monthly, weekly],
+  period = (budget) => periodOf(budget),
+}: Options = {}) {
+  const fetchBudgets = vi.spyOn(api, 'fetchBudgets').mockResolvedValue(budgets)
+  const fetchPeriod = vi
+    .spyOn(api, 'fetchBudgetPeriod')
+    .mockImplementation((id) => Promise.resolve(period(budgets.find((item) => item.id === id)!)))
+  const fetchHistory = vi
+    .spyOn(api, 'fetchBudgetHistory')
+    .mockResolvedValue({ periods: makeHistory(), converted: [], unavailable: [] })
+  const fetchTransactions = vi
+    .spyOn(api, 'fetchBudgetTransactions')
+    .mockResolvedValue({ items: [], total: 0 })
+  vi.spyOn(transactionsApi, 'fetchTransactions').mockResolvedValue(makePage([]))
   const mounted = await mountWithPlugins(BudgetView, {
-    route: '/budget',
     width: 1280,
+    route,
     session: makeSessionState({ user: makeUser({ role }) }),
-    beforeMount: () => {
-      const seeded = seedFinance({
-        accounts: [checking, savings, canadianAccount, accountWithoutInstitution],
-        groups: makeGroups(),
-      })
-      if (withoutPreferences) {
-        seeded.preferences.saved = null
-        seeded.preferences.load = vi.fn()
-      } else {
-        seeded.preferences.saved = makePreferences()
-        seeded.preferences.saved.alerts.budget_threshold_enabled = alertEnabled
-        seeded.preferences.saved.alerts.budget_threshold_percent = threshold
-        if (missingThreshold) {
-          seeded.preferences.saved.alerts.budget_threshold_percent = undefined as unknown as number
-        }
-      }
-    },
+    beforeMount: () => seedFinance(),
   })
   await flushPromises()
-  await flushPromises()
-  const { wrapper } = mounted
-  const find = (name: string) => {
-    const local = wrapper.find(`[data-test="${name}"]`)
-    return local.exists() ? local : page().find(`[data-test="${name}"]`)
+  const find = (name: string) => mounted.wrapper.find(`[data-test="${name}"]`)
+  const component = (name: string) => mounted.wrapper.findComponent({ name })
+  const query = () => mounted.router.currentRoute.value.query
+  /** Waits for the address to change to this, then for what it shows to load. */
+  const routeIs = async (expected: Record<string, string>) => {
+    await vi.waitFor(() => {
+      expect(query()).toEqual(expected)
+    })
+    await flushPromises()
   }
-  const link = vi
-    .spyOn(budgetApi, 'linkBudgetTransaction')
-    .mockImplementation((_categoryId, transactionId) => {
-      linkedTransactions.add(transactionId)
-      return Promise.resolve(undefined)
-    })
-  const unlink = vi
-    .spyOn(budgetApi, 'unlinkBudgetTransaction')
-    .mockImplementation((_categoryId, transactionId) => {
-      linkedTransactions.delete(transactionId)
-      return Promise.resolve(undefined)
-    })
-  const linkSubscription = vi
-    .spyOn(budgetApi, 'linkBudgetSubscription')
-    .mockImplementation((_categoryId, subscriptionId) => {
-      linkedSubscriptions.add(subscriptionId)
-      return Promise.resolve(undefined)
-    })
-  const unlinkSubscription = vi
-    .spyOn(budgetApi, 'unlinkBudgetSubscription')
-    .mockImplementation((_categoryId, subscriptionId) => {
-      linkedSubscriptions.delete(subscriptionId)
-      return Promise.resolve(undefined)
-    })
   return {
     ...mounted,
     find,
-    monthFetch,
-    yearFetch,
-    configurationsFetch,
-    transactionFetch,
-    subscriptionFetch,
-    link,
-    unlink,
-    linkSubscription,
-    unlinkSubscription,
+    component,
+    query,
+    routeIs,
+    fetchBudgets,
+    fetchPeriod,
+    fetchHistory,
+    fetchTransactions,
   }
 }
 
+const day = expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+
 describe('BudgetView', () => {
-  it('shows budget progress in dollars and percent, alerts and the yearly chart', async () => {
-    const { wrapper, find } = await render()
+  beforeEach(() => {
+    localStorage.clear()
+  })
 
-    expect(find(`budget-category-${groceries.id}`).text()).toContain('94%')
-    expect(find(`budget-category-${groceries.id}`).text()).toContain('$470.00 spent')
-    expect(find(`budget-category-${groceries.id}`).text()).toContain('$500.00')
-    expect(find(`budget-category-${travel.id}`).text()).toContain('95%')
-    expect(find(`budget-category-${travel.id}`).text()).toContain('$950.00')
+  it('shows placeholders while the budgets load', async () => {
+    vi.spyOn(api, 'fetchBudgets').mockReturnValue(new Promise(() => undefined))
+    const mounted = await mountWithPlugins(BudgetView, {
+      width: 1280,
+      route: '/budget',
+      session: makeSessionState(),
+      beforeMount: () => seedFinance(),
+    })
+
+    expect(mounted.wrapper.find('[data-test="budget-loading"]').exists()).toBe(true)
+  })
+
+  it('shows the first budget, in the period the person is in, with how it is going', async () => {
+    const { find, component, fetchPeriod, fetchHistory } = await render()
+
+    expect(fetchPeriod).toHaveBeenCalledWith('budget-monthly', { on: undefined, today: day })
+    expect(fetchHistory).toHaveBeenCalledWith('budget-monthly', { on: undefined, today: day })
+    expect(find('period-title').text()).toBe('September 2026')
+    expect(find('period-subtitle').text()).toBe('this month')
+    expect(find('summary-left').text()).toBe('$750.00')
+    expect(component('BudgetPaceChart').exists()).toBe(true)
+    expect(component('BudgetHistoryChart').exists()).toBe(true)
+    expect(find('budget-categories').text()).toContain('Where it went')
     expect(
-      find(`budget-category-${travel.id}`)
-        .find('[data-test="budget-progress-bar"]')
-        .attributes('aria-label'),
-    ).toContain('yearly target')
-    expect(find(`budget-category-${travel.id}`).text()).toContain('Account unavailable')
-    expect(find('budget-alert').text()).toContain('near or over')
-    expect(find('budget-year-chart').exists()).toBe(true)
-    expect(find('budget-rollover-total').text()).toContain('$25.00')
-    wrapper.unmount()
-  })
-
-  it('shows loading state and an empty add menu while the month is pending', async () => {
-    const deferredMonths: { requests: DeferredMonth[] } = { requests: [] }
-    const { wrapper, find } = await render({ deferredMonths })
-    expect(find('budget-loading').exists()).toBe(true)
-    await find('budget-add').trigger('click')
-    await flushPromises()
-    expect(find(`budget-menu-${groceries.id}`).exists()).toBe(false)
-    const request = deferredMonths.requests[0]
-    if (!request) throw new Error('The initial month request should be pending')
-    request.resolve(makeMonth(request.month))
-    await flushPromises()
-    await flushPromises()
-    expect(find('budget-year-chart').exists()).toBe(true)
-    wrapper.unmount()
-  })
-
-  it('uses the configured alert default and budget currency fallback', async () => {
-    const alerts = await render({ missingThreshold: true })
-    expect(alerts.find('budget-alert').exists()).toBe(true)
-    alerts.wrapper.unmount()
-
-    const currency = await render({ missingCurrency: true })
-    expect(currency.wrapper.find('.budget-summary').text()).toContain('$')
-    currency.wrapper.unmount()
-  })
-
-  it('moves between months and can return to the current month', async () => {
-    const { wrapper, find, monthFetch, yearFetch } = await render()
-    const current = currentMonth()
-
-    await find('budget-previous').trigger('click')
-    await flushPromises()
-    const [year, month] = current.split('-').map(Number)
-    const previous = new Date(Date.UTC(year!, month! - 2, 1)).toISOString().slice(0, 7)
-    expect(monthFetch).toHaveBeenLastCalledWith(previous)
-    expect(yearFetch).toHaveBeenCalled()
-
-    await find('budget-current-month').trigger('click')
-    await flushPromises()
-    expect(monthFetch).toHaveBeenLastCalledWith(current)
-    wrapper.unmount()
-  })
-
-  it('loads a month entered directly in the date field', async () => {
-    const { wrapper, find, monthFetch } = await render()
-    await find('budget-month').find('input').setValue('2026-01')
-    await flushPromises()
-    expect(monthFetch).toHaveBeenLastCalledWith('2026-01')
-    wrapper.unmount()
-  })
-
-  it('keeps the page working when the month field is cleared', async () => {
-    const { wrapper, find, monthFetch } = await render()
-    const calls = monthFetch.mock.calls.length
-    await find('budget-month').find('input').setValue('')
-    await flushPromises()
-    expect(monthFetch).toHaveBeenCalledTimes(calls)
-    expect(find('budget-error').exists()).toBe(false)
-    expect(find('budget-year-range').exists()).toBe(true)
-    await find('budget-next').trigger('click')
-    await flushPromises()
-    expect(monthFetch).toHaveBeenCalledTimes(calls + 1)
-    wrapper.unmount()
-  })
-
-  it('stays within the months the API budgets', async () => {
-    const { wrapper, find, monthFetch } = await render()
-    const input = find('budget-month').find('input')
-
-    await input.setValue('1969-12')
-    await flushPromises()
-    expect(monthFetch).not.toHaveBeenCalledWith('1969-12')
-
-    await input.setValue('1970-01')
-    await flushPromises()
-    expect(monthFetch).toHaveBeenLastCalledWith('1970-01')
-    const loads = monthFetch.mock.calls.length
-    await find('budget-previous').trigger('click')
-    await flushPromises()
-    expect(monthFetch).toHaveBeenCalledTimes(loads)
-
-    await input.setValue('2199-12')
-    await flushPromises()
-    expect(monthFetch).toHaveBeenLastCalledWith('2199-12')
-    await find('budget-next').trigger('click')
-    await flushPromises()
-    expect(monthFetch).toHaveBeenCalledTimes(loads + 1)
-    wrapper.unmount()
-  })
-
-  it('sets a recurring target with an account scope from the category card', async () => {
-    const { wrapper, find } = await render()
-    const save = vi.spyOn(budgetApi, 'saveCategoryBudget').mockResolvedValue(makeMonth())
-
-    await find(`budget-edit-${groceries.id}`).trigger('click')
-    await flushPromises()
-    await page().find('.money-field input').setValue('700')
-    const periodControl = wrapper.findComponent({ name: 'VSelect' })
-    if (!periodControl.exists()) throw new Error('The budget frequency control was not mounted')
-    periodControl.vm.$emit('update:modelValue', 'weekly')
-    await flushPromises()
-    const accountControl = wrapper.findComponent({ name: 'VAutocomplete' })
-    if (!accountControl.exists()) throw new Error('The account selector was not mounted')
-    accountControl.vm.$emit('update:modelValue', [checking.id])
-    await flushPromises()
-    await find('budget-cycle-anchor').find('input').setValue(`${currentMonth()}-03`)
-    await flushPromises()
-    await find('budget-save').trigger('click')
-    await flushPromises()
-
-    expect(save).toHaveBeenCalledWith(groceries.id, {
-      month: currentMonth(),
-      period: 'weekly',
-      amount: '700.00',
-      scope: 'onward',
-      rollover: false,
-      cycle_anchor: `${currentMonth()}-03`,
-      account_ids: [checking.id],
+      component('BudgetSwitcher')
+        .findAll('[aria-pressed="true"]')
+        .map((card) => card.attributes('data-test')),
+    ).toEqual(['budget-card-budget-monthly'])
+    expect(component('BudgetSources').exists()).toBe(true)
+    expect(component('BudgetTransactions').props()).toMatchObject({
+      budgetId: 'budget-monthly',
+      on: '2026-09-01',
+      removed: 0,
+      readonly: false,
     })
-    expect(find('budget-editor').exists()).toBe(true)
-    await find('budget-cancel').trigger('click')
-    wrapper.unmount()
   })
 
-  it('keeps rollover and month-only changes on a monthly budget', async () => {
-    const { wrapper, find } = await render()
-    const save = vi.spyOn(budgetApi, 'saveCategoryBudget').mockResolvedValue(makeMonth())
-
-    await find(`budget-edit-${groceries.id}`).trigger('click')
-    await flushPromises()
-    const scope = wrapper
-      .findAllComponents({ name: 'VSelect' })
-      .find((control) => control.attributes('data-test') === 'budget-scope')
-    if (!scope) throw new Error('The budget scope control was not mounted')
-    scope.vm.$emit('update:modelValue', 'only')
-    wrapper.findComponent({ name: 'VSwitch' }).vm.$emit('update:modelValue', true)
-    await find('budget-save').trigger('click')
-    await flushPromises()
-
-    expect(save).toHaveBeenCalledWith(
-      groceries.id,
-      expect.objectContaining({ scope: 'only', period: 'monthly', rollover: true }),
-    )
-    wrapper.unmount()
-  })
-
-  it('shows singular alert text and rollover with multiple linked bills', async () => {
-    const { wrapper, find } = await render({
-      linked: true,
-      multipleLinks: true,
-      rollover: true,
-      noRollover: true,
-      threshold: 95,
+  it('shows the budget and the period the address names', async () => {
+    const { fetchPeriod, find } = await render({
+      route: '/budget?budget=budget-weekly&on=2026-08-02',
+      period: (budget) =>
+        periodOf(budget, { start: '2026-08-02', end: '2026-08-08', current: false }),
     })
 
-    expect(find('budget-alert').text()).toContain('1 category is near')
-    expect(find('budget-rollover-total').exists()).toBe(false)
-    const groceriesCard = find(`budget-category-${groceries.id}`)
-    expect(groceriesCard.text()).toContain('rollover on')
-    expect(groceriesCard.find('[data-test="budget-linked-count"]').text()).toContain(
-      '2 bill or spending transactions',
-    )
-    expect(groceriesCard.find('[data-test="budget-subscription-count"]').text()).toContain(
-      '2 recurring bills',
-    )
-    wrapper.unmount()
+    expect(fetchPeriod).toHaveBeenCalledTimes(1)
+    expect(fetchPeriod).toHaveBeenCalledWith('budget-weekly', { on: '2026-08-02', today: day })
+    expect(
+      find('period-title')
+        .text()
+        .replace(/\u2009/g, ' '),
+    ).toBe('Aug 2 – 8, 2026')
+    expect(find('period-back').text()).toBe('Back to this week')
+    expect(find('period-subtitle').exists()).toBe(false)
   })
 
-  it('validates amounts, stops an unbudgeted category, and reports save failures', async () => {
-    const { wrapper, find } = await render()
-    const save = vi
-      .spyOn(budgetApi, 'saveCategoryBudget')
-      .mockRejectedValueOnce(new Error('No connection'))
-      .mockResolvedValue(makeMonth())
+  it('comes back to the budget looked at last when the address names none', async () => {
+    localStorage.setItem('cashcove:budget', 'budget-weekly')
 
-    await find(`budget-edit-${groceries.id}`).trigger('click')
-    await flushPromises()
-    await page().find('.money-field input').setValue('not money')
-    await find('budget-save').trigger('click')
-    await flushPromises()
-    expect(save).not.toHaveBeenCalled()
+    const { fetchPeriod } = await render()
 
-    await page().find('.money-field input').setValue('700')
-    await find('budget-save').trigger('click')
-    await flushPromises()
-    expect(notices.value.at(-1)).toMatchObject({
-      text: "Couldn't save the budget. No connection",
-      tone: 'error',
+    expect(fetchPeriod).toHaveBeenCalledWith('budget-weekly', expect.anything())
+  })
+
+  it('shows the first budget when the one asked for, or remembered, is gone', async () => {
+    localStorage.setItem('cashcove:budget', 'budget-deleted')
+
+    const { fetchPeriod } = await render({ route: '/budget?budget=budget-gone' })
+
+    expect(fetchPeriod).toHaveBeenCalledWith('budget-monthly', expect.anything())
+  })
+
+  it('carries on when the browser will not remember anything', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('Blocked')
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('Blocked')
+    })
+    const { find, routeIs, wrapper } = await render()
+
+    await find('budget-card-budget-weekly').trigger('click')
+    await routeIs({ budget: 'budget-weekly' })
+
+    expect(wrapper.find('[data-test="budget-period"]').exists()).toBe(true)
+  })
+
+  it('switches between budgets, and remembers the one chosen', async () => {
+    const { find, routeIs, fetchPeriod } = await render({ route: '/budget?on=2026-08-01' })
+
+    await find('budget-card-budget-weekly').trigger('click')
+    await routeIs({ budget: 'budget-weekly' })
+
+    expect(localStorage.getItem('cashcove:budget')).toBe('budget-weekly')
+    expect(fetchPeriod).toHaveBeenLastCalledWith('budget-weekly', { on: undefined, today: day })
+    expect(find('budget-card-budget-weekly').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('moves between periods, and back to the one the person is in', async () => {
+    const { find, routeIs, fetchPeriod } = await render({
+      period: (budget) => periodOf(budget, { previous: '2026-08-01', next: null }),
     })
 
-    save.mockResolvedValue(makeMonth())
-    await find('dialog-close').trigger('click')
-    await find(`budget-edit-${coffee.id}`).trigger('click')
+    await find('period-previous').trigger('click')
+    await routeIs({ on: '2026-08-01' })
+
+    expect(fetchPeriod).toHaveBeenLastCalledWith('budget-monthly', {
+      on: '2026-08-01',
+      today: day,
+    })
+  })
+
+  it('has no link to a period before the first one', async () => {
+    const { find } = await render({ period: (budget) => periodOf(budget, { previous: null }) })
+
+    expect(find('period-previous').attributes('disabled')).toBeDefined()
+  })
+
+  it('goes to the next period, and back to the current one', async () => {
+    const { find, routeIs } = await render({
+      route: '/budget?budget=budget-monthly&on=2026-07-01',
+      period: (budget) =>
+        periodOf(budget, {
+          start: '2026-07-01',
+          end: '2026-07-31',
+          current: false,
+          previous: '2026-06-01',
+          next: '2026-08-01',
+        }),
+    })
+
+    await find('period-next').trigger('click')
+    await routeIs({ budget: 'budget-monthly', on: '2026-08-01' })
+
+    await find('period-back').trigger('click')
+    await routeIs({ budget: 'budget-monthly' })
+  })
+
+  it('looks at a period that was chosen on the history chart', async () => {
+    const { component, routeIs } = await render()
+
+    component('BudgetHistoryChart').vm.$emit('select', '2026-07-01')
+    await routeIs({ on: '2026-07-01' })
+  })
+
+  it('says when the budgets or the period could not load, and tries again', async () => {
+    const mounted = await render()
+    mounted.fetchPeriod.mockRejectedValueOnce(new Error('Offline'))
+    await mounted.find('budget-card-budget-weekly').trigger('click')
+    await mounted.routeIs({ budget: 'budget-weekly' })
+
+    expect(mounted.find('budget-error').text()).toContain("Couldn't load the budget. Offline")
+    await mounted.find('budget-retry').trigger('click')
     await flushPromises()
-    wrapper.findComponent({ name: 'VSelect' }).vm.$emit('update:modelValue', 'weekly')
+
+    expect(mounted.find('budget-error').exists()).toBe(false)
+    expect(mounted.find('budget-period').exists()).toBe(true)
+  })
+
+  it('says when the budgets themselves could not load', async () => {
+    vi.spyOn(api, 'fetchBudgets').mockRejectedValue(new Error('Offline'))
+    const mounted = await mountWithPlugins(BudgetView, {
+      width: 1280,
+      route: '/budget',
+      session: makeSessionState(),
+      beforeMount: () => seedFinance(),
+    })
     await flushPromises()
-    await page().find('[data-test="budget-cycle-anchor"] input').setValue('')
-    await find('budget-save').trigger('click')
+
+    expect(mounted.wrapper.find('[data-test="budget-error"]').text()).toContain('Offline')
+  })
+
+  it('only shows the answer to the latest request', async () => {
+    const answers: Record<string, (value: BudgetPeriodView) => void> = {}
+    const mounted = await render()
+    mounted.fetchPeriod.mockImplementation(
+      (id) =>
+        new Promise((resolve) => {
+          answers[id] = resolve
+        }),
+    )
+
+    await mounted.find('budget-card-budget-weekly').trigger('click')
+    await mounted.routeIs({ budget: 'budget-weekly' })
+    await mounted.find('budget-card-budget-monthly').trigger('click')
+    await mounted.routeIs({ budget: 'budget-monthly' })
+    answers['budget-monthly']!(periodOf(monthly, { spent: '10.00', left: '1990.00' }))
     await flushPromises()
-    expect(save).toHaveBeenCalledWith(
-      coffee.id,
-      expect.objectContaining({
-        amount: null,
-        period: 'weekly',
-        cycle_anchor: `${currentMonth()}-01`,
+    answers['budget-weekly']!(periodOf(weekly, { spent: '99.00', left: '51.00' }))
+    await flushPromises()
+
+    expect(mounted.find('summary-left').text()).toBe('$1,990.00')
+  })
+
+  it('ignores a failure of a request that a newer one replaced', async () => {
+    const answers: { resolve: (value: BudgetPeriodView) => void; reject: (e: Error) => void }[] = []
+    const mounted = await render()
+    mounted.fetchPeriod.mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          answers.push({ resolve, reject })
+        }),
+    )
+
+    await mounted.find('budget-card-budget-weekly').trigger('click')
+    await mounted.routeIs({ budget: 'budget-weekly' })
+    await mounted.find('budget-card-budget-monthly').trigger('click')
+    await mounted.routeIs({ budget: 'budget-monthly' })
+    answers[1]!.resolve(periodOf(monthly))
+    await flushPromises()
+    answers[0]!.reject(new Error('Too slow'))
+    await flushPromises()
+
+    expect(mounted.find('budget-error').exists()).toBe(false)
+    expect(mounted.find('budget-period').exists()).toBe(true)
+  })
+
+  it('does nothing about a change of address before the budgets are known', async () => {
+    let finish: (budgets: Budget[]) => void = () => undefined
+    vi.spyOn(api, 'fetchBudgets').mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
       }),
     )
-    expect(notices.value.at(-1)?.text).toContain('Stopped this budget')
-    wrapper.unmount()
+    const fetchPeriod = vi.spyOn(api, 'fetchBudgetPeriod').mockResolvedValue(periodOf(monthly))
+    vi.spyOn(api, 'fetchBudgetHistory').mockResolvedValue({
+      periods: makeHistory(),
+      converted: [],
+      unavailable: [],
+    })
+    vi.spyOn(api, 'fetchBudgetTransactions').mockResolvedValue({ items: [], total: 0 })
+    const mounted = await mountWithPlugins(BudgetView, {
+      width: 1280,
+      route: '/budget',
+      session: makeSessionState(),
+      beforeMount: () => seedFinance(),
+    })
+
+    await mounted.router.replace({ query: { on: '2026-08-01' } })
+    await flushPromises()
+    expect(fetchPeriod).not.toHaveBeenCalled()
+    finish([monthly])
+    await flushPromises()
+
+    expect(fetchPeriod).toHaveBeenCalledTimes(1)
   })
 
-  it('deletes a budget only after confirmation', async () => {
-    const { wrapper, find } = await render()
-    const remove = vi.spyOn(budgetApi, 'deleteCategoryBudget').mockResolvedValue(undefined)
+  it('says which currencies were converted, and which could not be', async () => {
+    const { find } = await render({
+      period: (budget) => periodOf(budget, { converted: ['EUR'], unavailable: ['GBP', 'JPY'] }),
+    })
 
-    await find(`budget-edit-${groceries.id}`).trigger('click')
-    await flushPromises()
-    await find('budget-delete').trigger('click')
-    await flushPromises()
-    expect(confirmRequest.value?.confirmText).toBe('Delete budget')
-    await answer(false)
-    expect(remove).not.toHaveBeenCalled()
-
-    await find('budget-delete').trigger('click')
-    await flushPromises()
-    await answer(true)
-    await flushPromises()
-    expect(remove).toHaveBeenCalledWith(groceries.id)
-    wrapper.unmount()
+    expect(find('budget-converted').text()).toBe(
+      "Amounts in EUR are converted to USD at each day's exchange rate.",
+    )
+    expect(find('budget-unavailable').text()).toBe(
+      "There's no exchange rate for GBP, JPY, so those transactions aren't counted.",
+    )
   })
 
-  it('links paycheck and bill transactions without changing their category', async () => {
-    const { wrapper, find, transactionFetch, link, unlink } = await render()
+  it('does not mention currencies when there is nothing to say', async () => {
+    const { find } = await render()
 
-    await find(`budget-link-income-${paycheck.id}`).trigger('click')
-    await flushPromises()
-    expect(transactionFetch).toHaveBeenCalledWith({
-      start: `${currentMonth()}-01`,
-      end: new Date(
-        Date.UTC(Number(currentMonth().slice(0, 4)), Number(currentMonth().slice(5)), 0),
+    expect(find('budget-converted').exists()).toBe(false)
+    expect(find('budget-unavailable').exists()).toBe(false)
+  })
+
+  it('shows the bills still to come, and says when nothing was spent', async () => {
+    const { find, component } = await render({
+      period: (budget) =>
+        periodOf(budget, {
+          upcoming: [{ subscription_id: 's', name: 'Gym', due_on: '2026-09-25', amount: '30.00' }],
+          categories: [],
+        }),
+    })
+
+    expect(component('UpcomingBills').exists()).toBe(true)
+    expect(find('categories-empty').text()).toBe('Nothing has been spent in this period.')
+    expect(component('CategoryBars').exists()).toBe(false)
+  })
+
+  it('has no bills or empty note when there is something to show', async () => {
+    const { component, find } = await render()
+
+    expect(component('UpcomingBills').exists()).toBe(false)
+    expect(component('CategoryBars').exists()).toBe(true)
+    expect(find('categories-empty').exists()).toBe(false)
+  })
+
+  describe('choosing what counts', () => {
+    const nothing = (budget: Budget) =>
+      periodOf(budget, { sources: [], transactions: 0, categories: [], daily: [] })
+
+    it('starts a budget that counts nothing yet with what to add', async () => {
+      const { find, component } = await render({ period: nothing })
+
+      expect(find('budget-unset').text()).toContain('Start by choosing what counts')
+      await find('unset-income').trigger('click')
+      await flushPromises()
+      expect(component('BudgetLinkDialog').props()).toMatchObject({
+        modelValue: true,
+        kind: 'income',
+      })
+
+      component('BudgetLinkDialog').vm.$emit('update:modelValue', false)
+      await find('unset-spending').trigger('click')
+      await flushPromises()
+      expect(component('BudgetLinkDialog').props('kind')).toBe('spending')
+    })
+
+    it('adds income or spending from the lists of what counts', async () => {
+      const { component } = await render()
+
+      component('BudgetSources').vm.$emit('add', 'income')
+      await flushPromises()
+
+      expect(component('BudgetLinkDialog').props()).toMatchObject({
+        modelValue: true,
+        kind: 'income',
+      })
+      expect(component('BudgetLinkDialog').props('budget')).toMatchObject({ id: 'budget-monthly' })
+    })
+
+    it('looks again at everything once something was added', async () => {
+      const { component, fetchBudgets, fetchPeriod, fetchTransactions } = await render()
+
+      component('BudgetLinkDialog').vm.$emit('added')
+      await flushPromises()
+
+      expect(fetchBudgets).toHaveBeenCalledTimes(2)
+      expect(fetchPeriod).toHaveBeenCalledTimes(2)
+      expect(fetchTransactions).toHaveBeenCalledTimes(2)
+    })
+
+    it('stops counting a source', async () => {
+      const remove = vi.spyOn(api, 'removeBudgetSource').mockResolvedValue(undefined)
+      const { component, fetchPeriod } = await render()
+      const source = makeSource()
+
+      component('BudgetSources').vm.$emit('remove', source)
+      await flushPromises()
+
+      expect(remove).toHaveBeenCalledWith('budget-monthly', source.id)
+      expect(notices.value.at(-1)?.text).toBe('Stopped counting Groceries in Household')
+      expect(fetchPeriod).toHaveBeenCalledTimes(2)
+    })
+
+    it('says what went wrong when a source could not be removed', async () => {
+      vi.spyOn(api, 'removeBudgetSource').mockRejectedValue(
+        new ApiError(404, 'That doesn’t count toward this budget.'),
       )
-        .toISOString()
-        .slice(0, 10),
-      direction: 'in',
-      page_size: 100,
-      sort: '-date',
-    })
-    await find(`budget-link-${paycheckTransaction.id}`).trigger('click')
-    await flushPromises()
-    expect(link).toHaveBeenCalledWith(paycheck.id, paycheckTransaction.id)
-    expect(find(`budget-unlink-${paycheckTransaction.id}`).exists()).toBe(true)
-    await find(`budget-unlink-${paycheckTransaction.id}`).trigger('click')
-    await flushPromises()
-    expect(unlink).toHaveBeenCalledWith(paycheck.id, paycheckTransaction.id)
+      const { component, find } = await render()
 
-    await find(`budget-link-expense-${groceries.id}`).trigger('click')
-    await flushPromises()
-    expect(transactionFetch).toHaveBeenLastCalledWith(expect.objectContaining({ direction: 'out' }))
-    await find(`budget-link-${billTransaction.id}`).trigger('click')
-    await flushPromises()
-    expect(link).toHaveBeenCalledWith(groceries.id, billTransaction.id)
-    await find(`budget-unlink-${billTransaction.id}`).trigger('click')
-    await flushPromises()
-    expect(unlink).toHaveBeenCalledWith(groceries.id, billTransaction.id)
-    await find('budget-transactions-done').trigger('click')
-    await find(`budget-link-income-${paycheck.id}`).trigger('click')
-    await flushPromises()
-    await find('dialog-close').trigger('click')
-    wrapper.unmount()
-  })
+      component('BudgetSources').vm.$emit('remove', makeSource())
+      await flushPromises()
 
-  it("shows a transaction to link in its own account's currency", async () => {
-    const { wrapper, find, transactionFetch } = await render()
-    const canadianBill = {
-      ...billTransaction,
-      id: 'transaction-cad',
-      account_id: canadianAccount.id,
-    }
-    transactionFetch.mockResolvedValueOnce(makePage([canadianBill]))
-
-    await find(`budget-link-expense-${groceries.id}`).trigger('click')
-    await flushPromises()
-
-    expect(find(`budget-transaction-${canadianBill.id}`).text()).toContain('-CA$96.40')
-    await find('dialog-close').trigger('click')
-    wrapper.unmount()
-  })
-
-  it('ignores stale month and transaction list responses', async () => {
-    const { wrapper, find, monthFetch } = await render()
-    const pendingMonths: DeferredMonth[] = []
-    monthFetch.mockImplementation(
-      (month) => new Promise((resolve, reject) => pendingMonths.push({ month, resolve, reject })),
-    )
-    await find('budget-next').trigger('click')
-    await flushPromises()
-    await find('budget-next').trigger('click')
-    await flushPromises()
-    await find('budget-next').trigger('click')
-    await flushPromises()
-    expect(pendingMonths).toHaveLength(3)
-    const newest = pendingMonths[2]
-    const staleSuccess = pendingMonths[0]
-    const staleError = pendingMonths[1]
-    if (!newest || !staleSuccess || !staleError) {
-      throw new Error('All month requests should be pending')
-    }
-    newest.resolve(makeMonth(newest.month))
-    await flushPromises()
-    staleSuccess.resolve(makeMonth(staleSuccess.month))
-    await flushPromises()
-    staleError.reject(new Error('An obsolete month failed'))
-    await flushPromises()
-    expect(find('budget-error').exists()).toBe(false)
-    wrapper.unmount()
-
-    const requests: {
-      resolve: (result: ReturnType<typeof makePage>) => void
-      reject: (reason?: unknown) => void
-    }[] = []
-    const transactionLists = await render()
-    transactionLists.transactionFetch.mockImplementation(
-      () => new Promise((resolve, reject) => requests.push({ resolve, reject })),
-    )
-    await transactionLists.find(`budget-link-income-${paycheck.id}`).trigger('click')
-    await flushPromises()
-    await transactionLists.find(`budget-link-income-${paycheck.id}`).trigger('click')
-    await flushPromises()
-    await transactionLists.find(`budget-link-income-${paycheck.id}`).trigger('click')
-    await flushPromises()
-    const latest = requests[2]
-    const staleTransactionSuccess = requests[0]
-    const staleTransactionError = requests[1]
-    if (!latest || !staleTransactionSuccess || !staleTransactionError) {
-      throw new Error('All transaction requests should be pending')
-    }
-    latest.resolve(makePage([paycheckTransaction]))
-    await flushPromises()
-    staleTransactionSuccess.resolve(makePage([orphanIncomeTransaction]))
-    await flushPromises()
-    staleTransactionError.reject(new Error('An obsolete transaction request failed'))
-    await flushPromises()
-    expect(transactionLists.find('budget-transactions-error').exists()).toBe(false)
-    transactionLists.wrapper.unmount()
-  })
-
-  it('links recurring subscriptions to spending budgets and unlinks them', async () => {
-    const { wrapper, find, subscriptionFetch, linkSubscription, unlinkSubscription } =
-      await render()
-
-    await find(`budget-link-bills-${groceries.id}`).trigger('click')
-    await flushPromises()
-    expect(subscriptionFetch).toHaveBeenCalledOnce()
-    expect(find(`budget-subscription-${powerSubscription.id}`).exists()).toBe(true)
-    await find(`budget-link-subscription-${powerSubscription.id}`).trigger('click')
-    await flushPromises()
-    expect(linkSubscription).toHaveBeenCalledWith(groceries.id, powerSubscription.id)
-    expect(find(`budget-unlink-subscription-${powerSubscription.id}`).exists()).toBe(true)
-    await find(`budget-unlink-subscription-${powerSubscription.id}`).trigger('click')
-    await flushPromises()
-    expect(unlinkSubscription).toHaveBeenCalledWith(groceries.id, powerSubscription.id)
-    await find('budget-subscriptions-done').trigger('click')
-    await find(`budget-link-bills-${groceries.id}`).trigger('click')
-    await flushPromises()
-    await find('dialog-close').trigger('click')
-    wrapper.unmount()
-  })
-
-  it('ignores stale recurring-bill lists', async () => {
-    const requests: {
-      resolve: (items: Subscription[]) => void
-      reject: (reason?: unknown) => void
-    }[] = []
-    const { wrapper, find, subscriptionFetch } = await render()
-    subscriptionFetch.mockImplementation(
-      () => new Promise((resolve, reject) => requests.push({ resolve, reject })),
-    )
-    await find(`budget-link-bills-${groceries.id}`).trigger('click')
-    await flushPromises()
-    await find(`budget-link-bills-${groceries.id}`).trigger('click')
-    await flushPromises()
-    await find(`budget-link-bills-${groceries.id}`).trigger('click')
-    await flushPromises()
-    const latest = requests[2]
-    const staleSuccess = requests[0]
-    const staleError = requests[1]
-    if (!latest || !staleSuccess || !staleError) {
-      throw new Error('All subscription requests should be pending')
-    }
-    latest.resolve([powerSubscription])
-    await flushPromises()
-    staleSuccess.resolve([])
-    await flushPromises()
-    staleError.reject(new Error('An obsolete subscription request failed'))
-    await flushPromises()
-    expect(find(`budget-subscription-${powerSubscription.id}`).exists()).toBe(true)
-    expect(find('budget-subscriptions-error').exists()).toBe(false)
-    await find('dialog-close').trigger('click')
-    wrapper.unmount()
-  })
-
-  it('shows read-only access for viewers and respects disabled budget alerts', async () => {
-    const { wrapper, find } = await render({ role: 'viewer', alertEnabled: false })
-
-    expect(find('read-only-notice').text()).toContain('Only an admin can change it')
-    expect(find('budget-add').exists()).toBe(false)
-    expect(find(`budget-edit-${groceries.id}`).exists()).toBe(false)
-    expect(find('budget-alert').exists()).toBe(false)
-    wrapper.unmount()
-  })
-
-  it('shows unbudgeted, currency and preference fallbacks without a yearly report', async () => {
-    const { wrapper, find } = await render({
-      allUnbudgeted: true,
-      convertedCurrencies: true,
-      unconvertedCurrencies: true,
-      withoutPreferences: true,
-      withoutYear: true,
-      missingCurrency: true,
+      expect(find('budget-error').text()).toContain('That doesn’t count toward this budget.')
     })
 
-    expect(find('budget-no-targets').exists()).toBe(true)
-    expect(find('budget-currency-converted').text()).toContain(
-      'Transactions from CAD accounts are converted to USD',
-    )
-    expect(find('budget-currency-note').text()).toContain('exchange rates for EUR, GBP')
-    expect(find('budget-currency-note').text()).toContain('USD budget')
-    expect(find('budget-alert').exists()).toBe(false)
-    expect(find('budget-year-chart').exists()).toBe(false)
-    expect(find(`budget-category-${coffee.id}`).text()).toContain('No target set')
-    wrapper.unmount()
+    it('has nothing to say to viewers about what to add', async () => {
+      const { find, component } = await render({ role: 'viewer', period: nothing })
 
-    const noPreferences = await render({ withoutPreferences: true, missingCurrency: true })
-    expect(noPreferences.wrapper.find('.budget-summary').text()).toContain('$')
-    noPreferences.wrapper.unmount()
-  })
-
-  it('keeps safe defaults and no-ops until the first budget and link targets load', async () => {
-    interface SetupState {
-      currency: string
-      title: string
-      selectedBudgeted: string
-      selectedCarried: string
-      budgetedIncome: string
-      receivedIncome: string
-      visibleGroups: unknown[]
-      unbudgeted: boolean
-      noCategories: boolean
-      nearLimitCount: number
-      accountItems: { title: string; value: string; props: { subtitle?: string } }[]
-      transactionCurrency: (transaction: Transaction) => string
-      usedAmount: (line: BudgetLine) => string
-      limitAmount: (line: BudgetLine) => string
-      transactionAccount: (transaction: Transaction) => string
-      accountScopeLabel: (categoryId: string) => string
-      transactionUsedLabel: (kind: 'income' | 'expense') => string
-      periodLabel: (period: 'weekly' | 'biweekly' | 'monthly' | 'yearly') => string
-      subscriptionCanLink: (subscription: Subscription) => boolean
-      subscriptionLink: (subscriptionId: string) => BudgetConfiguration | undefined
-      transactionLink: (transactionId: string) => BudgetConfiguration | undefined
-      subscriptionCategory: { id: string; name: string } | null
-      saveBudget: () => Promise<void>
-      removeBudget: () => Promise<void>
-      loadLinkableTransactions: () => Promise<void>
-      toggleTransactionLink: (transaction: Transaction) => Promise<void>
-      toggleSubscriptionLink: (subscription: Subscription) => Promise<void>
-    }
-    const deferredMonths: { requests: DeferredMonth[] } = { requests: [] }
-    const { wrapper } = await render({
-      deferredMonths,
-      withoutPreferences: true,
+      expect(find('budget-unset').text()).toContain('An admin hasn’t chosen what counts')
+      expect(find('unset-income').exists()).toBe(false)
+      expect(component('BudgetLinkDialog').exists()).toBe(false)
     })
-    const setup = wrapper.vm.$.setupState as unknown as SetupState
-
-    expect(setup.currency).toBe('USD')
-    expect(setup.title).toContain('20')
-    expect(setup.selectedBudgeted).toBe('0.00')
-    expect(setup.selectedCarried).toBe('0.00')
-    expect(setup.budgetedIncome).toBe('0.00')
-    expect(setup.receivedIncome).toBe('0.00')
-    expect(setup.visibleGroups).toEqual([])
-    expect(setup.unbudgeted).toBe(false)
-    expect(setup.noCategories).toBe(false)
-    expect(setup.nearLimitCount).toBe(0)
-    const subtitles = Object.fromEntries(
-      setup.accountItems.map((item) => [item.value, item.props.subtitle]),
-    )
-    expect(subtitles[canadianAccount.id]).toBe(`${canadianAccount.institution} · CAD`)
-    expect(subtitles[checking.id]).toBe(checking.institution)
-    expect(subtitles[accountWithoutInstitution.id]).toBeUndefined()
-    expect(setup.transactionCurrency(paycheckTransaction)).toBe('USD')
-    expect(
-      setup.transactionCurrency({ ...paycheckTransaction, account_id: canadianAccount.id }),
-    ).toBe('CAD')
-    expect(setup.transactionCurrency(orphanIncomeTransaction)).toBe('USD')
-    expect(setup.usedAmount(line(travel, { period: 'yearly', amount: '1200.00' }))).toBe('0.00')
-    expect(setup.limitAmount(line(travel, { period: 'yearly', amount: null }))).toBe('0.00')
-    expect(setup.transactionAccount(orphanIncomeTransaction)).toBe('Account unavailable')
-    expect(setup.accountScopeLabel('missing-category')).toBe('')
-    expect(setup.transactionUsedLabel('income')).toBe('Received')
-    expect(setup.transactionUsedLabel('expense')).toBe('Spent')
-    expect(setup.periodLabel('weekly')).toBe('Weekly')
-    expect(setup.subscriptionLink('missing-subscription')).toBeUndefined()
-    expect(setup.transactionLink('missing-transaction')).toBeUndefined()
-    expect(setup.subscriptionCanLink(powerSubscription)).toBe(false)
-    await setup.saveBudget()
-    await setup.removeBudget()
-    await setup.loadLinkableTransactions()
-    await setup.toggleTransactionLink(paycheckTransaction)
-    await setup.toggleSubscriptionLink(powerSubscription)
-    setup.subscriptionCategory = { id: paycheck.id, name: paycheck.name }
-    expect(setup.subscriptionCanLink(powerSubscription)).toBe(true)
-
-    const request = deferredMonths.requests[0]
-    if (!request) throw new Error('The first budget request should be pending')
-    request.resolve(makeMonth(request.month))
-    await flushPromises()
-    await flushPromises()
-    wrapper.unmount()
   })
 
-  it('offers category actions from the header menu', async () => {
-    const { wrapper, find } = await render()
-    await find('budget-add').trigger('click')
-    await flushPromises()
-    expect(find(`budget-menu-${coffee.id}`).text()).toContain('Set a budget')
-    expect(find(`budget-menu-${groceries.id}`).text()).toContain('Edit budget')
-    await find(`budget-menu-${coffee.id}`).trigger('click')
-    await flushPromises()
-    expect(page().find('[data-test="budget-editor"]').text()).toContain('Coffee')
-    await find('budget-cancel').trigger('click')
-    await find(`budget-edit-${paycheck.id}`).trigger('click')
-    await flushPromises()
-    expect(page().find('[data-test="budget-editor"]').text()).toContain('Income target')
-    wrapper.unmount()
-  })
+  describe('making and changing budgets', () => {
+    it('makes the first budget', async () => {
+      const { find, component } = await render({ budgets: [] })
 
-  it('retries failed loads and handles an empty category setup', async () => {
-    const failed = await render({ fail: true })
-    expect(failed.find('budget-error').text()).toContain('Temporary problem')
-    await failed.find('budget-retry').trigger('click')
-    await flushPromises()
-    expect(failed.find('budget-error').exists()).toBe(false)
-    failed.wrapper.unmount()
+      expect(find('budget-empty').text()).toContain('Plan with a budget')
+      await find('budget-first').trigger('click')
+      await flushPromises()
 
-    const empty = await render({ empty: true })
-    expect(empty.find('budget-empty').text()).toContain('Give your money a plan')
-    expect(empty.find('budget-create-category').attributes('href')).toBe('/settings/categories')
-    empty.wrapper.unmount()
-  })
-
-  it('shows a no-results state and still searches configured account names', async () => {
-    const { wrapper, find } = await render()
-    await find('budget-search').find('input').setValue('not found')
-    await flushPromises()
-    expect(find('budget-no-results').text()).toContain('No matching categories')
-
-    await find('budget-search').find('input').setValue('everyday checking')
-    await flushPromises()
-    expect(find(`budget-category-${groceries.id}`).exists()).toBe(true)
-    await find('budget-search').find('input').setValue('food')
-    await flushPromises()
-    expect(find('budget-group-expense').exists()).toBe(true)
-    await find('budget-search').find('input').setValue('groceries')
-    await flushPromises()
-    expect(find(`budget-category-${groceries.id}`).exists()).toBe(true)
-    wrapper.unmount()
-  })
-
-  it('opens an empty paycheck list and reports transaction load errors with retry', async () => {
-    const { wrapper, find, transactionFetch } = await render()
-    transactionFetch.mockRejectedValueOnce(new Error('Transactions unavailable'))
-
-    await find(`budget-link-income-${paycheck.id}`).trigger('click')
-    await flushPromises()
-    expect(find('budget-transactions-error').text()).toContain('Transactions unavailable')
-    await find('budget-transactions-retry').trigger('click')
-    await flushPromises()
-    expect(find(`budget-transaction-${paycheckTransaction.id}`).exists()).toBe(true)
-    wrapper.unmount()
-
-    const emptyTransactions = await render({ emptyTransactions: true })
-    await emptyTransactions.find(`budget-link-income-${paycheck.id}`).trigger('click')
-    await flushPromises()
-    expect(emptyTransactions.find('empty-state').text()).toContain('No income this month yet')
-    emptyTransactions.wrapper.unmount()
-
-    const emptyPayments = await render({ emptyTransactions: true })
-    await emptyPayments.find(`budget-link-expense-${groceries.id}`).trigger('click')
-    await flushPromises()
-    expect(emptyPayments.find('empty-state').text()).toContain('No payments this month yet')
-    emptyPayments.wrapper.unmount()
-  })
-
-  it('reports subscription errors, handles empty lists and disables bills outside the budget scope', async () => {
-    const failed = await render({ failSubscriptions: true })
-    await failed.find(`budget-link-bills-${groceries.id}`).trigger('click')
-    await flushPromises()
-    expect(failed.find('budget-subscriptions-error').text()).toContain('Subscriptions unavailable')
-    await failed.find('budget-subscriptions-retry').trigger('click')
-    await flushPromises()
-    expect(failed.find(`budget-link-subscription-${powerSubscription.id}`).exists()).toBe(true)
-    expect(
-      failed.find(`budget-link-subscription-${savingsSubscription.id}`).attributes('disabled'),
-    ).toBeDefined()
-    expect(
-      failed.find(`budget-link-subscription-${canadianSubscription.id}`).attributes('disabled'),
-    ).toBeDefined()
-    expect(failed.find(`budget-subscription-${orphanSubscription.id}`).text()).toContain(
-      'Account unavailable',
-    )
-    failed.linkSubscription.mockRejectedValueOnce(new Error('Subscription conflict'))
-    await failed.find(`budget-link-subscription-${powerSubscription.id}`).trigger('click')
-    await flushPromises()
-    expect(notices.value.at(-1)).toMatchObject({
-      text: "Couldn't update the subscription link. Subscription conflict",
-      tone: 'error',
-    })
-    await failed.find('dialog-close').trigger('click')
-    failed.wrapper.unmount()
-
-    const empty = await render({ emptySubscriptions: true })
-    await empty.find(`budget-link-bills-${groceries.id}`).trigger('click')
-    await flushPromises()
-    expect(empty.find('empty-state').text()).toContain('No subscriptions to link')
-    empty.wrapper.unmount()
-
-    const unavailable = await render({ linkedElsewhere: true })
-    await unavailable.find(`budget-link-bills-${groceries.id}`).trigger('click')
-    await flushPromises()
-    expect(unavailable.find(`budget-subscription-${savingsSubscription.id}`).text()).toContain(
-      'Linked elsewhere',
-    )
-    unavailable.wrapper.unmount()
-
-    const allAccounts = await render({ allAccounts: true })
-    await allAccounts.find(`budget-link-bills-${groceries.id}`).trigger('click')
-    await flushPromises()
-    expect(
-      allAccounts.find(`budget-link-subscription-${savingsSubscription.id}`).attributes('disabled'),
-    ).toBeUndefined()
-    expect(
-      allAccounts
-        .find(`budget-link-subscription-${canadianSubscription.id}`)
-        .attributes('disabled'),
-    ).toBeUndefined()
-    await allAccounts.find('dialog-close').trigger('click')
-    allAccounts.wrapper.unmount()
-  })
-
-  it('shows transaction account fallbacks and linked-elsewhere state, reporting link errors', async () => {
-    const linkedElsewhere = await render({ linkedElsewhere: true })
-    linkedElsewhere.link.mockRejectedValueOnce(new Error('Link conflict'))
-    await linkedElsewhere.find(`budget-link-income-${paycheck.id}`).trigger('click')
-    await flushPromises()
-    expect(
-      linkedElsewhere.find(`budget-transaction-${orphanIncomeTransaction.id}`).text(),
-    ).toContain('Account unavailable')
-    await linkedElsewhere.find(`budget-link-${paycheckTransaction.id}`).trigger('click')
-    await flushPromises()
-    expect(notices.value.at(-1)).toMatchObject({
-      text: "Couldn't update the transaction link. Link conflict",
-      tone: 'error',
+      expect(component('BudgetDialog').props()).toMatchObject({ modelValue: true, budget: null })
     })
 
-    await linkedElsewhere.find(`budget-link-expense-${groceries.id}`).trigger('click')
-    await flushPromises()
-    const billLink = page().find(
-      `[aria-label="${billTransaction.payee} is linked to another budget"]`,
-    )
-    expect(billLink.text()).toContain('Linked elsewhere')
-    expect(billLink.attributes('disabled')).toBeDefined()
-    linkedElsewhere.wrapper.unmount()
+    it('makes another from the header or from the switcher', async () => {
+      const { find, component } = await render()
+
+      await find('budget-new').trigger('click')
+      await flushPromises()
+      expect(component('BudgetDialog').props('modelValue')).toBe(true)
+      component('BudgetDialog').vm.$emit('update:modelValue', false)
+      await flushPromises()
+      await find('budget-add').trigger('click')
+      await flushPromises()
+
+      expect(component('BudgetDialog').props()).toMatchObject({ modelValue: true, budget: null })
+    })
+
+    it('looks at a new budget once it is made', async () => {
+      const { component, routeIs, fetchPeriod, fetchBudgets } = await render()
+      const made = makeBudget({ id: 'budget-new', name: 'Year', period: 'yearly' })
+      fetchBudgets.mockResolvedValue([monthly, weekly, made])
+      fetchPeriod.mockResolvedValue(periodOf(made))
+
+      component('BudgetDialog').vm.$emit('saved', made)
+      await routeIs({ budget: 'budget-new' })
+
+      expect(localStorage.getItem('cashcove:budget')).toBe('budget-new')
+      expect(fetchPeriod).toHaveBeenLastCalledWith('budget-new', expect.anything())
+    })
+
+    it('changes the budget being looked at, and shows what changed', async () => {
+      const { find, component, fetchPeriod, fetchBudgets } = await render()
+
+      await find('budget-actions').trigger('click')
+      await flushPromises()
+      component('BudgetSummary').vm.$emit('edit')
+      await flushPromises()
+      expect(component('BudgetDialog').props()).toMatchObject({
+        modelValue: true,
+        budget: { id: 'budget-monthly' },
+      })
+
+      const renamed = { ...monthly, name: 'Home' }
+      fetchBudgets.mockResolvedValue([renamed, weekly])
+      fetchPeriod.mockResolvedValue(periodOf(renamed))
+      component('BudgetDialog').vm.$emit('saved', renamed)
+      await flushPromises()
+
+      expect(component('BudgetSwitcher').text()).toContain('Home')
+      expect(find('budget-card-budget-monthly').text()).toContain('Home')
+    })
+
+    it('deletes the budget once confirmed, and looks at another', async () => {
+      const remove = vi.spyOn(api, 'deleteBudget').mockResolvedValue(undefined)
+      const { component, find, fetchBudgets, routeIs } = await render({
+        route: '/budget?budget=budget-monthly',
+      })
+
+      component('BudgetSummary').vm.$emit('delete')
+      await flushPromises()
+      expect(confirmRequest.value).toMatchObject({
+        title: 'Delete Household?',
+        confirmText: 'Delete budget',
+        tone: 'error',
+      })
+      await answer(false)
+      expect(remove).not.toHaveBeenCalled()
+
+      fetchBudgets.mockResolvedValue([weekly])
+      component('BudgetSummary').vm.$emit('delete')
+      await flushPromises()
+      await answer(true)
+      await flushPromises()
+
+      expect(remove).toHaveBeenCalledWith('budget-monthly')
+      expect(notices.value.at(-1)?.text).toBe('Deleted Household')
+      await routeIs({})
+      expect(find('budget-card-budget-weekly').attributes('aria-pressed')).toBe('true')
+    })
+
+    it('goes back to the first budget page once the last budget is deleted', async () => {
+      vi.spyOn(api, 'deleteBudget').mockResolvedValue(undefined)
+      const { component, find, fetchBudgets } = await render({ budgets: [monthly] })
+
+      fetchBudgets.mockResolvedValue([])
+      component('BudgetSummary').vm.$emit('delete')
+      await flushPromises()
+      await answer(true)
+      await flushPromises()
+
+      expect(find('budget-empty').exists()).toBe(true)
+    })
+  })
+
+  describe('for a viewer', () => {
+    it('shows the budgets without ways to change them', async () => {
+      const { find, component } = await render({ role: 'viewer' })
+
+      expect(find('read-only-notice').text()).toContain('Only an admin can change them')
+      expect(find('budget-new').exists()).toBe(false)
+      expect(find('budget-add').exists()).toBe(false)
+      expect(find('budget-actions').exists()).toBe(false)
+      expect(component('BudgetDialog').exists()).toBe(false)
+      expect(component('BudgetSources').props('readonly')).toBe(true)
+    })
+
+    it('tells them when there is no budget yet', async () => {
+      const { find } = await render({ role: 'viewer', budgets: [] })
+
+      expect(find('budget-empty').text()).toContain('An admin hasn’t made a budget yet.')
+      expect(find('budget-first').exists()).toBe(false)
+    })
+  })
+
+  it('shows placeholders, not the last budget’s numbers, while another budget loads', async () => {
+    const mounted = await render()
+    mounted.fetchPeriod.mockReturnValue(new Promise(() => undefined))
+
+    await mounted.find('budget-card-budget-weekly').trigger('click')
+    await mounted.routeIs({ budget: 'budget-weekly' })
+
+    expect(mounted.find('budget-period-loading').exists()).toBe(true)
+    expect(mounted.find('budget-period').exists()).toBe(false)
+  })
+
+  it('keeps showing the period it has while another period of the budget loads', async () => {
+    const mounted = await render()
+    mounted.fetchPeriod.mockReturnValue(new Promise(() => undefined))
+    mounted.fetchHistory.mockReturnValue(new Promise<BudgetHistory>(() => undefined))
+
+    await mounted.find('period-previous').trigger('click')
+    await mounted.routeIs({ on: '2026-08-01' })
+
+    expect(mounted.find('budget-period').classes()).toContain('budget-view--loading')
   })
 })

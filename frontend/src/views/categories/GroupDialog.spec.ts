@@ -7,7 +7,7 @@ import { notices } from '@/composables/notify'
 import { page } from '@/test/dom'
 import { makeGroups, seedFinance } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
-import GroupDialog from '@/views/settings/categories/GroupDialog.vue'
+import GroupDialog from '@/views/categories/GroupDialog.vue'
 
 async function render(group: api.CategoryGroup | null = null) {
   const open = ref(false)

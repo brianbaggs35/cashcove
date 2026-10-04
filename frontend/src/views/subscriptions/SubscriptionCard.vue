@@ -1,14 +1,24 @@
 <script setup lang="ts">
-import { CalendarClock, CirclePause, Landmark, Pencil, Repeat, Trash2 } from '@lucide/vue'
+import {
+  CalendarClock,
+  CirclePause,
+  EllipsisVertical,
+  Landmark,
+  Link2,
+  Pencil,
+  Repeat,
+  Trash2,
+} from '@lucide/vue'
 import { computed } from 'vue'
 
 import type { Subscription } from '@/api/subscriptions'
-import { useAccountsStore } from '@/stores/accounts'
-import { useCategoriesStore } from '@/stores/categories'
-import { fromIsoDate } from '@/utils/dates'
-import { formatMoney, formatShortDate } from '@/utils/format'
+import CategoryChip from '@/components/finance/CategoryChip.vue'
 import { useHousehold } from '@/composables/useHousehold'
-import { estimatedAmount } from '@/views/subscriptions/recurrence'
+import { useAccountsStore } from '@/stores/accounts'
+import { fromIsoDate } from '@/utils/dates'
+import { formatShortDate } from '@/utils/format'
+import { toCents } from '@/utils/money'
+import { estimatedAmount, expectedAmount, frequencyTitle } from '@/views/subscriptions/recurrence'
 
 const props = withDefaults(
   defineProps<{
@@ -24,40 +34,50 @@ const emit = defineEmits<{
   edit: [subscription: Subscription]
   delete: [subscription: Subscription]
   toggle: [subscription: Subscription]
+  link: [subscription: Subscription]
+  'update-amount': [subscription: Subscription]
 }>()
 
 const accounts = useAccountsStore()
-const categories = useCategoriesStore()
 const household = useHousehold()
 const account = computed(() => accounts.find(props.subscription.account_id))
-const category = computed(() => categories.find(props.subscription.category_id))
+const overdue = computed(() => props.daysUntilDue < 0)
 const dueText = computed(() => {
-  if (props.daysUntilDue < 0) return `Overdue by ${Math.abs(props.daysUntilDue)} days`
+  if (overdue.value) {
+    const days = Math.abs(props.daysUntilDue)
+    return `Overdue by ${days} ${days === 1 ? 'day' : 'days'}`
+  }
   if (props.daysUntilDue === 0) return 'Due today'
   if (props.daysUntilDue === 1) return 'Due tomorrow'
   return `Due ${formatShortDate(fromIsoDate(props.subscription.next_due_date), household.locale.value)}`
 })
+/** When the latest payment was made and for how much, in a line. */
+const lastPayment = computed(() => {
+  const { last_payment_on: on, last_payment_amount: amount } = props.subscription
+  if (!on) return null
+  const when = formatShortDate(fromIsoDate(on), household.locale.value)
+  return amount
+    ? `Last payment ${when} · ${household.money(amount, account.value?.currency)}`
+    : `Last payment ${when}`
+})
 const inAlertWindow = computed(
   () => props.dueAlertsEnabled && props.daysUntilDue >= 0 && props.daysUntilDue <= props.alertDays,
 )
+const expected = computed(() => expectedAmount(props.subscription))
 const monthlyAmount = computed(() =>
-  estimatedAmount(props.subscription.amount, props.subscription.frequency, 'month'),
+  estimatedAmount(expected.value, props.subscription.frequency, 'month'),
 )
-const frequencyText: Record<Subscription['frequency'], string> = {
-  weekly: 'Weekly',
-  biweekly: 'Every two weeks',
-  monthly: 'Monthly',
-  quarterly: 'Every three months',
-  semiannual: 'Every six months',
-  annual: 'Annually',
-}
+/** A payment that isn't what it should be, such as after a price rise, which a bill that varies has anyway. */
+const priceChange = computed(() => {
+  const { amount_varies: varies, last_payment_amount: last, amount } = props.subscription
+  return !varies && last !== null && toCents(last) !== toCents(amount) ? last : null
+})
 </script>
 
 <template>
   <v-card
     class="subscription-card h-100"
     :class="{ 'subscription-card--paused': !subscription.active }"
-    rounded="xl"
     data-test="subscription-card"
   >
     <v-card-text class="pa-5 pa-md-6">
@@ -82,18 +102,18 @@ const frequencyText: Record<Subscription['frequency'], string> = {
           </div>
           <p class="text-body-small text-medium-emphasis mb-0 mt-1">{{ subscription.payee }}</p>
         </div>
-        <v-menu v-if="!readonly">
+        <v-menu v-if="!readonly" location="bottom end">
           <template #activator="{ props: menuProps }">
             <v-btn
               v-bind="menuProps"
-              :icon="Pencil"
+              :icon="EllipsisVertical"
               variant="text"
               size="small"
-              aria-label="Subscription actions"
+              :aria-label="`Actions for ${subscription.name}`"
               data-test="subscription-actions"
             />
           </template>
-          <v-list density="compact">
+          <v-list density="compact" nav min-width="200">
             <v-list-item
               :prepend-icon="subscription.active ? CirclePause : Repeat"
               :title="subscription.active ? 'Pause matching' : 'Resume matching'"
@@ -109,7 +129,7 @@ const frequencyText: Record<Subscription['frequency'], string> = {
             <v-list-item
               :prepend-icon="Trash2"
               title="Delete"
-              class="text-error"
+              base-color="error"
               data-test="subscription-delete"
               @click="emit('delete', subscription)"
             />
@@ -120,17 +140,31 @@ const frequencyText: Record<Subscription['frequency'], string> = {
       <div class="d-flex align-end justify-space-between ga-3 mt-6">
         <div>
           <p class="text-body-small text-medium-emphasis mb-1">
-            {{ frequencyText[subscription.frequency] }}
+            {{ frequencyTitle(subscription.frequency) }}
+            <v-chip
+              v-if="subscription.amount_varies"
+              size="x-small"
+              variant="tonal"
+              class="ms-1"
+              data-test="subscription-varies"
+            >
+              Amount varies
+            </v-chip>
           </p>
           <p class="text-headline-small font-weight-bold ma-0" data-test="subscription-amount">
-            {{ formatMoney(subscription.amount, account?.currency, household.locale.value) }}
+            <span v-if="subscription.amount_varies" aria-label="About">~</span>
+            {{ household.money(expected, account?.currency) }}
           </p>
         </div>
         <div class="text-end">
           <p class="text-body-small text-medium-emphasis mb-1">
-            {{ formatMoney(monthlyAmount, account?.currency, household.locale.value) }} / month
+            {{ household.money(monthlyAmount, account?.currency) }} / month
           </p>
-          <p class="text-label-large font-weight-medium ma-0 d-flex align-center justify-end ga-1">
+          <p
+            class="text-label-large font-weight-medium ma-0 d-flex align-center justify-end ga-1"
+            :class="{ 'text-error': overdue }"
+            data-test="subscription-due"
+          >
             <v-icon :icon="CalendarClock" size="16" />
             {{ dueText }}
           </p>
@@ -142,23 +176,64 @@ const frequencyText: Record<Subscription['frequency'], string> = {
         <v-chip size="small" variant="tonal" :prepend-icon="Landmark">
           {{ account?.name ?? 'Account unavailable' }}
         </v-chip>
-        <v-chip v-if="category" size="small" variant="tonal">
-          {{ category.emoji }} {{ category.name }}
-        </v-chip>
+        <CategoryChip v-if="subscription.category_id" :category-id="subscription.category_id" />
         <v-chip size="small" variant="outlined" data-test="subscription-payment-count">
           {{ subscription.payment_count }}
           {{ subscription.payment_count === 1 ? 'payment tracked' : 'payments tracked' }}
         </v-chip>
       </div>
-      <v-btn
-        :to="{ name: 'transactions', query: { subscription: subscription.id } }"
-        variant="text"
-        size="small"
-        class="mt-3 px-0"
-        data-test="subscription-view-payments"
+      <p
+        v-if="lastPayment"
+        class="text-body-small text-medium-emphasis mt-3 mb-0"
+        data-test="subscription-last-payment"
       >
-        View tracked payments
-      </v-btn>
+        {{ lastPayment }}
+      </p>
+      <v-alert
+        v-if="priceChange"
+        type="info"
+        variant="tonal"
+        density="compact"
+        class="mt-3"
+        data-test="subscription-price-change"
+      >
+        The last payment was {{ household.money(priceChange, account?.currency) }}, not
+        {{ household.money(subscription.amount, account?.currency) }}.
+        <template v-if="!readonly" #append>
+          <v-btn
+            variant="text"
+            size="small"
+            data-test="subscription-update-amount"
+            @click="emit('update-amount', subscription)"
+          >
+            Update amount
+          </v-btn>
+        </template>
+      </v-alert>
+      <div class="d-flex flex-wrap ga-2 mt-2">
+        <v-btn
+          :to="{ name: 'transactions', query: { subscription: subscription.id } }"
+          variant="text"
+          size="small"
+          color="primary"
+          class="px-1"
+          data-test="subscription-view-payments"
+        >
+          View tracked payments
+        </v-btn>
+        <v-btn
+          v-if="!readonly"
+          variant="text"
+          size="small"
+          color="primary"
+          :prepend-icon="Link2"
+          class="px-1"
+          data-test="subscription-link-payments"
+          @click="emit('link', subscription)"
+        >
+          Link payments
+        </v-btn>
+      </div>
       <v-alert
         v-if="inAlertWindow"
         color="warning"
@@ -175,7 +250,6 @@ const frequencyText: Record<Subscription['frequency'], string> = {
 
 <style scoped>
 .subscription-card {
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   transition:
     border-color 160ms ease,
     transform 160ms ease;
@@ -192,5 +266,15 @@ const frequencyText: Record<Subscription['frequency'], string> = {
 
 .min-width-0 {
   min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subscription-card {
+    transition: none;
+  }
+
+  .subscription-card:hover {
+    transform: none;
+  }
 }
 </style>

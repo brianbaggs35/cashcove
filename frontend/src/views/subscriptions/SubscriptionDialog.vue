@@ -2,6 +2,7 @@
 import { CalendarClock, Pencil, Repeat } from '@lucide/vue'
 import { computed, reactive, ref, watch } from 'vue'
 
+import { errorMessage } from '@/api/client'
 import { fetchTransactions, type Transaction } from '@/api/transactions'
 import {
   createSubscription,
@@ -16,8 +17,9 @@ import DateField from '@/components/ui/DateField.vue'
 import MoneyField from '@/components/ui/MoneyField.vue'
 import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
+import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
-import { addDays, todayIso } from '@/utils/dates'
+import { addDays, formatListDate, todayIso } from '@/utils/dates'
 import { negate } from '@/utils/money'
 import { frequencies } from '@/views/subscriptions/recurrence'
 
@@ -25,11 +27,13 @@ const open = defineModel<boolean>({ required: true })
 const props = defineProps<{ subscription: Subscription | null }>()
 const emit = defineEmits<{ saved: [subscription: Subscription] }>()
 const accounts = useAccountsStore()
+const { locale, money } = useHousehold()
 
 interface SubscriptionForm {
   name: string
   payee: string
   amount: string | null
+  amountVaries: boolean
   frequency: PaymentFrequency
   accountId: string | null
   nextDueDate: string | null
@@ -43,6 +47,7 @@ const form = reactive<SubscriptionForm>({
   name: '',
   payee: '',
   amount: null as string | null,
+  amountVaries: false,
   frequency: 'monthly',
   accountId: null as string | null,
   nextDueDate: null as string | null,
@@ -70,8 +75,10 @@ const accountItems = computed(() => {
 const paymentItems = computed(() =>
   transactions.value.map((transaction) => ({
     value: transaction.id,
-    title: `${transaction.payee} · ${transaction.date}`,
-    props: { subtitle: `${negate(transaction.amount)} · ${account.value?.name ?? ''}` },
+    title: `${transaction.payee} · ${formatListDate(transaction.date, locale.value)}`,
+    props: {
+      subtitle: `${money(negate(transaction.amount), account.value?.currency)} · ${account.value?.name ?? ''}`,
+    },
   })),
 )
 const title = computed(() => (props.subscription ? 'Edit subscription' : 'Add a subscription'))
@@ -91,6 +98,7 @@ function reset() {
   form.name = subscription?.name ?? ''
   form.payee = subscription?.payee ?? ''
   form.amount = subscription?.amount ?? null
+  form.amountVaries = subscription?.amount_varies ?? false
   form.frequency = subscription?.frequency ?? 'monthly'
   form.accountId = subscription?.account_id ?? accounts.open[0]?.id ?? null
   form.nextDueDate = subscription?.next_due_date ?? addDays(todayIso(), 30)
@@ -118,7 +126,7 @@ async function loadTransactions() {
     if (form.accountId === accountId) transactions.value = result.items
   } catch (error) {
     if (form.accountId === accountId) {
-      transactionError.value = error instanceof Error ? error.message : String(error)
+      transactionError.value = errorMessage(error)
     }
   } finally {
     if (form.accountId === accountId) transactionLoading.value = false
@@ -156,6 +164,7 @@ const saving = useAction(async () => {
     name: form.name.trim(),
     payee: form.payee.trim() || form.name.trim(),
     amount: form.amount as string,
+    amount_varies: form.amountVaries,
     frequency: form.frequency,
     account_id: form.accountId as string,
     next_due_date: form.nextDueDate as string,
@@ -202,12 +211,22 @@ function submit() {
         <v-col cols="12" sm="5">
           <MoneyField
             v-model="form.amount"
-            label="Payment amount"
+            :label="form.amountVaries ? 'Estimated amount' : 'Payment amount'"
             :currency="account?.currency"
             required
             non-zero
             :error-messages="fieldError('amount')"
             data-test="subscription-amount"
+          />
+        </v-col>
+        <v-col cols="12">
+          <v-switch
+            v-model="form.amountVaries"
+            label="The amount changes every time, like an electricity bill"
+            hint="Cashcove uses the average of recent payments once there are some, and the estimate until then."
+            persistent-hint
+            color="primary"
+            data-test="subscription-varies"
           />
         </v-col>
         <v-col cols="12" sm="6">

@@ -7,7 +7,7 @@ import { notices } from '@/composables/notify'
 import { page } from '@/test/dom'
 import { coffee, groceries, makeCategory, makeGroups, seedFinance } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
-import DeleteCategoryDialog from '@/views/settings/categories/DeleteCategoryDialog.vue'
+import DeleteCategoryDialog from '@/views/categories/DeleteCategoryDialog.vue'
 
 async function render(category: api.Category) {
   const open = ref(true)

@@ -82,7 +82,7 @@ const amountRules = [
         v-model:enabled="draft.alerts.budget_threshold_enabled"
         :icon="ChartPie"
         title="Budget limits"
-        description="When spending in a category reaches this share of its budget."
+        description="When spending reaches this share of a budget’s amount for the period."
         test-id="alert-budget"
       >
         <template #default="{ disabled }">

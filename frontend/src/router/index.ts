@@ -16,6 +16,8 @@ const views: Record<NavName, NonNullable<RouteRecordRaw['component']>> = {
   budget: () => import('@/views/BudgetView.vue'),
   subscriptions: () => import('@/views/SubscriptionsView.vue'),
   transactions: () => import('@/views/TransactionsView.vue'),
+  categories: () => import('@/views/CategoriesView.vue'),
+  automations: () => import('@/views/AutomationsView.vue'),
   import: () => import('@/views/ImportView.vue'),
   connect: () => import('@/views/ConnectView.vue'),
   settings: () => import('@/views/SettingsView.vue'),
@@ -51,6 +53,8 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: 'Choose a new password', access: 'public', bare: true },
   },
   { path: '/', redirect: HOME },
+  // Categories used to be in Settings, so bookmarks and links to them still land on the tab.
+  { path: '/settings/categories', redirect: '/categories' },
   ...navItems.map((item): RouteRecordRaw => ({
     // Settings sections are deep-linkable, e.g. /settings/alerts.
     path: item.name === 'settings' ? `${item.path}/:section?` : item.path,

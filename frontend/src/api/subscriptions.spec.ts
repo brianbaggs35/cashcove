@@ -1,8 +1,9 @@
 import {
   createSubscription,
   deleteSubscription,
-  fetchSubscriptionPayments,
   fetchSubscriptions,
+  linkSubscriptionPayments,
+  unlinkSubscriptionPayment,
   updateSubscription,
   type SubscriptionInput,
 } from '@/api/subscriptions'
@@ -42,6 +43,7 @@ describe('subscription API', () => {
       name: 'Streamflix',
       payee: 'Streamflix',
       amount: '14.99',
+      amount_varies: true,
       frequency: 'monthly',
       account_id: 'account-checking',
       next_due_date: '2026-10-15',
@@ -67,13 +69,26 @@ describe('subscription API', () => {
     expect(fetch.mock.calls[2]![1].method).toBe('DELETE')
   })
 
-  it('requests a subscription’s most recent tracked payments', async () => {
-    const fetch = vi.fn().mockResolvedValue(response({ items: [] }))
+  it('links payments to a subscription and takes one off again', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ count: 2, subscription: { id: 'sub-1' } }))
+      .mockResolvedValueOnce(response({ id: 'sub-1', payment_count: 1 }))
     vi.stubGlobal('fetch', fetch)
 
-    await expect(fetchSubscriptionPayments('sub / 1')).resolves.toEqual({ items: [] })
-    expect(fetch.mock.calls[0]![0]).toBe(
-      '/api/transactions?subscription_id=sub+%2F+1&page_size=5&sort=-date',
-    )
+    await expect(linkSubscriptionPayments('sub-1', ['t1', 't2'])).resolves.toEqual({
+      count: 2,
+      subscription: { id: 'sub-1' },
+    })
+    await expect(unlinkSubscriptionPayment('sub-1', 't1')).resolves.toEqual({
+      id: 'sub-1',
+      payment_count: 1,
+    })
+
+    expect(fetch.mock.calls.map(([url, init]) => [url, init.method])).toEqual([
+      ['/api/subscriptions/sub-1/payments', 'POST'],
+      ['/api/subscriptions/sub-1/payments/t1', 'DELETE'],
+    ])
+    expect(JSON.parse(fetch.mock.calls[0]![1].body as string)).toEqual({ ids: ['t1', 't2'] })
   })
 })

@@ -1,6 +1,7 @@
 import {
   currencyName,
   currencySymbol,
+  formatCount,
   formatCountdown,
   formatDateTime,
   formatDay,
@@ -113,6 +114,14 @@ describe('format utils', () => {
     [600, '10:00'],
   ])('counts down %d seconds as %s', (seconds, expected) => {
     expect(formatCountdown(seconds)).toBe(expected)
+  })
+
+  it('counts things, with the noun in the plural unless there is exactly one', () => {
+    expect(formatCount(1, 'transaction')).toBe('1 transaction')
+    expect(formatCount(0, 'transaction')).toBe('0 transactions')
+    expect(formatCount(2, 'transaction')).toBe('2 transactions')
+    expect(formatCount(1204, 'transaction')).toBe('1,204 transactions')
+    expect(formatCount(1204, 'transaction', 'de-DE')).toBe('1.204 transactions')
   })
 
   it('names days in a list', () => {

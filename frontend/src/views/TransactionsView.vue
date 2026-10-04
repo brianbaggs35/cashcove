@@ -20,10 +20,13 @@ import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import { useImportsStore } from '@/stores/imports'
 import type { PeriodKey } from '@/utils/dates'
+import { toCents } from '@/utils/money'
+import AutomationDialog from '@/views/automations/AutomationDialog.vue'
 import BulkBar from '@/views/transactions/BulkBar.vue'
 import CategorizeDialog from '@/views/transactions/CategorizeDialog.vue'
 import FilterChips from '@/views/transactions/FilterChips.vue'
 import FilterDialog from '@/views/transactions/FilterDialog.vue'
+import LinkSubscriptionDialog from '@/views/transactions/LinkSubscriptionDialog.vue'
 import TotalsBar from '@/views/transactions/TotalsBar.vue'
 import TransactionDialog from '@/views/transactions/TransactionDialog.vue'
 import TransactionInfoDialog from '@/views/transactions/TransactionInfoDialog.vue'
@@ -166,6 +169,15 @@ function choosePeriod(period: PeriodKey) {
 
 // Acting on several at once.
 const categorizing = ref(false)
+const linking = ref(false)
+const automating = ref(false)
+/** The selected transactions on this page, and the ones among them that went out, which a subscription can have. */
+const selectedItems = computed(() =>
+  (result.value?.items ?? []).filter((item) => selected.value.includes(item.id)),
+)
+const selectedPayments = computed(() =>
+  selectedItems.value.filter((item) => toCents(item.amount) < 0).map((item) => item.id),
+)
 
 async function removeSelected() {
   const count = selected.value.length
@@ -287,7 +299,10 @@ async function removeSelected() {
         <BulkBar
           v-if="selected.length"
           :count="selected.length"
+          :payments="selectedPayments.length"
           @categorize="categorizing = true"
+          @link="linking = true"
+          @automate="automating = true"
           @delete="removeSelected"
           @clear="selected = []"
         />
@@ -348,5 +363,19 @@ async function removeSelected() {
       @deleted="changed"
     />
     <CategorizeDialog v-if="auth.isAdmin" v-model="categorizing" :ids="selected" @done="changed" />
+    <LinkSubscriptionDialog
+      v-if="auth.isAdmin"
+      v-model="linking"
+      :ids="selectedPayments"
+      :selected="selected.length"
+      @done="changed"
+    />
+    <AutomationDialog
+      v-if="auth.isAdmin"
+      v-model="automating"
+      :automation="null"
+      :seed="selectedItems"
+      @saved="changed"
+    />
   </TabPage>
 </template>

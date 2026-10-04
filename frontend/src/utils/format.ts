@@ -105,3 +105,8 @@ export function formatDay(value: Date | string, now = new Date(), locale = 'en-U
 export function formatTime(value: Date | string, locale = 'en-US'): string {
   return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(new Date(value))
 }
+
+/** A count with its noun, regular plurals only: "1 transaction", "1,204 transactions". */
+export function formatCount(count: number, noun: string, locale = 'en-US'): string {
+  return `${count.toLocaleString(locale)} ${noun}${count === 1 ? '' : 's'}`
+}
