@@ -48,7 +48,7 @@ function monthLabel(month: string): string {
         Spent
       </span>
     </div>
-    <ul class="budget-chart__months" aria-label="Budget year months" tabindex="0">
+    <ul class="budget-chart__months" aria-label="Budget year months">
       <li
         v-for="month in budgetYear.months"
         :key="month.month"
@@ -163,6 +163,23 @@ function monthLabel(month: string): string {
 
 .budget-chart__label {
   color: rgb(var(--v-theme-on-surface-variant));
+}
+
+@media (max-width: 599px) {
+  .budget-chart__months {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 2px;
+    overflow-x: visible;
+  }
+
+  .budget-chart__month {
+    min-width: 0;
+    padding-inline: 0;
+  }
+
+  .budget-chart__label {
+    font-size: 0.625rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
