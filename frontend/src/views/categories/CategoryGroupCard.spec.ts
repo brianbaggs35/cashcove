@@ -6,7 +6,7 @@ import { click, page } from '@/test/dom'
 import { coffee, groceries, makeCategory, makeGroups, seedFinance } from '@/test/finance'
 import { makeSessionState, makeUser } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
-import CategoryGroupCard from '@/views/settings/categories/CategoryGroupCard.vue'
+import CategoryGroupCard from '@/views/categories/CategoryGroupCard.vue'
 
 const busy = makeCategory({
   id: 'category-busy',

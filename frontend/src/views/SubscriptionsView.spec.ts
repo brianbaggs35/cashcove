@@ -4,6 +4,7 @@ import * as subscriptionsApi from '@/api/subscriptions'
 import type { Subscription } from '@/api/subscriptions'
 import * as transactionsApi from '@/api/transactions'
 import { confirmRequest } from '@/composables/confirm'
+import { notices } from '@/composables/notify'
 import { answer } from '@/test/confirm'
 import { checking, makeAccount, makePage, seedFinance } from '@/test/finance'
 import { makePreferences, makeSessionState, makeUser } from '@/test/fixtures'
@@ -203,6 +204,25 @@ describe('SubscriptionsView', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it('opens the payments dialog to link payments to a subscription, and reloads as it changes', async () => {
+    const subscription = makeSubscription()
+    const { component, fetch } = await render({ items: [subscription] })
+
+    component('SubscriptionCard').vm.$emit('link', subscription)
+    await flushPromises()
+    const dialog = component('SubscriptionPaymentsDialog')
+    expect(dialog.props()).toMatchObject({ modelValue: true, subscription })
+    dialog.vm.$emit('update:modelValue', false)
+    await flushPromises()
+    expect(dialog.props('modelValue')).toBe(false)
+
+    // The dialog loads the names of subscriptions for itself, so count from here.
+    const before = fetch.mock.calls.length
+    dialog.vm.$emit('changed', subscription)
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(before + 1)
+  })
+
   it('opens the header action to add another subscription', async () => {
     const { find, component } = await render({ items: [makeSubscription()] })
     await find('subscription-add').trigger('click')
@@ -236,6 +256,45 @@ describe('SubscriptionsView', () => {
     await flushPromises()
     expect(find('subscriptions-error').exists()).toBe(false)
     expect(find('subscription-title').text()).toBe(subscription.name)
+  })
+
+  it('counts a bill that changes every time by what it is expected to be', async () => {
+    const power = makeSubscription({
+      name: 'Power',
+      amount: '100.00',
+      amount_varies: true,
+      expected_amount: '120.00',
+    })
+    const { find } = await render({ items: [power] })
+
+    expect(find('subscriptions-monthly').text()).toContain('$120.00')
+    expect(find('subscriptions-yearly').text()).toContain('$1,440.00')
+  })
+
+  it('updates a subscription to the amount last paid, once asked', async () => {
+    const subscription = makeSubscription({ amount: '15.49', last_payment_amount: '17.99' })
+    const update = vi
+      .spyOn(subscriptionsApi, 'updateSubscription')
+      .mockResolvedValueOnce({ ...subscription, amount: '17.99' })
+      .mockRejectedValueOnce(new Error('No connection'))
+    const { component, find, fetch } = await render({ items: [subscription] })
+
+    component('SubscriptionCard').vm.$emit('update-amount', subscription)
+    await flushPromises()
+    expect(update).toHaveBeenCalledWith(subscription.id, { amount: '17.99' })
+    expect(notices.value.at(-1)?.text).toBe('Updated Streamflix to $17.99')
+    expect(fetch).toHaveBeenCalledTimes(2)
+
+    component('SubscriptionCard').vm.$emit('update-amount', subscription)
+    await flushPromises()
+    expect(find('subscriptions-error').text()).toContain('No connection')
+    // With no payment to go by there's nothing to update to.
+    component('SubscriptionCard').vm.$emit('update-amount', {
+      ...subscription,
+      last_payment_amount: null,
+    })
+    await flushPromises()
+    expect(update).toHaveBeenCalledTimes(2)
   })
 
   it('pauses and resumes automatic matching, reporting update errors', async () => {
@@ -290,11 +349,13 @@ describe('SubscriptionsView', () => {
   })
 
   it('shows loading feedback and read-only access for viewers', async () => {
-    const { find } = await render({ role: 'viewer', pending: true })
+    const { find, component } = await render({ role: 'viewer', pending: true })
     expect(find('subscriptions-loading').exists()).toBe(true)
     expect(find('read-only-notice').text()).toContain('Only an admin can change them')
     expect(find('subscription-add').exists()).toBe(false)
     expect(find('subscription-add-first').exists()).toBe(false)
+    expect(component('SubscriptionDialog').exists()).toBe(false)
+    expect(component('SubscriptionPaymentsDialog').exists()).toBe(false)
   })
 
   it('keeps totals useful when account currency data is unavailable', async () => {

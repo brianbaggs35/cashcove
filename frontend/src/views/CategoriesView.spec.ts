@@ -8,11 +8,12 @@ import { answer } from '@/test/confirm'
 import { coffee, makeGroups, seedFinance } from '@/test/finance'
 import { makeSessionState, makeUser } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
-import CategoriesSection from '@/views/settings/CategoriesSection.vue'
+import CategoriesView from '@/views/CategoriesView.vue'
 
 async function render(role: 'admin' | 'viewer' = 'admin', loaded = true) {
-  const mounted = await mountWithPlugins(CategoriesSection, {
+  const mounted = await mountWithPlugins(CategoriesView, {
     width: 1280,
+    route: '/categories',
     session: makeSessionState({ user: makeUser({ role }) }),
     beforeMount: () => {
       seedFinance().categories.loaded = loaded
@@ -25,12 +26,13 @@ async function render(role: 'admin' | 'viewer' = 'admin', loaded = true) {
   return { ...mounted, find, component, cards }
 }
 
-describe('CategoriesSection', () => {
-  it('lists every group with its categories, loaded afresh', async () => {
+describe('CategoriesView', () => {
+  it('shows the Categories header over every group with its categories, loaded afresh', async () => {
     const fetch = vi.spyOn(api, 'fetchCategories').mockResolvedValue(makeGroups())
-    const { find, cards } = await render()
+    const { find, cards, wrapper } = await render()
 
     expect(fetch).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('h1').text()).toBe('Categories')
     expect(cards().map((card) => card.props('group').name)).toEqual([
       'Income',
       'Food & drink',
@@ -209,5 +211,27 @@ describe('CategoriesSection', () => {
     vi.spyOn(api, 'fetchCategories').mockReturnValue(new Promise(() => undefined))
     const { find } = await render('admin', false)
     expect(find('categories-loading').exists()).toBe(true)
+  })
+
+  it('narrows the groups to those with what was typed in their own or their categories’ names', async () => {
+    vi.spyOn(api, 'fetchCategories').mockResolvedValue(makeGroups())
+    const { find, cards } = await render()
+    const names = () => cards().map((card) => card.props('group').name)
+
+    await find('category-search').find('input').setValue('coffee')
+    expect(names()).toEqual(['Food & drink'])
+    // A group that matches shows all its categories, whatever they're called.
+    await find('category-search').find('input').setValue('  TRANSFERS ')
+    expect(names()).toEqual(['Transfers'])
+    await find('category-search').find('input').setValue('hobb')
+    expect(names()).toEqual(['Hobbies'])
+    expect(find('categories-none-match').exists()).toBe(false)
+
+    await find('category-search').find('input').setValue('nothing like this')
+    expect(names()).toEqual([])
+    expect(find('categories-none-match').text()).toContain('No matching categories')
+
+    await find('category-search').find('input').setValue('')
+    expect(names()).toHaveLength(4)
   })
 })

@@ -12,6 +12,8 @@ import {
 } from './harness'
 import { AccountsPage } from './pages/accounts-page'
 import { AppShell } from './pages/app-shell'
+import { AutomationsPage } from './pages/automations-page'
+import { BudgetPage } from './pages/budget-page'
 import { CategoriesPage } from './pages/categories-page'
 import { ConnectPage } from './pages/connect-page'
 import { ImportPage } from './pages/import-page'
@@ -40,8 +42,12 @@ export interface CashcoveFixtures {
   signInPage: SignInPage
   accountsPage: AccountsPage
   transactionsPage: TransactionsPage
-  /** Settings > Categories. */
+  /** The Categories tab. */
   categoriesPage: CategoriesPage
+  /** The Automations tab and its dialog. */
+  automationsPage: AutomationsPage
+  /** The Budget tab, its charts and its dialogs. */
+  budgetPage: BudgetPage
   /** The Connect tab and its wizard. */
   connectPage: ConnectPage
   /** The Import tab and its import dialog. */
@@ -124,6 +130,14 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
 
   categoriesPage: async ({ page }, use) => {
     await use(new CategoriesPage(page))
+  },
+
+  automationsPage: async ({ page }, use) => {
+    await use(new AutomationsPage(page))
+  },
+
+  budgetPage: async ({ page }, use) => {
+    await use(new BudgetPage(page))
   },
 
   connectPage: async ({ page }, use) => {

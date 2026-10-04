@@ -7,7 +7,6 @@ import { ADMIN, collectProblems, HOUSEHOLD, setting } from './admin'
 
 const SETTINGS = [
   'general',
-  'categories',
   'users',
   'alerts',
   'sync',

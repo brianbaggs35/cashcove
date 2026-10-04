@@ -108,6 +108,7 @@ describe('SubscriptionDialog', () => {
       name: 'Grocery delivery',
       payee: 'Whole Foods',
       amount: '84.12',
+      amount_varies: false,
       frequency: 'monthly',
       account_id: checking.id,
       next_due_date: addDays(todayIso(), 30),
@@ -155,6 +156,7 @@ describe('SubscriptionDialog', () => {
       name: 'Cloud Box',
       payee: 'Cloud Box billing',
       amount: '8.00',
+      amount_varies: false,
       frequency: 'quarterly',
       account_id: checking.id,
       next_due_date: dueDate,
@@ -201,7 +203,8 @@ describe('SubscriptionDialog', () => {
     expect(dialog.findAllComponents({ name: 'VAutocomplete' }).at(0)!.props('items')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          props: expect.objectContaining({ subtitle: '84.12 · Closed card' }),
+          title: 'Whole Foods · Sep 18',
+          props: expect.objectContaining({ subtitle: '$84.12 · Closed card' }),
         }),
       ]),
     )
@@ -221,7 +224,7 @@ describe('SubscriptionDialog', () => {
     expect(items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          props: expect.objectContaining({ subtitle: '84.12 · ' }),
+          props: expect.objectContaining({ subtitle: '$84.12 · ' }),
         }),
       ]),
     )
@@ -233,6 +236,34 @@ describe('SubscriptionDialog', () => {
     await flushPromises()
     expect(open.value).toBe(false)
     expect(component('AppDialog').props('modelValue')).toBe(false)
+  })
+
+  it('says the amount is an estimate for a bill that changes every time, and sends that', async () => {
+    const subscription = makeSubscription({ name: 'Power', amount: '96.40', amount_varies: true })
+    const update = vi.spyOn(subscriptionsApi, 'updateSubscription').mockResolvedValue(subscription)
+    const { wrapper, field, saved, component } = await render({ subscription })
+
+    expect(field('amount').text()).toContain('Estimated amount')
+    expect((field('varies').find('input').element as HTMLInputElement).checked).toBe(true)
+    component('SubscriptionDialog')
+      .findAllComponents({ name: 'VSwitch' })
+      .find((item) => item.attributes('data-test') === 'subscription-varies')!
+      .vm.$emit('update:modelValue', false)
+    await flushPromises()
+    expect(field('amount').text()).toContain('Payment amount')
+    component('SubscriptionDialog')
+      .findAllComponents({ name: 'VSwitch' })
+      .find((item) => item.attributes('data-test') === 'subscription-varies')!
+      .vm.$emit('update:modelValue', true)
+    await makeFormValid(wrapper)
+    await field('save').trigger('click')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith(
+      subscription.id,
+      expect.objectContaining({ amount: '96.40', amount_varies: true }),
+    )
+    expect(saved).toHaveBeenCalled()
   })
 
   it('closes from the cancel action', async () => {
@@ -256,7 +287,8 @@ describe('SubscriptionDialog', () => {
     expect(field('active').exists()).toBe(true)
     await input('name').setValue('Streamflix Premium')
     component('SubscriptionDialog')
-      .findComponent({ name: 'VSwitch' })
+      .findAllComponents({ name: 'VSwitch' })
+      .find((item) => item.attributes('data-test') === 'subscription-active')!
       .vm.$emit('update:modelValue', false)
     await makeFormValid(wrapper)
     await field('save').trigger('click')

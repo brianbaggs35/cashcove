@@ -7,6 +7,9 @@ export {
   type AccountType,
   type BaselineAccount,
   type BaselineAccountKey,
+  type BaselineBudget,
+  type BaselineBudgetKey,
+  type BaselineBudgetSource,
   type BaselineActivity,
   type BaselineCategory,
   type BaselineCategoryGroup,
@@ -30,7 +33,18 @@ export {
   type Who,
 } from './harness'
 export { AccountsPage, type AccountAction, type AccountFields } from './pages/accounts-page'
+export {
+  AutomationsPage,
+  type AutomationAction,
+  type AutomationFields,
+} from './pages/automations-page'
 export { AppShell, TABS, type Tab } from './pages/app-shell'
+export {
+  BudgetPage,
+  type BudgetFields,
+  type BudgetPeriodChoice,
+  type LinkTab,
+} from './pages/budget-page'
 export { CategoriesPage } from './pages/categories-page'
 export { ConnectPage, type ConnectionAction } from './pages/connect-page'
 export {

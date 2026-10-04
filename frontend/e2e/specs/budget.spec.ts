@@ -1,47 +1,30 @@
-import { choose, expect, signInFiles, test, type ApiClient } from '../support'
+import {
+  expect,
+  expectAccessible,
+  signInFiles,
+  simpleCsv,
+  test,
+  type ApiClient,
+  type BaselineData,
+} from '../support'
 
-interface Category {
+interface Budget {
   id: string
   name: string
-}
-
-interface CategoryGroup {
-  name: string
-  kind: 'income' | 'expense' | 'transfer'
-  categories: Category[]
-}
-
-interface Account {
-  id: string
-  name: string
-}
-
-interface BudgetConfiguration {
-  category_id: string
   period: string
-  amount: string | null
-  account_ids: string[]
-  linked_transaction_ids: string[]
-  linked_subscription_ids: string[]
-}
-
-interface BudgetMonth {
-  groups: {
-    kind: string
-    categories: { category_id: string; actual: string; budgeted: string }[]
-  }[]
-}
-
-interface Transaction {
-  id: string
-  category_id: string | null
-  account_id: string
+  amount: string
 }
 
 interface Subscription {
   id: string
 }
 
+interface Transaction {
+  id: string
+  payee: string
+}
+
+/** A day in the baseline household's time zone, counted from today, as YYYY-MM-DD. */
 function householdDate(offset = 0): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Chicago',
@@ -56,30 +39,52 @@ function householdDate(offset = 0): string {
     .slice(0, 10)
 }
 
-async function findCategory(api: ApiClient, name: string): Promise<Category> {
-  const groups = await api.get<CategoryGroup[]>('/categories')
-  const category = groups.flatMap((group) => group.categories).find((item) => item.name === name)
-  if (!category) throw new Error(`The baseline is missing the ${name} category`)
-  return category
+/** A month, as the Budget tab names it: "October 2026" for this month, or one `ago` months before. */
+function monthName(ago = 0): string {
+  const [year, month] = householdDate().split('-').map(Number) as [number, number]
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(Date.UTC(year, month - 1 - ago, 1)))
 }
 
-async function findAccount(api: ApiClient, name: string): Promise<Account> {
-  const accounts = await api.get<Account[]>('/accounts')
-  const account = accounts.find((item) => item.name === name)
-  if (!account) throw new Error(`The baseline is missing the ${name} account`)
-  return account
+const thisMonth = () => monthName(0)
+
+/**
+ * A monthly budget of 2,000.00 whose period began 13 days ago, so it holds every named
+ * transaction of the baseline (the oldest is 13 days old) and nothing of its history (which
+ * starts 15 days back), however far into the month the test runs.
+ */
+async function makeHome(api: ApiClient): Promise<Budget> {
+  return api.post<Budget>('/budgets', {
+    name: 'Home',
+    period: 'monthly',
+    amount: '2000.00',
+    starts_on: householdDate(-13),
+    today: householdDate(),
+  })
 }
 
-function monthOf(date: string): string {
-  return date.slice(0, 7)
+async function category(api: ApiClient, name: string): Promise<{ id: string }> {
+  const groups = await api.get<{ categories: { id: string; name: string }[] }[]>('/categories')
+  const found = groups.flatMap((group) => group.categories).find((item) => item.name === name)
+  if (!found) throw new Error(`The baseline is missing the ${name} category`)
+  return found
 }
 
-function monthLine(body: BudgetMonth, categoryId: string) {
-  const line = body.groups
-    .flatMap((group) => group.categories)
-    .find((item) => item.category_id === categoryId)
-  if (!line) throw new Error(`The budget response is missing category ${categoryId}`)
-  return line
+function netflix(baseline: BaselineData) {
+  return {
+    name: 'Netflix',
+    amount: '15.49',
+    frequency: 'monthly',
+    account_id: baseline.accounts.card.id,
+    next_due_date: householdDate(20),
+    category_id: null,
+    notes: null,
+    payee: 'Netflix',
+    seed_transaction_id: baseline.transactions.netflix.id,
+  }
 }
 
 test.describe('Budget', () => {
@@ -89,144 +94,320 @@ test.describe('Budget', () => {
     await baseline.reset()
   })
 
-  test('sets a weekly target for an account and shows budget progress', async ({ page, apiAs }) => {
-    const api = await apiAs('admin')
-    const groceries = await findCategory(api, 'Groceries')
-    const checking = await findAccount(api, 'Everyday checking')
-    await page.goto('/budget')
+  test('switches between the household’s budgets, each in its own kind of period', async ({
+    page,
+    baseline,
+    budgetPage,
+  }) => {
+    await budgetPage.goto()
+    await expect(budgetPage.cards).toHaveText([
+      /Spending money\s*Weekly/,
+      /Household\s*Monthly/,
+      /Year plan\s*Yearly/,
+    ])
+    // The smallest period comes first, and is the one looked at until another is chosen.
+    await expect(budgetPage.card('Spending money')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('period-title')).toContainText(/\d{4}/)
+    await expectAccessible(page)
 
-    const month = await page.getByTestId('budget-month').locator('input').inputValue()
-    await page.getByTestId(`budget-edit-${groceries.id}`).click()
-    const dialog = page.getByRole('dialog')
-    await dialog.locator('.money-field input').fill('175')
-    await choose(dialog.getByTestId('budget-period'), 'Weekly')
-    await dialog.getByTestId('budget-cycle-anchor').locator('input').fill(`${month}-01`)
-    await choose(dialog.getByTestId('budget-accounts'), checking.name)
-    await dialog.getByTestId('budget-save').click()
-    await expect(dialog).toBeHidden()
+    await budgetPage.choose('Household')
+    await expect(page).toHaveURL(new RegExp(`budget=${baseline.budgets.household.id}`))
+    await expect(page.getByTestId('period-title')).toHaveText(thisMonth())
+    await expect(page.getByTestId('period-subtitle')).toHaveText('this month')
+    await expect(page.getByTestId('summary-of')).toHaveText('of $3,600.00 for the period')
 
-    const configuration = (
-      await api.get<BudgetConfiguration[]>(`/budget/configurations?month=${month}`)
-    ).find((item) => item.category_id === groceries.id)
-    expect(configuration).toMatchObject({
-      period: 'weekly',
-      amount: '175.00',
-      account_ids: [checking.id],
-    })
-    const line = monthLine(await api.get<BudgetMonth>(`/budget/months/${month}`), groceries.id)
-    expect(Number(line.budgeted)).toBeGreaterThanOrEqual(700)
-    await expect(page.getByTestId(`budget-category-${groceries.id}`)).toContainText('Weekly')
-    await expect(page.getByTestId('budget-account-scope')).toContainText(checking.name)
-    await expect(
-      page.getByTestId(`budget-category-${groceries.id}`).getByTestId('budget-progress-bar'),
-    ).toBeVisible()
+    await budgetPage.choose('Year plan')
+    await expect(page.getByTestId('period-title')).toHaveText(householdDate().slice(0, 4))
+
+    // It's the one looked at when coming back.
+    await page.reload()
+    await expect(budgetPage.card('Year plan')).toHaveAttribute('aria-pressed', 'true')
   })
 
-  test('links paycheck, bill transactions and a subscription to their budget targets', async ({
+  test('looks back at earlier periods, and reads the charts as tables', async ({
+    page,
+    budgetPage,
+  }) => {
+    await budgetPage.goto()
+    await budgetPage.choose('Household')
+    await expect(page.getByTestId('period-back')).toHaveCount(0)
+
+    await page.getByTestId('period-previous').click()
+    await expect(page.getByTestId('period-title')).not.toHaveText(thisMonth())
+    await expect(page.getByTestId('period-back')).toHaveText('Back to this month')
+    await expect(page.getByTestId('period-next')).toBeEnabled()
+
+    // The history chart ends with the period being looked at, and goes to one chosen in it.
+    await page.getByTestId('history-period').nth(-3).click()
+    await expect(page.getByTestId('period-title')).toHaveText(monthName(3))
+    await page.getByTestId('period-back').click()
+    await expect(page.getByTestId('period-title')).toHaveText(thisMonth())
+
+    for (const [index, chart] of ['pace-chart', 'history-chart'].entries()) {
+      const frame = page.getByTestId('chart-frame').nth(index)
+      await frame.getByTestId('chart-view-table').click()
+      await expect(frame.getByTestId('chart-table')).toBeVisible()
+      await frame.getByTestId('chart-view-chart').click()
+      await expect(frame.getByTestId(chart)).toBeVisible()
+    }
+  })
+
+  test('makes a budget, changes it and deletes it', async ({ page, apiAs, budgetPage }) => {
+    const api = await apiAs('admin')
+    await budgetPage.goto()
+
+    await budgetPage.openNew()
+    await expectAccessible(page, { include: '.v-overlay--active' })
+    await budgetPage.fillIn({ name: 'Pay period', period: 'biweekly', amount: '1500' })
+    await budgetPage.save()
+
+    // The new budget is looked at straight away, with nothing counting toward it yet.
+    await expect(budgetPage.card('Pay period')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('budget-unset')).toContainText('Start by choosing what counts')
+    await expect(budgetPage.left).toHaveText('$1,500.00')
+    const [made] = (await api.get<Budget[]>('/budgets')).filter(
+      (item) => item.name === 'Pay period',
+    )
+    expect(made).toMatchObject({ period: 'biweekly', amount: '1500.00' })
+
+    await budgetPage.openEdit()
+    await budgetPage.fillIn({ name: 'Paycheck to paycheck', amount: '1800' })
+    await budgetPage.save()
+    await expect(budgetPage.card('Paycheck to paycheck')).toBeVisible()
+    await expect(budgetPage.left).toHaveText('$1,800.00')
+    expect(
+      (await api.get<Budget[]>('/budgets')).find((item) => item.id === made!.id),
+    ).toMatchObject({
+      name: 'Paycheck to paycheck',
+      amount: '1800.00',
+    })
+
+    await page.getByTestId('budget-actions').click()
+    await page.locator('.v-overlay--active').getByTestId('budget-delete').click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(budgetPage.card('Paycheck to paycheck')).toHaveCount(0)
+    await expect(budgetPage.cards).toHaveCount(3)
+    expect((await api.get<Budget[]>('/budgets')).map((item) => item.name)).not.toContain(
+      'Paycheck to paycheck',
+    )
+  })
+
+  test('counts a paycheck as income, and every later one that arrives', async ({
     page,
     apiAs,
+    baseline,
+    budgetPage,
+    automationsPage,
   }) => {
     const api = await apiAs('admin')
-    const groceries = await findCategory(api, 'Groceries')
-    const paycheck = await findCategory(api, 'Paycheck')
-    const checking = await findAccount(api, 'Everyday checking')
-    const today = householdDate()
-    const month = monthOf(today)
+    const home = await makeHome(api)
 
-    await api.put(`/budget/categories/${groceries.id}`, {
-      month,
-      period: 'monthly',
-      amount: '1000.00',
-      scope: 'onward',
-      rollover: false,
-      account_ids: [checking.id],
-    })
-    await api.put(`/budget/categories/${paycheck.id}`, {
-      month,
-      period: 'monthly',
-      amount: '4200.00',
-      scope: 'onward',
-      rollover: false,
-      account_ids: [],
-    })
-    const initialMonth = await api.get<BudgetMonth>(`/budget/months/${month}`)
-    const initialPaycheckActual = Number(monthLine(initialMonth, paycheck.id).actual)
-    const initialGroceriesActual = Number(monthLine(initialMonth, groceries.id).actual)
-    const salary = await api.post<Transaction>('/transactions', {
-      account_id: checking.id,
-      date: today,
-      amount: '2100.00',
-      payee: 'Acme payroll',
-      category_id: null,
-      notes: null,
-    })
-    const market = await api.post<Transaction>('/transactions', {
-      account_id: checking.id,
-      date: today,
-      amount: '-35.00',
-      payee: 'Neighborhood Market',
-      category_id: null,
-      notes: null,
-    })
-    const utilityPayment = await api.post<Transaction>('/transactions', {
-      account_id: checking.id,
-      date: today,
-      amount: '-96.40',
-      payee: 'City Power & Light',
-      category_id: null,
-      notes: null,
-    })
-    const utility = await api.post<Subscription>('/subscriptions', {
-      name: 'City Power',
-      amount: '96.40',
-      frequency: 'monthly',
-      account_id: checking.id,
-      next_due_date: householdDate(12),
-      category_id: null,
-      notes: null,
-      payee: 'City Power & Light',
-      seed_transaction_id: utilityPayment.id,
-    })
+    await budgetPage.goto({ budget: home.id })
+    await expect(page.getByTestId('budget-unset')).toBeVisible()
+    await expect(budgetPage.left).toHaveText('$2,000.00')
 
-    await page.goto('/budget')
-    await page.getByTestId(`budget-link-income-${paycheck.id}`).click()
-    await page.getByTestId(`budget-link-${salary.id}`).click()
-    await expect(page.getByTestId(`budget-unlink-${salary.id}`)).toBeVisible()
-    await page.getByTestId('budget-transactions-done').click()
+    await budgetPage.openLink('income')
+    // Only the money that came in is offered, and later ones are counted unless it's said not.
+    await budgetPage.tick('Acme Corp')
+    await expect(
+      budgetPage.linkDialog.getByTestId('link-automate-switch').getByRole('checkbox'),
+    ).toBeChecked()
+    await expectAccessible(page, { include: '.v-overlay--active' })
+    await budgetPage.add()
 
-    await page.getByTestId(`budget-link-expense-${groceries.id}`).click()
-    await page.getByTestId(`budget-link-${market.id}`).click()
-    await expect(page.getByTestId(`budget-unlink-${market.id}`)).toBeVisible()
-    await page.getByTestId('budget-transactions-done').click()
-
-    await page.getByTestId(`budget-link-bills-${groceries.id}`).click()
-    await expect(page.getByTestId(`budget-subscription-${utility.id}`)).toBeVisible()
-    await page.getByTestId(`budget-link-subscription-${utility.id}`).click()
-    await expect(page.getByTestId(`budget-unlink-subscription-${utility.id}`)).toBeVisible()
-
-    const [monthBody, configurations] = await Promise.all([
-      api.get<BudgetMonth>(`/budget/months/${month}`),
-      api.get<BudgetConfiguration[]>(`/budget/configurations?month=${month}`),
-    ])
-    expect(Number(monthLine(monthBody, paycheck.id).actual) - initialPaycheckActual).toBeCloseTo(
-      2100,
-      2,
+    await expect(budgetPage.source('Acme Corp (Home)')).toContainText(
+      '$2,400.00 from 1 transaction',
     )
-    expect(Number(monthLine(monthBody, groceries.id).actual) - initialGroceriesActual).toBeCloseTo(
-      131.4,
-      2,
+    await expect(budgetPage.tile('income')).toHaveText('$2,400.00')
+    await expect(budgetPage.left).toHaveText('$2,000.00')
+    await expect(budgetPage.transaction('Acme Corp')).toContainText('Rule: Acme Corp (Home)')
+
+    const arrived = await api.post<Transaction>('/transactions', {
+      account_id: baseline.accounts.checking.id,
+      date: new Date().toISOString().slice(0, 10),
+      amount: '2400.00',
+      payee: 'ACME CORP',
+      category_id: null,
+      notes: null,
+    })
+    expect(arrived.payee).toBe('ACME CORP')
+    await budgetPage.goto({ budget: home.id })
+    await expect(budgetPage.tile('income')).toHaveText('$4,800.00')
+
+    // It's a rule like any other, which Automations lists and can pause.
+    await automationsPage.goto()
+    await expect(automationsPage.card('Acme Corp (Home)')).toContainText('Income in Home')
+  })
+
+  test('counts spending by category, account, subscription and single transaction, and takes any off', async ({
+    page,
+    apiAs,
+    baseline,
+    budgetPage,
+  }) => {
+    const api = await apiAs('admin')
+    const home = await makeHome(api)
+    await api.post<Subscription>('/subscriptions', netflix(baseline))
+    await budgetPage.goto({ budget: home.id })
+
+    await budgetPage.openLink('spending')
+    await budgetPage.pickIn('category', 'Groceries')
+    await budgetPage.add()
+    await expect(budgetPage.source('Groceries')).toContainText('$84.12 from 1 transaction')
+    await expect(budgetPage.left).toHaveText('$1,915.88')
+
+    // The card's spending that nothing else counts: the coffee and Netflix, but not the refund.
+    await budgetPage.openLink('spending')
+    await budgetPage.pickIn('account', 'Rewards Visa')
+    await budgetPage.add()
+    await expect(budgetPage.source('Rewards Visa')).toContainText('$19.99 from 2 transactions')
+    await expect(budgetPage.tile('spent')).toHaveText('$104.11')
+
+    // A subscription counts its payments ahead of the account, so Netflix moves to it.
+    await budgetPage.openLink('spending')
+    await budgetPage.pickIn('subscription', 'Netflix')
+    await budgetPage.add()
+    await expect(budgetPage.source('Rewards Visa')).toContainText('$4.50 from 1 transaction')
+    await expect(budgetPage.source('Netflix')).toContainText(
+      'Subscription · $15.49 from 1 transaction',
     )
-    expect(
-      configurations.find((item) => item.category_id === paycheck.id)?.linked_transaction_ids,
-    ).toContain(salary.id)
-    expect(
-      configurations.find((item) => item.category_id === groceries.id)?.linked_transaction_ids,
-    ).toContain(market.id)
-    expect(
-      configurations.find((item) => item.category_id === groceries.id)?.linked_subscription_ids,
-    ).toContain(utility.id)
-    expect(salary.category_id).toBeNull()
-    expect(market.category_id).toBeNull()
-    expect(utilityPayment.category_id).toBeNull()
+    await expect(budgetPage.tile('spent')).toHaveText('$104.11')
+
+    // One transaction on its own.
+    await budgetPage.openLink('spending')
+    await budgetPage.tick('Parkside Apartments')
+    await budgetPage.linkDialog.getByTestId('link-automate-switch').getByRole('checkbox').uncheck()
+    await budgetPage.add()
+    await expect(budgetPage.transaction('Parkside Apartments')).toContainText('Linked by hand')
+    await expect(budgetPage.tile('spent')).toHaveText('$1,954.11')
+    await expect(budgetPage.left).toHaveText('$45.89')
+
+    // Taking one off is only for this budget, and can be undone.
+    await expect(budgetPage.transaction('Whole Foods')).toContainText('Category: Groceries')
+    await budgetPage.takeOff('Whole Foods')
+    await expect(budgetPage.transaction('Whole Foods')).toHaveCount(0)
+    await expect(budgetPage.tile('spent')).toHaveText('$1,869.99')
+    await expect(page.getByTestId('filter-removed')).toHaveText('Taken off (1)')
+    await budgetPage.showTransactions('removed')
+    await expect(budgetPage.transaction('Whole Foods')).toBeVisible()
+    await budgetPage.transaction('Whole Foods').getByTestId('put-back').click()
+    await expect(budgetPage.transaction('Whole Foods')).toHaveCount(0)
+    await budgetPage.showTransactions('all')
+    await expect(budgetPage.transaction('Whole Foods')).toBeVisible()
+    await expect(budgetPage.tile('spent')).toHaveText('$1,954.11')
+
+    // Stopping counting a whole category takes its transactions off, which nothing else counts.
+    await budgetPage.source('Groceries').getByTestId('source-remove').click()
+    await expect(budgetPage.source('Groceries')).toHaveCount(0)
+    await expect(budgetPage.transaction('Whole Foods')).toHaveCount(0)
+    await expect(budgetPage.tile('spent')).toHaveText('$1,869.99')
+    expect((await api.get<Budget[]>('/budgets')).find((item) => item.id === home.id)).toBeDefined()
+  })
+
+  test('counts what the bank syncs and what a statement file brings in', async ({
+    apiAs,
+    baseline,
+    budgetPage,
+    connectPage,
+    importPage,
+    plaid,
+  }) => {
+    const api = await apiAs('admin')
+    const home = await makeHome(api)
+    // "Future only" counts what arrives after it, which is both of these.
+    await api.post('/automations', {
+      name: 'Corner Cafe',
+      payees: ['corner cafe'],
+      match: 'contains',
+      counts: [{ budget_id: home.id, kind: 'spending' }],
+      apply_to: 'future',
+    })
+    await plaid.addTransaction({
+      account_id: baseline.accounts.card.id,
+      amount: '-6.10',
+      payee: 'Corner Cafe',
+      category: 'FOOD_AND_DRINK_COFFEE',
+    })
+    await connectPage.goto()
+    await connectPage.syncNow('Tartan Bank')
+    await expect(connectPage.card('Tartan Bank').getByTestId('connection-last-sync')).toContainText(
+      '1 new transaction',
+    )
+    await importPage.goto()
+    await importPage.chooseFile(
+      simpleCsv('harbor-checking-cafe.csv', [
+        { days_ago: 2, description: 'CORNER CAFE 0412 PORTLAND OR', amount: '-9.25' },
+      ]),
+    )
+    await importPage.continue()
+    await importPage.chooseAccount('Everyday checking')
+    await importPage.chooseBalance('keep')
+    await importPage.importRows()
+    await importPage.close()
+
+    await budgetPage.goto({ budget: home.id })
+
+    await expect(budgetPage.transactions).toHaveCount(2)
+    for (const amount of ['6.10', '9.25']) {
+      await expect(budgetPage.transactions.filter({ hasText: amount })).toContainText(
+        'Rule: Corner Cafe',
+      )
+    }
+    await expect(budgetPage.tile('spent')).toHaveText('$15.35')
+    await expect(budgetPage.left).toHaveText('$1,984.65')
+  })
+
+  test('an automation made in Automations can count toward a budget as well', async ({
+    apiAs,
+    automationsPage,
+    budgetPage,
+  }) => {
+    const api = await apiAs('admin')
+    const home = await makeHome(api)
+    const groceries = await category(api, 'Groceries')
+    await api.post('/automations', {
+      name: 'Whole Foods',
+      payees: ['Whole Foods'],
+      category_id: groceries.id,
+      counts: [{ budget_id: home.id, kind: 'spending' }],
+      apply_to: 'all',
+    })
+
+    await automationsPage.goto()
+    await expect(automationsPage.card('Whole Foods')).toContainText('Spending in Home')
+    await automationsPage.act('Whole Foods', 'edit')
+    await automationsPage.next()
+    await expect(automationsPage.dialog.getByTestId('automation-then')).toContainText(
+      'count them as spending in Home',
+    )
+    await automationsPage.save()
+
+    await budgetPage.goto({ budget: home.id })
+    await expect(budgetPage.source('Whole Foods')).toContainText('$84.12 from 1 transaction')
+  })
+})
+
+test.describe('Budget for a viewer', () => {
+  test.use({ storageState: signInFiles.viewer })
+
+  test.beforeAll(async ({ baseline }) => {
+    await baseline.reset()
+  })
+
+  test('shows the budgets without ways to change them', async ({ page, budgetPage }) => {
+    await budgetPage.goto()
+    await budgetPage.choose('Household')
+
+    await expect(page.getByTestId('read-only-notice')).toContainText(
+      'Only an admin can change them',
+    )
+    await expect(page.getByTestId('budget-new')).toHaveCount(0)
+    await expect(page.getByTestId('budget-add')).toHaveCount(0)
+    await expect(page.getByTestId('budget-actions')).toHaveCount(0)
+    await expect(page.getByTestId('add-income')).toHaveCount(0)
+    await expect(page.getByTestId('source-remove')).toHaveCount(0)
+    await expect(page.getByTestId('take-off')).toHaveCount(0)
+    await expect(budgetPage.sources.first()).toBeVisible()
+    await expectAccessible(page)
   })
 })

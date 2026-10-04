@@ -7,7 +7,7 @@ import { notices } from '@/composables/notify'
 import { click, page } from '@/test/dom'
 import { coffee, makeCategory, makeGroups, seedFinance } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
-import CategoryDialog from '@/views/settings/categories/CategoryDialog.vue'
+import CategoryDialog from '@/views/categories/CategoryDialog.vue'
 
 async function render(
   props: { category?: api.Category | null; groupId?: string | null } = {},

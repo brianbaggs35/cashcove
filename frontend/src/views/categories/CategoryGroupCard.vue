@@ -28,7 +28,8 @@ function uses(category: Category): string {
 </script>
 
 <template>
-  <section
+  <v-card
+    tag="section"
     class="category-group d-flex flex-column pa-2"
     :aria-labelledby="headingId"
     :data-test="`category-group-${group.id}`"
@@ -140,15 +141,10 @@ function uses(category: Category): string {
     >
       Add category
     </v-btn>
-  </section>
+  </v-card>
 </template>
 
 <style scoped>
-.category-group {
-  border-radius: 16px;
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-}
-
 .category-row {
   border-radius: 10px;
   transition: background-color 0.15s;

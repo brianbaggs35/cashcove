@@ -268,6 +268,24 @@ export interface BaselineImport {
   created_by: BaselinePerson
 }
 
+/** What counts toward a baseline budget: a category by name, or an account or a transaction on its own by key. */
+export interface BaselineBudgetSource {
+  kind: 'income' | 'spending'
+  type: 'category' | 'account' | 'transaction'
+  target: string
+  target_id: string
+}
+
+/** A budget the household set up with Cashcove. */
+export interface BaselineBudget {
+  id: string
+  name: string
+  period: 'weekly' | 'biweekly' | 'monthly' | 'yearly'
+  /** What it has for each period, e.g. `'3600.00'`. */
+  amount: string
+  sources: BaselineBudgetSource[]
+}
+
 /** What the database holds after a reset. It mirrors backend/e2e/baseline.py. */
 export interface BaselineData {
   household_name: string
@@ -358,6 +376,15 @@ export interface BaselineData {
     /** Maple store card: charges as positive amounts, with the bank's categories; never used. */
     maple_card: BaselineSavedFormat
   }
+  /** The household's budgets, the smallest period first. */
+  budgets: {
+    /** 150.00 a week for restaurants, coffee, shopping and entertainment. */
+    spending_money: BaselineBudget
+    /** 3,600.00 a month: paychecks and interest in, bills, groceries and the card out. */
+    household: BaselineBudget
+    /** 52,000.00 a year: paychecks and interest in, everything out of checking. */
+    year: BaselineBudget
+  }
 }
 
 export type BaselineAccountKey = keyof BaselineData['accounts']
@@ -365,6 +392,7 @@ export type BaselineImportKey = keyof BaselineData['imports']
 export type BaselineSavedFormatKey = keyof BaselineData['saved_formats']
 export type BaselineConnectionKey = keyof BaselineData['connections']
 export type BaselineTransactionKey = keyof BaselineData['transactions']
+export type BaselineBudgetKey = keyof BaselineData['budgets']
 
 /** A baseline transaction's date (YYYY-MM-DD), as the last reset gave it. */
 export function dateOf(transaction: Pick<BaselineTransaction, 'days_ago'>): string {

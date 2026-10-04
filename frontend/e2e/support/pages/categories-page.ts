@@ -4,18 +4,21 @@ import type { BaselineCategoryGroup } from '../harness'
 import { choose, openOverlays, startingWith } from './fields'
 
 /**
- * Settings > Categories: the category groups, each with its categories and how many
+ * The Categories tab: the category groups, each with its categories and how many
  * transactions use them, and the dialogs that add, change and delete them.
  */
 export class CategoriesPage {
-  /** Add a group, in the section's header. Admins only. */
+  /** Add a group, in the tab's header. Admins only. */
   readonly addGroupButton: Locator
+  /** Narrows the groups to those with a name, or a category's name, that has this in it. */
+  readonly search: Locator
   readonly groupDialog: Locator
   readonly categoryDialog: Locator
   readonly deleteCategoryDialog: Locator
 
   constructor(readonly page: Page) {
     this.addGroupButton = page.getByTestId('group-add')
+    this.search = page.getByTestId('category-search').getByRole('textbox')
     this.groupDialog = page.getByRole('dialog').filter({ has: page.getByTestId('group-save') })
     this.categoryDialog = page
       .getByRole('dialog')
@@ -26,7 +29,7 @@ export class CategoriesPage {
   }
 
   async goto(): Promise<void> {
-    await this.page.goto('/settings/categories')
+    await this.page.goto('/categories')
     await expect(this.page.getByTestId('categories-loading')).toHaveCount(0)
   }
 

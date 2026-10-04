@@ -38,6 +38,12 @@ describe('router', () => {
     for (const module of modules) expect(module).toHaveProperty('default')
   })
 
+  it('sends the old Settings address for categories to the Categories tab', async () => {
+    const route = await visit('/settings/categories')
+    expect(route.name).toBe('categories')
+    expect(route.fullPath).toBe('/categories')
+  })
+
   it('opens Connect when a bank sends people back from its own sign-in page', async () => {
     const route = await visit('/connect/oauth?oauth_state_id=abc')
     expect(route.name).toBe('connect')

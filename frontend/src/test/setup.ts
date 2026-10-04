@@ -15,9 +15,12 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver = ResizeObserverStub
 
+// Tests run as if motion were reduced: Vuetify animates a field's label by reading computed
+// styles, which jsdom is far too slow at (a second or more in a dialog with a few fields), and
+// there is nothing to see here. What the animation looks like is checked in a real browser.
 window.matchMedia = (query: string) =>
   ({
-    matches: false,
+    matches: query === '(prefers-reduced-motion: reduce)',
     media: query,
     onchange: null,
     addListener: () => {},
