@@ -74,8 +74,8 @@ def test_an_automation_is_for_either_way_unless_it_says_otherwise(
     )
 
     assert (created["direction"], created["applied"]) == ("any", 2)
-    sorted_into = {reload(session, pay).category_id, reload(session, shop).category_id}
-    assert sorted_into == {anything.id}
+    assert reload(session, pay).category_id == anything.id
+    assert reload(session, shop).category_id == anything.id
     assert admin_client.get("/api/automations").json()[0]["direction"] == "any"
 
 
