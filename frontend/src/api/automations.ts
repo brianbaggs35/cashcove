@@ -10,6 +10,9 @@ export type AutomationScope = 'all' | 'future'
  */
 export type AutomationMatch = 'exact' | 'starts_with' | 'contains'
 
+/** Which way the money went in the transactions an automation sorts: either, in or out. */
+export type AutomationDirection = 'any' | 'in' | 'out'
+
 /** An automation counting what it sorts toward a budget, as income or as spending. */
 export interface AutomationCount {
   budget_id: string
@@ -22,6 +25,8 @@ export interface Automation {
   /** What it looks for: payees, or text from a payee or from what the bank called it. */
   payees: string[]
   match: AutomationMatch
+  /** It only sorts money coming in or money going out, or either way. */
+  direction: AutomationDirection
   /** It only sorts transactions in this account, or in any account when null. */
   account_id: string | null
   /** It only sorts transactions of this much, whichever way the money went. Either can be null. */
@@ -44,6 +49,7 @@ export interface AutomationInput {
   name: string
   payees: string[]
   match: AutomationMatch
+  direction: AutomationDirection
   account_id: string | null
   min_amount: string | null
   max_amount: string | null
@@ -78,6 +84,7 @@ export interface AutomationPreview {
 export interface PreviewRequest {
   payees: string[]
   match: AutomationMatch
+  direction: AutomationDirection
   accountId: string | null
   minAmount: string | null
   maxAmount: string | null
@@ -101,6 +108,7 @@ export const previewAutomation = (request: PreviewRequest) =>
   apiPost<AutomationPreview>('/automations/preview', {
     payees: request.payees,
     match: request.match,
+    direction: request.direction,
     account_id: request.accountId,
     min_amount: request.minAmount,
     max_amount: request.maxAmount,

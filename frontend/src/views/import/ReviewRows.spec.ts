@@ -2,6 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 
 import type { ImportPreview } from '@/api/imports'
 import { useImportWizard } from '@/stores/importWizard'
+import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { seedFinance } from '@/test/finance'
 import {
   coffeeRow,
@@ -13,14 +14,16 @@ import {
   seedWizard,
 } from '@/test/imports'
 import { mountWithPlugins } from '@/test/mount'
+import { makeBill } from '@/test/subscriptions'
 import ReviewRows from '@/views/import/ReviewRows.vue'
 
-async function render(preview: ImportPreview = makePreview()) {
+async function render(preview: ImportPreview = makePreview(), seed: () => void = () => {}) {
   const mounted = await mountWithPlugins(ReviewRows, {
     width: 1280,
     beforeMount: () => {
       seedFinance()
       seedWizard(preview, 'review')
+      seed()
     },
   })
   const { wrapper } = mounted
@@ -42,6 +45,44 @@ const many = (count: number) =>
   )
 
 describe('ReviewRows', () => {
+  it('says which rows automations will sort, and the bill or subscription they link', async () => {
+    const { rows } = await render(
+      makePreview({
+        rows: [
+          makeRow({
+            category_id: 'category-paycheck',
+            automation: { category_id: 'category-paycheck', subscription_id: null },
+          }),
+          makeRow({
+            line: 3,
+            amount: '-96.40',
+            payee: 'City Power',
+            category_id: 'category-groceries',
+            automation: { category_id: 'category-groceries', subscription_id: 'bill-power' },
+          }),
+          makeRow({
+            line: 4,
+            amount: '-9.99',
+            payee: 'Old gym',
+            automation: { category_id: null, subscription_id: 'subscription-gone' },
+          }),
+          makeRow({ line: 5, amount: '-4.50', payee: 'Corner Cafe' }),
+        ],
+      }),
+      () => {
+        useSubscriptionsStore().bills = [makeBill()]
+      },
+    )
+
+    const notes = rows().map((row) => row.find('[data-test="review-row-automation"]'))
+    expect(notes[0]!.text()).toBe('Sorted by your automations')
+    expect(notes[1]!.text()).toBe('Sorted by your automations · linked to City Power')
+    expect(notes[2]!.text()).toBe('Sorted by your automations · linked to a subscription or bill')
+    expect(notes[3]!.exists()).toBe(false)
+    // The category an automation gives is the one the row shows.
+    expect(rows()[0]!.find('[data-test="category-chip"]').text()).toContain('Paycheck')
+  })
+
   it('shows each row, and whether the account has it already', async () => {
     const { find, rows, ticked } = await render()
     expect(

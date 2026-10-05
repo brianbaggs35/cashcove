@@ -1,9 +1,10 @@
 """Sorting transactions with the household's automations and its subscriptions' own payees.
 
 Automations only ever add: they give a category and link a subscription, and never take one
-away or change what someone chose by hand. They sort a transaction when it arrives, whether
-Plaid synced it, a statement file brought it or it was added by hand, and the ones already
-there when an automation that covers the past is saved.
+away or change what someone chose by hand (``Transaction.category_chosen``). They sort a
+transaction when it arrives, whether Plaid synced it, a statement file brought it or it was
+added by hand, when the bank changes it, and the ones already there when an automation that
+covers the past is saved.
 
 An automation looks for text in a transaction's payee and in what the bank called it, which
 differ from one source to the next: Plaid names "Amazon" what a statement file calls
@@ -27,14 +28,21 @@ from sqlalchemy.orm import Session
 from app.finance.subscriptions import advance_due_date, normalized_payee
 from app.finance.text import column_key, text_key
 from app.finance.transactions import like_pattern
-from app.models import Automation, AutomationMatch, Subscription, Transaction
+from app.models import (
+    Automation,
+    AutomationDirection,
+    AutomationMatch,
+    Subscription,
+    Transaction,
+)
 from app.models.base import Money
 
 
 @dataclass(frozen=True)
 class Looks:
     """What an automation looks for in a transaction: any of its texts in the payee or in what
-    the bank called it, in the account if one is named, for as much as it's bounded to."""
+    the bank called it, in the account if one is named, for as much as it's bounded to, and
+    for the way the money went if it says."""
 
     payees: Sequence[str]
     match: AutomationMatch = AutomationMatch.EXACT
@@ -42,6 +50,8 @@ class Looks:
     # How much it was for, whichever way the money went; either end can be open.
     min_amount: Decimal | None = None
     max_amount: Decimal | None = None
+    # Only money coming in, or only money going out, or either.
+    direction: AutomationDirection = AutomationDirection.ANY
 
     @classmethod
     def of(cls, automation: Automation) -> "Looks":
@@ -51,6 +61,7 @@ class Looks:
             automation.account_id,
             automation.min_amount,
             automation.max_amount,
+            automation.direction,
         )
 
     @property
@@ -99,6 +110,10 @@ def matching(looks: Looks, keys: Sequence[str] | None = None) -> list[ColumnElem
     where: list[ColumnElement[bool]] = [or_(*texts)]
     if looks.account_id is not None:
         where.append(Transaction.account_id == looks.account_id)
+    if looks.direction == AutomationDirection.IN:
+        where.append(Transaction.amount > 0)
+    elif looks.direction == AutomationDirection.OUT:
+        where.append(Transaction.amount < 0)
     # Typed as money, so what it's compared with is counted in cents too.
     amount = func.abs(Transaction.amount, type_=Money())
     if looks.min_amount is not None:
@@ -130,6 +145,7 @@ def _tracking(subscription: Subscription | None) -> Subscription | None:
 @dataclass(frozen=True)
 class _Rule:
     compare: Callable[[str], bool]
+    direction: AutomationDirection
     account_id: uuid.UUID | None
     min_amount: Decimal | None
     max_amount: Decimal | None
@@ -140,6 +156,10 @@ class _Rule:
     def covers(self, transaction: Transaction) -> bool:
         if self.account_id not in (None, transaction.account_id):
             return False
+        if (self.direction == AutomationDirection.IN and transaction.amount <= 0) or (
+            self.direction == AutomationDirection.OUT and transaction.amount >= 0
+        ):
+            return False
         amount = abs(transaction.amount)
         if (self.min_amount is not None and amount < self.min_amount) or (
             self.max_amount is not None and amount > self.max_amount
@@ -149,6 +169,15 @@ class _Rule:
         return self.compare(text_key(transaction.payee)) or (
             described is not None and self.compare(text_key(described))
         )
+
+
+@dataclass(frozen=True)
+class Sorting:
+    """What the rules give a transaction."""
+
+    category_id: uuid.UUID | None
+    # None when it has none, or the subscription's tracking is paused.
+    subscription: Subscription | None
 
 
 class RuleBook:
@@ -166,6 +195,7 @@ class RuleBook:
         self._rules = [
             _Rule(
                 compare=_comparison(payee_keys(automation.payees), automation.match),
+                direction=automation.direction,
                 account_id=automation.account_id,
                 min_amount=automation.min_amount,
                 max_amount=automation.max_amount,
@@ -189,6 +219,14 @@ class RuleBook:
         )
         return cls(list(automations), list(db.scalars(select(Subscription))))
 
+    def sorting(self, transaction: Transaction) -> "Sorting":
+        """What the rules give a transaction, without giving it: the category (a subscription's
+        own, when no automation gives one) and the subscription or bill."""
+        category_id, subscription = self._pick(transaction)
+        if subscription is not None:
+            category_id = category_id or subscription.category_id
+        return Sorting(category_id, subscription)
+
     def _pick(self, transaction: Transaction) -> tuple[uuid.UUID | None, Subscription | None]:
         """The category and subscription the rules give a transaction: where several give one,
         the oldest rule wins."""
@@ -205,17 +243,26 @@ class RuleBook:
             subscription = self._own.get(own)
         return category_id, subscription
 
-    def sort(self, transaction: Transaction, *, keep_category: bool = False) -> None:
+    def sort(self, transaction: Transaction, *, keep_category: bool = False) -> bool:
         """Gives a transaction the category and subscription its rules say. `keep_category`
-        leaves the category alone, for when someone chose it."""
-        category_id, subscription = self._pick(transaction)
-        if subscription is not None:
-            if transaction.subscription_id != subscription.id:
-                transaction.subscription_id = subscription.id
-                advance_due_date(subscription, transaction.date)
-            category_id = category_id or subscription.category_id
-        if category_id is not None and not keep_category:
+        leaves the category alone, for when someone chose it just now; one chosen earlier is
+        left alone too. Returns whether it changed anything."""
+        sorting = self.sorting(transaction)
+        changed = False
+        subscription = sorting.subscription
+        if subscription is not None and transaction.subscription_id != subscription.id:
+            transaction.subscription_id = subscription.id
+            advance_due_date(subscription, transaction.date)
+            changed = True
+        category_id = sorting.category_id
+        if (
+            category_id is not None
+            and not (keep_category or transaction.category_chosen)
+            and transaction.category_id != category_id
+        ):
             transaction.category_id = category_id
+            changed = True
+        return changed
 
 
 def _wins(db: Session, automation: Automation) -> list[Automation]:
@@ -253,12 +300,18 @@ def _give_category(
     *extra: ColumnElement[bool],
 ) -> list[uuid.UUID]:
     """Gives the transactions `where` finds a category, except where an older automation gives
-    one. Returns the ones it changed."""
+    one and where someone chose theirs. Returns the ones it changed."""
     taken = _claimed(other for other in older if other.category_id is not None)
     return list(
         db.scalars(
             update(Transaction)
-            .where(*where, *extra, *taken, Transaction.category_id.is_distinct_from(category_id))
+            .where(
+                *where,
+                *extra,
+                *taken,
+                Transaction.category_chosen.is_(False),
+                Transaction.category_id.is_distinct_from(category_id),
+            )
             .values(category_id=category_id)
             .returning(Transaction.id)
         )

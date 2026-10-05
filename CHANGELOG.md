@@ -8,6 +8,44 @@ and give it a version and a date when you cut a release (see Releases in the
 
 ## Unreleased
 
+### Upgrading
+
+- Migration `0013` adds `automations.direction` (every existing automation keeps sorting money
+  both ways) and `transactions.category_chosen` (every existing transaction starts as not
+  chosen, so what is there stays open to automations, as before). Like the migrations before
+  it, it can be run again on a database that already has some or all of it, and changes nothing.
+
+### Added
+
+- **Dashboard**, the first tab and where signing in lands: net worth with the accounts that
+  make it up, how this month is going against the same days of last month and as a running
+  total, income and spending for each of the last six months, where this month's spending went
+  by category, budgets, what is coming up or overdue, the payees most was spent with and the
+  latest transactions, with what needs attention at the top. The charts are Vuetify's sparkline
+  and pie, in the data-viz palette, light and dark, and each can be read as a table (which fits
+  a phone). It is also in the phone's bottom bar, in place of Subscriptions (still under More).
+  - `GET /api/dashboard?today=…` works it all out from the transactions, across every account,
+    leaving out money moving between the household's own accounts and converting other
+    currencies like the budgets do.
+- **Which way the money went, for automations**: an automation can be for money in, money out
+  or either way, so a paycheck automation doesn't also sort a purchase from a shop of nearly the
+  same name or count it as income. Ticking transactions to start an automation chooses it from
+  them, the automation's card shows it, and income counted from the Budget tab is money in.
+- **Importing a file shows what automations will do**: each row says it will be sorted, by
+  which category and which subscription or bill, before anything is imported, the review says
+  how many, and the finished import says how many were sorted.
+
+### Changed
+
+- Signing in lands on the Dashboard instead of Accounts, and so does the not-found page's way
+  back.
+- **A category someone chose is never changed by an automation.** Before, editing, pausing or
+  resuming an automation could put back its own category on a transaction whose category had
+  been chosen by hand. A category chosen in the transaction's form, its details or for several
+  transactions is kept; taking it away hands the transaction back to automations.
+- A transaction the bank changes after sending it is sorted again, so an automation that looks
+  at its amount or name picks it up.
+
 ## 0.2.2 - 2026-10-05
 
 ### Upgrading

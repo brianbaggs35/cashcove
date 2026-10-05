@@ -33,6 +33,7 @@ from app.models import (
 from app.models.base import utcnow
 from app.schemas.imports import (
     AccountSuggestion,
+    AutomationEffect,
     BalanceChoice,
     BalanceOut,
     BankHistory,
@@ -192,7 +193,29 @@ def _suggested_balance(
     return "move" if days and min(days) > latest else "keep"
 
 
-def _row_out(item: Reviewed) -> PreviewRow:
+def _effect(rules: RuleBook, account: Account | None, item: Reviewed) -> AutomationEffect | None:
+    """What the automations would do to a row, if it was imported into the account."""
+    row = item.row
+    if row.amount is None or row.date is None or item.status not in IMPORTABLE:
+        return None
+    sorting = rules.sorting(
+        Transaction(
+            account_id=account.id if account else None,
+            date=row.date,
+            amount=row.amount,
+            payee=item.payee,
+            original_description=row.description or None,
+        )
+    )
+    if sorting.category_id is None and sorting.subscription is None:
+        return None
+    return AutomationEffect(
+        category_id=sorting.category_id,
+        subscription_id=sorting.subscription.id if sorting.subscription else None,
+    )
+
+
+def _row_out(item: Reviewed, effect: AutomationEffect | None) -> PreviewRow:
     row = item.row
     return PreviewRow(
         line=row.line,
@@ -201,14 +224,15 @@ def _row_out(item: Reviewed) -> PreviewRow:
         payee=item.payee,
         description=row.description or None,
         memo=row.memo,
-        category_id=item.category_id,
+        category_id=effect.category_id if effect and effect.category_id else item.category_id,
         status=item.status,
         problem=row.problem,
         match=MatchOut.model_validate(item.match) if item.match else None,
+        automation=effect,
     )
 
 
-def _summary(reviewed: list[Reviewed]) -> ImportSummary:
+def _summary(reviewed: list[Reviewed], rows: list[PreviewRow]) -> ImportSummary:
     days = [item.row.date for item in reviewed if item.status != "invalid" and item.row.date]
 
     def count(status: RowStatus) -> int:
@@ -222,6 +246,7 @@ def _summary(reviewed: list[Reviewed]) -> ImportSummary:
         invalid=count("invalid"),
         first_date=min(days, default=None),
         last_date=max(days, default=None),
+        sorted=sum(row.automation is not None and row.status == "new" for row in rows),
     )
 
 
@@ -234,6 +259,8 @@ def preview(db: Session, body: ImportPreviewRequest, locale: str, today: dt.date
     else:
         account = _likely_account(db, statement, read.profile)
     reviewed = review(db, statement.rows, account)
+    rules = RuleBook.load(db)
+    rows = [_row_out(item, _effect(rules, account, item)) for item in reviewed]
     return ImportPreview(
         format=read.format,
         file_name=body.file_name,
@@ -262,8 +289,8 @@ def preview(db: Session, body: ImportPreviewRequest, locale: str, today: dt.date
         ),
         account_id=account.id if account else None,
         bank_history=_bank_history(db, account) if account else None,
-        rows=[_row_out(item) for item in reviewed],
-        summary=_summary(reviewed),
+        rows=rows,
+        summary=_summary(reviewed, rows),
         balance=BalanceOut(
             current=account.balance,
             closing=statement.closing,
@@ -330,9 +357,10 @@ def _balance_change(
 
 def import_file(
     db: Session, body: ImportCreate, user: User, locale: str, today: dt.date
-) -> FileImport:
+) -> tuple[FileImport, int]:
     """Imports the rows chosen from the preview that still can be: ones already in the
-    account by now are left out."""
+    account by now are left out. Returns the import, and how many of its transactions
+    automations sorted."""
     account = importable_account(db, body.account_id)
     read = read_file(db, body, locale, today)
     _, statement = read.statement(body.statement)
@@ -372,6 +400,7 @@ def import_file(
     db.add(record)
     db.flush()
     rules = RuleBook.load(db)
+    sorted_count = 0
     for item in chosen:
         row = item.row
         transaction = Transaction(
@@ -386,13 +415,13 @@ def import_file(
             external_id=row.external_id,
             import_id=record.id,
         )
-        rules.sort(transaction)
+        sorted_count += rules.sort(transaction)
         db.add(transaction)
     if change:
         account.balance += change
         account.balance_updated_at = now
     db.commit()
-    return record
+    return record, sorted_count
 
 
 def undo(db: Session, import_id: uuid.UUID) -> int:

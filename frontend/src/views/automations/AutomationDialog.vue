@@ -8,6 +8,7 @@ import {
   updateAutomation,
   type Automation,
   type AutomationCount,
+  type AutomationDirection,
   type AutomationInput,
   type AutomationMatch,
   type AutomationPreview,
@@ -35,6 +36,10 @@ import {
   amountPhrase,
   amountRange,
   amountsValid,
+  directionHints,
+  directionOf,
+  directionPhrases,
+  directionTitles,
   keyOf,
   matchItems,
   matchPhrases,
@@ -68,6 +73,7 @@ interface AutomationForm {
   name: string
   payees: string[]
   match: AutomationMatch
+  direction: AutomationDirection
   accountId: string | null
   amountMode: AmountMode
   amountExact: string | null
@@ -86,6 +92,7 @@ const form = reactive<AutomationForm>({
   name: '',
   payees: [],
   match: 'exact',
+  direction: 'any',
   accountId: null,
   amountMode: 'any',
   amountExact: null,
@@ -104,6 +111,8 @@ const valid = ref(false)
 const openings = ref(0)
 /** Until the name is typed, it follows what the automation looks for. */
 const nameTyped = ref(false)
+/** Until the way the money went is chosen, it follows the transactions ticked. */
+const directionChosen = ref(false)
 const typed = ref('')
 /** The transactions ticked, by ID, which say how much the ones to sort were for. */
 const ticked = ref(new Map<string, Transaction>())
@@ -183,6 +192,13 @@ const hasAction = computed(
 )
 const canContinue = computed(() => form.payees.length > 0 && amountsOk.value)
 const canSave = computed(() => valid.value && canContinue.value && hasAction.value)
+const tickedDirection = computed(() =>
+  directionOf([...ticked.value.values()].map((transaction) => transaction.amount)),
+)
+const directionItems = (Object.keys(directionTitles) as AutomationDirection[]).map((value) => ({
+  value,
+  title: directionTitles[value],
+}))
 const tickedRange = computed(() =>
   amountRange([...ticked.value.values()].map((transaction) => transaction.amount)),
 )
@@ -207,8 +223,11 @@ const fineTuning = computed(() =>
   [
     matchTitles[form.match],
     accounts.find(form.accountId)?.name ?? 'any account',
+    directionPhrases[form.direction],
     amountPhrase(limits.value, money) ?? 'any amount',
-  ].join(' · '),
+  ]
+    .filter(Boolean)
+    .join(' · '),
 )
 
 /** The automation as a sentence: what it looks for, then what it does. */
@@ -233,9 +252,9 @@ const rule = computed(() => {
       does.push(`count them as ${kind} in ${names}`)
     }
   }
-  const forAmounts = amounts ? `, for ${amounts}` : ''
+  const more = [directionPhrases[form.direction], amounts && `for ${amounts}`].filter(Boolean)
   return {
-    when: `${matchPhrases[form.match]} ${texts}, in ${where}${forAmounts}`,
+    when: [`${matchPhrases[form.match]} ${texts}`, `in ${where}`, ...more].join(', '),
     effect: does.length ? does.join(' and ') : 'nothing yet',
   }
 })
@@ -283,6 +302,8 @@ function reset() {
   form.name = automation?.name ?? ''
   form.payees = [...(automation?.payees ?? [])]
   form.match = automation?.match ?? 'exact'
+  form.direction = automation?.direction ?? 'any'
+  directionChosen.value = automation !== null
   form.accountId = automation?.account_id ?? null
   Object.assign(form, amountFields(automation?.min_amount ?? null, automation?.max_amount ?? null))
   form.categoryId = automation?.category_id ?? null
@@ -311,6 +332,7 @@ async function refreshPreview() {
     const result = await previewAutomation({
       payees: form.payees,
       match: form.match,
+      direction: form.direction,
       accountId: form.accountId,
       minAmount: limits.value.min,
       maxAmount: limits.value.max,
@@ -336,6 +358,7 @@ watch(
   [
     () => form.payees,
     () => form.match,
+    () => form.direction,
     () => form.accountId,
     () => limits.value.min,
     () => limits.value.max,
@@ -350,6 +373,18 @@ watch(
 onScopeDispose(() => {
   clearTimeout(previewTimer)
 })
+// A new automation follows the way the money went in what was ticked, so a paycheck isn't sorted
+// with what was bought from the same name, until someone chooses.
+watch(tickedDirection, (direction) => {
+  if (!props.automation && !directionChosen.value && ticked.value.size) form.direction = direction
+})
+// Money coming in has no payment to link a subscription or a bill to.
+watch(
+  () => form.direction,
+  (direction) => {
+    if (direction === 'in') form.subscriptionId = null
+  },
+)
 // What the API turned down no longer applies once the form changes, so it can be sent again.
 watch(form, () => {
   saving.clear()
@@ -366,6 +401,7 @@ const saving = useAction(async () => {
     name: form.name.trim(),
     payees: form.payees,
     match: form.match,
+    direction: form.direction,
     account_id: form.accountId,
     min_amount: limits.value.min,
     max_amount: limits.value.max,
@@ -487,6 +523,29 @@ function submit() {
                 class="mb-4"
                 data-test="automation-match"
               />
+              <p class="text-label-large mb-2">Money</p>
+              <v-btn-toggle
+                v-model="form.direction"
+                mandatory
+                divided
+                variant="outlined"
+                color="primary"
+                density="comfortable"
+                aria-label="Which way the money went"
+                class="mb-1"
+                data-test="automation-direction"
+                @update:model-value="directionChosen = true"
+              >
+                <v-btn v-for="item in directionItems" :key="item.value" :value="item.value">
+                  {{ item.title }}
+                </v-btn>
+              </v-btn-toggle>
+              <p
+                class="text-body-small text-medium-emphasis mt-0 mb-4"
+                data-test="automation-direction-hint"
+              >
+                {{ directionHints[form.direction] }}
+              </p>
               <v-select
                 v-model="form.accountId"
                 :items="accountItems"
@@ -591,6 +650,7 @@ function submit() {
           data-test="automation-category"
         />
         <v-select
+          v-if="form.direction !== 'in'"
           v-model="form.subscriptionId"
           :items="subscriptionItems"
           label="Link payments to a subscription or bill"
@@ -603,6 +663,14 @@ function submit() {
           class="mt-2"
           data-test="automation-subscription"
         />
+        <p
+          v-else
+          class="text-body-small text-medium-emphasis mt-2 mb-0"
+          data-test="automation-subscription-none"
+        >
+          Money coming in has no payment to link to a subscription or bill. Choose Either way or
+          Money out to link one.
+        </p>
         <v-select
           :model-value="form.incomeBudgets"
           :items="budgetItems"

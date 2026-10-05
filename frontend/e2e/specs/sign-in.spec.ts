@@ -14,7 +14,7 @@ test.describe('Signing in', () => {
     await signInPage.goto()
     await signInPage.signIn(baseline.users.admin)
 
-    await expect(page).toHaveURL(/\/accounts$/)
+    await expect(page).toHaveURL(/\/dashboard$/)
     await expect(shell.accountMenu).toHaveAccessibleName(
       `Account menu for ${baseline.users.admin.name}`,
     )
@@ -26,7 +26,7 @@ test.describe('Signing in', () => {
     await signInPage.goto()
     await signInPage.signInWithPasskey()
 
-    await expect(page).toHaveURL(/\/accounts$/)
+    await expect(page).toHaveURL(/\/dashboard$/)
   })
 
   test("an admin signs in with the passkey the email field's autofill offers", async ({
@@ -38,7 +38,7 @@ test.describe('Signing in', () => {
     // The virtual authenticator picks the passkey from the autofill menu as the page opens.
     await page.goto('/sign-in')
 
-    await expect(page).toHaveURL(/\/accounts$/)
+    await expect(page).toHaveURL(/\/dashboard$/)
   })
 
   test('a wrong password is refused', async ({ baseline, signInPage }) => {
@@ -59,7 +59,7 @@ test.describe('Signing in', () => {
     await signInPage.signIn(jordan)
     await signInPage.enterCode(totpCode(jordan.totp_secret!))
 
-    await expect(page).toHaveURL(/\/accounts$/)
+    await expect(page).toHaveURL(/\/dashboard$/)
   })
 
   test('a recovery code works when the phone is lost', async ({ page, baseline, signInPage }) => {
@@ -69,7 +69,7 @@ test.describe('Signing in', () => {
     await signInPage.signIn(jordan)
     await signInPage.useRecoveryCode(jordan.recovery_codes[0]!)
 
-    await expect(page).toHaveURL(/\/accounts$/)
+    await expect(page).toHaveURL(/\/dashboard$/)
   })
 
   test("a turned-off account can't sign in", async ({ baseline, signInPage }) => {

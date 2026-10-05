@@ -96,7 +96,7 @@ describe('InviteView', () => {
 
     wrapper.findComponent(SecureAccountStep).vm.$emit('continue')
     await vi.waitFor(() => {
-      expect(router.currentRoute.value.name).toBe('accounts')
+      expect(router.currentRoute.value.name).toBe('dashboard')
     })
     expect(notices.value.at(-1)?.text).toBe('Welcome to The Coves!')
   })

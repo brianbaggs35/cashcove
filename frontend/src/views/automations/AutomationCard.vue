@@ -10,6 +10,8 @@ import {
   PiggyBank,
   Play,
   Trash2,
+  TrendingDown,
+  TrendingUp,
   TriangleAlert,
   WandSparkles,
 } from '@lucide/vue'
@@ -21,7 +23,7 @@ import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { useBudgetsStore } from '@/stores/budgets'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
-import { amountPhrase, matchPhrases } from '@/views/automations/looks'
+import { amountPhrase, directionTitles, matchPhrases } from '@/views/automations/looks'
 import { kinds } from '@/views/subscriptions/kinds'
 
 /** One automation: who it sorts, where, and what it does with them. Admins can change it. */
@@ -44,6 +46,12 @@ const { money } = useHousehold()
 const amounts = computed(() =>
   amountPhrase({ min: props.automation.min_amount, max: props.automation.max_amount }, money),
 )
+/** Which way the money went, when it matters: money in or money out, not either. */
+const direction = computed(() => {
+  const way = props.automation.direction
+  if (way === 'any') return null
+  return { title: directionTitles[way], icon: way === 'in' ? TrendingUp : TrendingDown }
+})
 const shownPayees = computed(() => props.automation.payees.slice(0, SHOWN_PAYEES))
 const morePayees = computed(() => props.automation.payees.length - SHOWN_PAYEES)
 const accountName = computed(() => {
@@ -154,6 +162,14 @@ const matches = computed(() => {
             +{{ morePayees }} more
           </v-chip>
         </dd>
+        <template v-if="direction">
+          <dt>Of</dt>
+          <dd data-test="automation-direction">
+            <v-chip size="small" variant="tonal" :prepend-icon="direction.icon">
+              {{ direction.title }}
+            </v-chip>
+          </dd>
+        </template>
         <dt>In</dt>
         <dd data-test="automation-account">
           <v-chip size="small" variant="tonal" :prepend-icon="Landmark">{{ accountName }}</v-chip>

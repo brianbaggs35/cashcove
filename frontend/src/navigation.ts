@@ -2,6 +2,7 @@ import {
   ArrowLeftRight,
   FileUp,
   Landmark,
+  LayoutDashboard,
   PiggyBank,
   Plug,
   ReceiptText,
@@ -13,6 +14,7 @@ import {
 } from '@lucide/vue'
 
 export type NavName =
+  | 'dashboard'
   | 'accounts'
   | 'budget'
   | 'subscriptions'
@@ -34,6 +36,13 @@ export interface NavItem {
 
 // The single source for the nav menu, routes and each tab's header.
 export const navItems: NavItem[] = [
+  {
+    name: 'dashboard',
+    title: 'Dashboard',
+    path: '/dashboard',
+    icon: LayoutDashboard,
+    summary: 'How your money is doing this month, at a glance.',
+  },
   {
     name: 'accounts',
     title: 'Accounts',

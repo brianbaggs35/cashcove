@@ -4,6 +4,7 @@ import { openOverlays } from './fields'
 
 /** The tabs in the navigation, by route name, with the title people see. */
 export const TABS = {
+  dashboard: 'Dashboard',
   accounts: 'Accounts',
   budget: 'Budget',
   subscriptions: 'Subscriptions',
@@ -19,7 +20,7 @@ export const TABS = {
 export type Tab = keyof typeof TABS
 
 /** The tabs a phone shows in its bottom bar; the rest are under More. */
-const BOTTOM_BAR_TABS: readonly Tab[] = ['accounts', 'transactions', 'budget', 'subscriptions']
+const BOTTOM_BAR_TABS: readonly Tab[] = ['dashboard', 'accounts', 'transactions', 'budget']
 
 /**
  * The signed-in app's frame: the navigation (a side menu on computers, a bottom bar on
@@ -42,6 +43,12 @@ export class AppShell {
   async onPhone(): Promise<boolean> {
     await expect(this.accountMenu).toBeVisible()
     return (await this.bottomBar.count()) > 0
+  }
+
+  /** Shows the side menu: it's always there on a computer, and More opens it on a phone. */
+  async showMenu(): Promise<void> {
+    if (await this.onPhone()) await this.page.getByTestId('bottom-more').click()
+    await expect(this.sideMenu).toBeVisible()
   }
 
   /** Opens a tab the way someone would: from the side menu, or the bottom bar on a phone. */

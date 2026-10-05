@@ -58,6 +58,7 @@ export function makeRow(changes: Partial<PreviewRow> = {}): PreviewRow {
     status: 'new',
     problem: null,
     match: null,
+    automation: null,
     ...changes,
   }
 }
@@ -148,6 +149,7 @@ export function makePreview(changes: Partial<ImportPreview> = {}): ImportPreview
       invalid: rows.filter((row) => row.status === 'invalid').length,
       first_date: '2026-09-01',
       last_date: '2026-09-03',
+      sorted: rows.filter((row) => row.status === 'new' && row.automation).length,
     },
     balance: {
       current: '2450.18',
@@ -174,6 +176,7 @@ export function makeImport(changes: Partial<FileImport> = {}): FileImport {
     last_date: '2026-05-28',
     created_at: '2026-05-31T10:00:00Z',
     created_by: 'Alex Rivera',
+    sorted: 0,
     ...changes,
   }
 }

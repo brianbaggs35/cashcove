@@ -27,6 +27,7 @@ import {
   makeTransaction,
   savings,
   seedFinance,
+  salary,
   wholeFoods,
 } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
@@ -41,6 +42,8 @@ interface Options {
   accounts?: (typeof checking)[]
   preview?: AutomationPreview
   seed?: Transaction[]
+  /** The transactions the list to tick from has. */
+  found?: Transaction[]
 }
 
 async function render({
@@ -48,6 +51,7 @@ async function render({
   accounts = [checking, savings],
   preview = { matching: 4, overlaps: [] },
   seed = [],
+  found = [wholeFoods, shouty, latte],
 }: Options = {}) {
   const open = ref(false)
   const saved = vi.fn()
@@ -61,9 +65,7 @@ async function render({
         onSaved: saved,
       }),
   })
-  vi.spyOn(transactionsApi, 'fetchTransactions').mockResolvedValue(
-    makePage([wholeFoods, shouty, latte]),
-  )
+  vi.spyOn(transactionsApi, 'fetchTransactions').mockResolvedValue(makePage(found))
   vi.spyOn(subscriptionsApi, 'fetchSubscriptions').mockResolvedValue([
     makeSubscription(),
     makeSubscription({ id: 'subscription-paused', name: 'Old gym', active: false }),
@@ -114,6 +116,13 @@ async function render({
     next: async () => {
       await field('next').trigger('click')
       await flushPromises()
+    },
+    /** Chooses which way the money went, by the button's words. */
+    chooseDirection: async (label: string) => {
+      await field('direction')
+        .findAll('button')
+        .find((button) => button.text() === label)!
+        .trigger('click')
     },
     /** Chooses which amounts to match. */
     choose: async (label: string) => {
@@ -181,6 +190,7 @@ describe('AutomationDialog', () => {
       expect(previewApi).toHaveBeenCalledWith({
         payees: ['Whole Foods', 'Blue Bottle'],
         match: 'exact',
+        direction: 'out',
         accountId: null,
         minAmount: null,
         maxAmount: null,
@@ -364,7 +374,7 @@ describe('AutomationDialog', () => {
       select('account').vm.$emit('update:modelValue', savings.id)
       await settle()
 
-      expect(field('looks').text()).toBe('Contains · Rainy day fund · any amount')
+      expect(field('looks').text()).toBe('Contains · Rainy day fund · money out · any amount')
       expect(field('text').text()).toContain('Contains …')
       expect(previewApi).toHaveBeenLastCalledWith(
         expect.objectContaining({ match: 'contains', accountId: savings.id }),
@@ -383,7 +393,7 @@ describe('AutomationDialog', () => {
 
       await input('amount').setValue('9.99')
       expect(field('next').attributes('disabled')).toBeUndefined()
-      expect(field('looks').text()).toBe('Exactly · any account · exactly $9.99')
+      expect(field('looks').text()).toBe('Exactly · any account · money out · exactly $9.99')
       await settle()
       expect(previewApi).toHaveBeenLastCalledWith(
         expect.objectContaining({ minAmount: '9.99', maxAmount: '9.99' }),
@@ -391,7 +401,7 @@ describe('AutomationDialog', () => {
 
       await choose('Any amount')
       expect(field('amount').exists()).toBe(false)
-      expect(field('looks').text()).toBe('Exactly · any account · any amount')
+      expect(field('looks').text()).toBe('Exactly · any account · money out · any amount')
     })
 
     it('matches a range of amounts, which has to be in order', async () => {
@@ -402,7 +412,7 @@ describe('AutomationDialog', () => {
       expect(field('next').attributes('disabled')).toBeDefined()
 
       await input('amount-from').setValue('20')
-      expect(field('looks').text()).toBe('Exactly · any account · at least $20.00')
+      expect(field('looks').text()).toBe('Exactly · any account · money out · at least $20.00')
       await input('amount-to').setValue('10')
       await flushPromises()
       expect(field('amount-from').text()).toContain("The smallest amount can't be more than")
@@ -417,7 +427,7 @@ describe('AutomationDialog', () => {
       await flushPromises()
       expect(field('amount-from').text()).not.toContain("can't be more than")
       expect(field('next').attributes('disabled')).toBeUndefined()
-      expect(field('looks').text()).toBe('Exactly · any account · $20.00 to $30.00')
+      expect(field('looks').text()).toBe('Exactly · any account · money out · $20.00 to $30.00')
       await settle()
       expect(previewApi).toHaveBeenLastCalledWith(
         expect.objectContaining({ minAmount: '20.00', maxAmount: '30.00' }),
@@ -431,7 +441,7 @@ describe('AutomationDialog', () => {
 
       await input('amount-to').setValue('30')
 
-      expect(field('looks').text()).toBe('Exactly · any account · up to $30.00')
+      expect(field('looks').text()).toBe('Exactly · any account · money out · up to $30.00')
       expect(field('next').attributes('disabled')).toBeUndefined()
     })
 
@@ -442,13 +452,13 @@ describe('AutomationDialog', () => {
       await picks()[0]!.setValue(true)
       expect(field('use-amounts').text()).toBe('Use the amounts you ticked ($84.12)')
       await field('use-amounts').trigger('click')
-      expect(field('looks').text()).toBe('Exactly · any account · exactly $84.12')
+      expect(field('looks').text()).toBe('Exactly · any account · money out · exactly $84.12')
       expect(field('amount').exists()).toBe(true)
 
       await picks()[2]!.setValue(true)
       expect(field('use-amounts').text()).toBe('Use the amounts you ticked ($4.50 to $84.12)')
       await field('use-amounts').trigger('click')
-      expect(field('looks').text()).toBe('Exactly · any account · $4.50 to $84.12')
+      expect(field('looks').text()).toBe('Exactly · any account · money out · $4.50 to $84.12')
       expect(field('amount-from').exists()).toBe(true)
 
       // Unticking everything takes the offer away, and the amounts it set stay as they are.
@@ -456,6 +466,129 @@ describe('AutomationDialog', () => {
       await picks()[2]!.setValue(false)
       expect(field('use-amounts').exists()).toBe(false)
       await choose('Any amount')
+    })
+  })
+
+  describe('which way the money went', () => {
+    const directionOn = (field: (name: string) => DOMWrapper<Element>) =>
+      field('direction')
+        .findAll('button.v-btn--active')
+        .map((button) => button.text())
+
+    it('is either way until something says otherwise', async () => {
+      const { field } = await render()
+
+      expect(directionOn(field)).toEqual(['Either way'])
+      expect(field('direction-hint').text()).toBe(
+        'Sorts the transaction whichever way the money went.',
+      )
+    })
+
+    it('follows the way the money went in what was ticked', async () => {
+      const { field, picks, previewApi, settle } = await render({
+        found: [wholeFoods, salary, latte],
+      })
+
+      await picks()[0]!.setValue(true)
+      expect(directionOn(field)).toEqual(['Money out'])
+      expect(field('direction-hint').text()).toContain('For money going out')
+      expect(field('looks').text()).toBe('Exactly · any account · money out · any amount')
+
+      // Money coming in as well, so it's either way again.
+      await picks()[1]!.setValue(true)
+      expect(directionOn(field)).toEqual(['Either way'])
+
+      await picks()[0]!.setValue(false)
+      expect(directionOn(field)).toEqual(['Money in'])
+      expect(field('direction-hint').text()).toContain(
+        'A purchase from the same name is left alone',
+      )
+      await settle()
+      expect(previewApi).toHaveBeenLastCalledWith(expect.objectContaining({ direction: 'in' }))
+
+      // Nothing ticked leaves it as it was.
+      await picks()[1]!.setValue(false)
+      expect(directionOn(field)).toEqual(['Money in'])
+    })
+
+    it('stops following what was ticked once someone chooses', async () => {
+      const { field, picks, chooseDirection } = await render({ found: [wholeFoods, salary, latte] })
+      await picks()[0]!.setValue(true)
+
+      await chooseDirection('Either way')
+      await picks()[0]!.setValue(false)
+      await picks()[1]!.setValue(true)
+
+      expect(directionOn(field)).toEqual(['Either way'])
+    })
+
+    it('starts the way the money went in the transactions that start it', async () => {
+      const { field } = await render({ seed: [salary] })
+
+      expect(directionOn(field)).toEqual(['Money in'])
+      expect(field('looks').text()).toBe('Exactly · any account · money in · any amount')
+    })
+
+    it('is said in the sentence, and saved', async () => {
+      const create = vi
+        .spyOn(automationsApi, 'createAutomation')
+        .mockResolvedValue({ ...makeAutomation(), applied: 0 })
+      const { wrapper, field, picks, category, next, chooseDirection } = await render({
+        found: [wholeFoods, salary, latte],
+      })
+      await picks()[1]!.setValue(true)
+      await chooseDirection('Money in')
+
+      await next()
+      expect(field('when').text()).toBe('Payee is “Acme Corp”, in any account, money in')
+      category().vm.$emit('update:modelValue', groceries.id)
+      await makeFormValid(wrapper)
+      await field('save').trigger('click')
+      await flushPromises()
+
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ direction: 'in' }))
+    })
+
+    it('has no payment to link a subscription to when it is money in', async () => {
+      const { field, picks, select, next, chooseDirection } = await render({
+        found: [wholeFoods, salary, latte],
+      })
+      await picks()[0]!.setValue(true)
+      await next()
+      select('subscription').vm.$emit('update:modelValue', 'subscription-streamflix')
+      await flushPromises()
+      expect(field('then').text()).toContain('link payments to Streamflix')
+      expect(field('subscription').text()).toContain('Only payments, money going out, are linked.')
+      await field('back').trigger('click')
+
+      await chooseDirection('Money in')
+
+      await next()
+      expect(field('then').text()).not.toContain('link payments')
+      expect(field('subscription').exists()).toBe(false)
+      expect(field('subscription-none').text()).toContain(
+        'Money coming in has no payment to link to a subscription or bill.',
+      )
+
+      // Choosing another way brings it back, with nothing linked.
+      await field('back').trigger('click')
+      await chooseDirection('Money out')
+      await next()
+      expect(field('subscription-none').exists()).toBe(false)
+      expect(field('subscription').exists()).toBe(true)
+      expect(field('then').text()).not.toContain('link payments')
+    })
+
+    it('shows the way an automation looks, and keeps it whatever is ticked', async () => {
+      const { field, picks } = await render({
+        automation: makeAutomation({ direction: 'in' }),
+        found: [wholeFoods, shouty, latte],
+      })
+      expect(directionOn(field)).toEqual(['Money in'])
+
+      await picks()[0]!.setValue(true)
+
+      expect(directionOn(field)).toEqual(['Money in'])
     })
   })
 
@@ -474,7 +607,7 @@ describe('AutomationDialog', () => {
       expect(field('back').exists()).toBe(true)
       expect(field('save').text()).toBe('Add automation')
       expect(field('when').text()).toBe(
-        'Payee starts with “Whole Foods”, in Rainy day fund, for exactly $84.12',
+        'Payee starts with “Whole Foods”, in Rainy day fund, money out, for exactly $84.12',
       )
       expect(field('then').text()).toBe('nothing yet')
       expect(field('action-hint').text()).toBe(
@@ -607,6 +740,8 @@ describe('AutomationDialog', () => {
         name: 'Whole Foods',
         payees: ['Whole Foods'],
         match: 'starts_with',
+        // What was ticked was paid, so only payments are sorted.
+        direction: 'out',
         account_id: checking.id,
         min_amount: null,
         max_amount: null,
@@ -745,6 +880,7 @@ describe('AutomationDialog', () => {
         name: 'Streaming',
         payees: ['Netflix', 'Hulu'],
         match: 'contains',
+        direction: 'any',
         account_id: savings.id,
         min_amount: '5.00',
         max_amount: '15.00',
@@ -778,6 +914,7 @@ describe('AutomationDialog', () => {
       expect(previewApi).toHaveBeenCalledWith({
         payees: ['Netflix', 'Hulu'],
         match: 'contains',
+        direction: 'any',
         accountId: savings.id,
         minAmount: '5.00',
         maxAmount: '15.00',
@@ -805,6 +942,7 @@ describe('AutomationDialog', () => {
         name: 'Streaming TV',
         payees: ['Netflix', 'Hulu'],
         match: 'contains',
+        direction: 'any',
         account_id: savings.id,
         min_amount: '5.00',
         max_amount: '15.00',

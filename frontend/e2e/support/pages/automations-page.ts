@@ -1,9 +1,12 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
-import { choose, exactly, openOverlays } from './fields'
+import { choose, comboboxInput, exactly, openOverlays } from './fields'
 
 /** How what an automation looks for is compared, as the dialog's menu words it. */
 export type AutomationMatch = 'Exactly' | 'Starts with' | 'Contains'
+
+/** Which way the money went, as the dialog's buttons word it. */
+export type AutomationDirection = 'Either way' | 'Money in' | 'Money out'
 
 /** How much a transaction has to be for: one amount, or between two, either of which can be left out. */
 export type AutomationAmount = { exactly: string } | { from?: string; to?: string }
@@ -19,6 +22,8 @@ export interface AutomationFields {
   texts?: string[]
   /** How the payees and texts are compared with a transaction's payee and the bank's name for it. */
   match?: AutomationMatch
+  /** Only money coming in, or only money going out; either way unless a transaction ticked says. */
+  direction?: AutomationDirection
   /** Only this account's transactions; the account's name. */
   account?: string
   /** Only transactions for this much. */
@@ -29,6 +34,10 @@ export interface AutomationFields {
   subscription?: string
   /** The bill to link payments to, chosen from the same list as a subscription. */
   bill?: string
+  /** The budgets to count what it sorts toward as income, by name. */
+  incomeBudgets?: string[]
+  /** The budgets to count what it sorts toward as spending, by name. */
+  spendingBudgets?: string[]
   applyTo?: 'all' | 'future'
 }
 
@@ -130,6 +139,13 @@ export class AutomationsPage {
       await this.openFineTuning()
       await choose(this.dialog.getByTestId('automation-match'), fields.match)
     }
+    if (fields.direction !== undefined) {
+      await this.openFineTuning()
+      await this.dialog
+        .getByTestId('automation-direction')
+        .getByRole('button', { name: fields.direction })
+        .click()
+    }
     if (fields.account !== undefined) {
       await this.openFineTuning()
       await choose(this.dialog.getByTestId('automation-account'), fields.account)
@@ -158,8 +174,27 @@ export class AutomationsPage {
     if (fields.category !== undefined) await choose(field('automation-category'), fields.category)
     const recurring = fields.subscription ?? fields.bill
     if (recurring !== undefined) await choose(field('automation-subscription'), recurring)
+    if (fields.incomeBudgets !== undefined) await this.chooseBudgets('income', fields.incomeBudgets)
+    if (fields.spendingBudgets !== undefined) {
+      await this.chooseBudgets('spending', fields.spendingBudgets)
+    }
     if (fields.applyTo) {
       await field(`automation-apply-${fields.applyTo}`).getByRole('radio').check()
+    }
+  }
+
+  /** Counts what the automation sorts toward budgets, as income or as spending. */
+  async chooseBudgets(kind: 'income' | 'spending', names: string[]): Promise<void> {
+    const field = this.dialog.getByTestId(`automation-${kind}-budgets`)
+    for (const name of names) {
+      await field.locator('.v-field').click()
+      await openOverlays(this.page)
+        .getByRole('option')
+        .filter({ has: this.page.locator('.v-list-item-title', { hasText: exactly(name) }) })
+        .click()
+      // A list of several stays open after each choice, so close it before the next.
+      await comboboxInput(field).press('Escape')
+      await expect(this.page.getByRole('listbox')).toHaveCount(0)
     }
   }
 

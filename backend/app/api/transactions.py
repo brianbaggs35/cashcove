@@ -125,11 +125,12 @@ def create_transaction(body: TransactionCreate, auth: AdminAuth, db: Db) -> Tran
         amount=body.amount,
         payee=body.payee,
         category_id=body.category_id,
+        # A category chosen in the form stays; automations only fill in what's left.
+        category_chosen=body.category_id is not None,
         notes=body.notes,
         source=TransactionSource.MANUAL,
     )
-    # A category chosen in the form stays; automations only fill in what's left.
-    RuleBook.load(db).sort(transaction, keep_category=body.category_id is not None)
+    RuleBook.load(db).sort(transaction)
     db.add(transaction)
     move_balance(account, body.amount, utcnow())
     db.commit()
@@ -139,6 +140,15 @@ def create_transaction(body: TransactionCreate, auth: AdminAuth, db: Db) -> Tran
 @router.get("/{transaction_id}")
 def read_transaction(transaction_id: uuid.UUID, auth: CurrentAuth, db: Db) -> TransactionOut:
     return TransactionOut.model_validate(_transaction(db, transaction_id))
+
+
+def _choose_category(db: Session, transaction: Transaction, category_id: uuid.UUID | None) -> None:
+    """Gives a transaction the category someone chose, which automations keep from then on.
+    Taking it away hands it back to them."""
+    find_category(db, category_id)
+    if category_id != transaction.category_id:
+        transaction.category_chosen = category_id is not None
+    transaction.category_id = category_id
 
 
 @router.patch("/{transaction_id}")
@@ -171,8 +181,7 @@ def update_transaction(
             "payee, category and notes can change.",
         )
     if "category_id" in fields:
-        find_category(db, body.category_id)
-        transaction.category_id = body.category_id
+        _choose_category(db, transaction, body.category_id)
     if moved:
         move_balance(writable_account(db, account_id), amount, now)
         move_balance(get_account(db, transaction.account_id, lock=True), -transaction.amount, now)
@@ -231,12 +240,13 @@ def delete_transactions(body: TransactionIds, auth: AdminAuth, db: Db) -> BulkRe
 
 @router.post("/bulk/categorize")
 def categorize_transactions(body: BulkCategorize, auth: AdminAuth, db: Db) -> BulkResult:
-    """Gives several transactions the same category, or takes theirs away."""
+    """Gives several transactions the same category, or takes theirs away. Automations leave a
+    category given as it is from then on; taking it away hands it back to them."""
     find_category(db, body.category_id)
     updated = db.scalars(
         update(Transaction)
         .where(Transaction.id.in_(body.ids))
-        .values(category_id=body.category_id)
+        .values(category_id=body.category_id, category_chosen=body.category_id is not None)
         .returning(Transaction.id)
     ).all()
     db.commit()

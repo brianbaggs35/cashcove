@@ -32,6 +32,17 @@ class AutomationMatch(StrEnum):
     CONTAINS = "contains"
 
 
+class AutomationDirection(StrEnum):
+    """Which way the money went in the transactions an automation sorts."""
+
+    # Money in or out, which is every transaction.
+    ANY = "any"
+    # Only money coming in, like a paycheck or a refund.
+    IN = "in"
+    # Only money going out, like a purchase or a bill.
+    OUT = "out"
+
+
 class Automation(TimestampMixin, Base):
     __tablename__ = "automations"
     __table_args__ = (
@@ -55,6 +66,12 @@ class Automation(TimestampMixin, Base):
     # by amount, while a utility bill is a different amount every month and leaves both open.
     min_amount: Mapped[Decimal | None] = mapped_column(Money())
     max_amount: Mapped[Decimal | None] = mapped_column(Money())
+    # Only money coming in or only money going out, so a paycheck automation that looks for an
+    # employer doesn't also sort what was bought from it.
+    direction: Mapped[AutomationDirection] = mapped_column(
+        enum_type(AutomationDirection, "automation_direction"),
+        default=AutomationDirection.ANY,
+    )
     # Only transactions in this account, or in any when empty. An account's automations go
     # with it, rather than start sorting every other account's.
     account_id: Mapped[uuid.UUID | None] = mapped_column(

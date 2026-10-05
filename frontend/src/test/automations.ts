@@ -6,6 +6,7 @@ export function makeAutomation(changes: Partial<Automation> = {}): Automation {
     name: 'Streaming',
     payees: ['Netflix'],
     match: 'exact',
+    direction: 'any',
     account_id: null,
     min_amount: null,
     max_amount: null,

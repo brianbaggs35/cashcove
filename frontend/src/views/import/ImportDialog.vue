@@ -20,6 +20,7 @@ import StepList from '@/components/ui/StepList.vue'
 import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { useCategoriesStore } from '@/stores/categories'
+import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { useImportWizard } from '@/stores/importWizard'
 import { formatDateRange } from '@/utils/dates'
 import { sumAmounts } from '@/utils/money'
@@ -40,6 +41,7 @@ const router = useRouter()
 const wizard = useImportWizard()
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
+const subscriptions = useSubscriptionsStore()
 const { locale, money } = useHousehold()
 
 const accountOpen = ref(false)
@@ -141,6 +143,12 @@ const doneNotes = computed(() => {
         ? 'The file’s other row was left out.'
         : `The file’s other ${record.skipped.toLocaleString('en-US')} rows were left out.`,
     )
+  if (record.sorted)
+    notes.push(
+      record.sorted === 1
+        ? 'Your automations sorted 1 of them.'
+        : `Your automations sorted ${record.sorted.toLocaleString('en-US')} of them.`,
+    )
   if (wizard.formatSave)
     notes.push(`Saved the ${wizard.formatSave.name} format for the bank’s next files.`)
   return notes
@@ -156,6 +164,8 @@ watch(open, (value) => {
   if (value) {
     void accounts.ensureLoaded()
     void categories.ensureLoaded()
+    // Rows an automation links to a subscription or a bill say which.
+    void subscriptions.ensureLoaded()
   } else {
     wizard.cancel()
   }

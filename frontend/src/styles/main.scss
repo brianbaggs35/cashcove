@@ -31,6 +31,14 @@ ul.v-list ul {
 .chart {
   --chart-income: #2a78d6;
   --chart-spent: #eb6834;
+  // The next slots of the same palette, for the parts of a whole: the biggest categories in
+  // order, and a neutral gray for everything else.
+  --chart-cat-1: #2a78d6;
+  --chart-cat-2: #eb6834;
+  --chart-cat-3: #1baf7a;
+  --chart-cat-4: #eda100;
+  --chart-cat-5: #e87ba4;
+  --chart-other: #898781;
   --chart-ink: rgb(var(--v-theme-on-surface));
   --chart-muted: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
   --chart-grid: rgba(var(--v-theme-on-surface), 0.14);
@@ -40,6 +48,11 @@ ul.v-list ul {
 .v-theme--dark .chart {
   --chart-income: #3987e5;
   --chart-spent: #d95926;
+  --chart-cat-1: #3987e5;
+  --chart-cat-2: #d95926;
+  --chart-cat-3: #199e70;
+  --chart-cat-4: #c98500;
+  --chart-cat-5: #d55181;
 }
 
 @media (forced-colors: active) {

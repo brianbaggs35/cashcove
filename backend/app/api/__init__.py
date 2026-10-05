@@ -11,6 +11,7 @@ from app.api import (
     budget,
     categories,
     connections,
+    dashboard,
     health,
     imports,
     settings,
@@ -38,5 +39,6 @@ api_router.include_router(categories.router)
 api_router.include_router(connections.router)
 api_router.include_router(imports.router)
 api_router.include_router(budget.router)
+api_router.include_router(dashboard.router)
 
 __all__ = ["api_router"]
