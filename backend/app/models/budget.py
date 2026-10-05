@@ -135,6 +135,8 @@ class BudgetLink(Base):
         ),
         Index("ix_budget_links_transaction_id", "transaction_id"),
         Index("ix_budget_links_automation_id", "automation_id"),
+        # What a subscription or bill counts toward is found by it, and goes with it.
+        Index("ix_budget_links_subscription_id", "subscription_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)

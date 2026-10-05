@@ -6,7 +6,6 @@ import {
   Landmark,
   Link2,
   Pencil,
-  Repeat,
   Trash2,
 } from '@lucide/vue'
 import { computed } from 'vue'
@@ -18,6 +17,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import { fromIsoDate } from '@/utils/dates'
 import { formatShortDate } from '@/utils/format'
 import { toCents } from '@/utils/money'
+import { kinds, partOf } from '@/views/subscriptions/kinds'
 import { estimatedAmount, expectedAmount, frequencyTitle } from '@/views/subscriptions/recurrence'
 
 const props = withDefaults(
@@ -40,6 +40,9 @@ const emit = defineEmits<{
 
 const accounts = useAccountsStore()
 const household = useHousehold()
+/** A subscription or a bill, which is the same card with a different icon and name. */
+const copy = computed(() => kinds[props.subscription.kind])
+const part = (name: string) => partOf(props.subscription.kind, name)
 const account = computed(() => accounts.find(props.subscription.account_id))
 const overdue = computed(() => props.daysUntilDue < 0)
 const dueText = computed(() => {
@@ -78,16 +81,16 @@ const priceChange = computed(() => {
   <v-card
     class="subscription-card h-100"
     :class="{ 'subscription-card--paused': !subscription.active }"
-    data-test="subscription-card"
+    :data-test="part('card')"
   >
     <v-card-text class="pa-5 pa-md-6">
       <div class="d-flex align-start ga-4">
         <v-avatar color="primary" variant="tonal" rounded="lg" size="48">
-          <v-icon :icon="Repeat" size="23" />
+          <v-icon :icon="copy.icon" size="23" />
         </v-avatar>
         <div class="flex-grow-1 min-width-0">
           <div class="d-flex align-center flex-wrap ga-2">
-            <h2 class="text-title-medium font-weight-bold ma-0" data-test="subscription-title">
+            <h2 class="text-title-medium font-weight-bold ma-0" :data-test="part('title')">
               {{ subscription.name }}
             </h2>
             <v-chip
@@ -95,7 +98,7 @@ const priceChange = computed(() => {
               color="secondary"
               size="x-small"
               variant="tonal"
-              data-test="subscription-paused-chip"
+              :data-test="part('paused-chip')"
             >
               Paused
             </v-chip>
@@ -110,27 +113,27 @@ const priceChange = computed(() => {
               variant="text"
               size="small"
               :aria-label="`Actions for ${subscription.name}`"
-              data-test="subscription-actions"
+              :data-test="part('actions')"
             />
           </template>
           <v-list density="compact" nav min-width="200">
             <v-list-item
-              :prepend-icon="subscription.active ? CirclePause : Repeat"
+              :prepend-icon="subscription.active ? CirclePause : copy.icon"
               :title="subscription.active ? 'Pause matching' : 'Resume matching'"
-              data-test="subscription-toggle"
+              :data-test="part('toggle')"
               @click="emit('toggle', subscription)"
             />
             <v-list-item
               :prepend-icon="Pencil"
               title="Edit"
-              data-test="subscription-edit"
+              :data-test="part('edit')"
               @click="emit('edit', subscription)"
             />
             <v-list-item
               :prepend-icon="Trash2"
               title="Delete"
               base-color="error"
-              data-test="subscription-delete"
+              :data-test="part('delete')"
               @click="emit('delete', subscription)"
             />
           </v-list>
@@ -146,12 +149,12 @@ const priceChange = computed(() => {
               size="x-small"
               variant="tonal"
               class="ms-1"
-              data-test="subscription-varies"
+              :data-test="part('varies')"
             >
               Amount varies
             </v-chip>
           </p>
-          <p class="text-headline-small font-weight-bold ma-0" data-test="subscription-amount">
+          <p class="text-headline-small font-weight-bold ma-0" :data-test="part('amount')">
             <span v-if="subscription.amount_varies" aria-label="About">~</span>
             {{ household.money(expected, account?.currency) }}
           </p>
@@ -163,7 +166,7 @@ const priceChange = computed(() => {
           <p
             class="text-label-large font-weight-medium ma-0 d-flex align-center justify-end ga-1"
             :class="{ 'text-error': overdue }"
-            data-test="subscription-due"
+            :data-test="part('due')"
           >
             <v-icon :icon="CalendarClock" size="16" />
             {{ dueText }}
@@ -176,8 +179,8 @@ const priceChange = computed(() => {
         <v-chip size="small" variant="tonal" :prepend-icon="Landmark">
           {{ account?.name ?? 'Account unavailable' }}
         </v-chip>
-        <CategoryChip v-if="subscription.category_id" :category-id="subscription.category_id" />
-        <v-chip size="small" variant="outlined" data-test="subscription-payment-count">
+        <CategoryChip :category-id="subscription.category_id" />
+        <v-chip size="small" variant="outlined" :data-test="part('payment-count')">
           {{ subscription.payment_count }}
           {{ subscription.payment_count === 1 ? 'payment tracked' : 'payments tracked' }}
         </v-chip>
@@ -185,7 +188,7 @@ const priceChange = computed(() => {
       <p
         v-if="lastPayment"
         class="text-body-small text-medium-emphasis mt-3 mb-0"
-        data-test="subscription-last-payment"
+        :data-test="part('last-payment')"
       >
         {{ lastPayment }}
       </p>
@@ -195,7 +198,7 @@ const priceChange = computed(() => {
         variant="tonal"
         density="compact"
         class="mt-3"
-        data-test="subscription-price-change"
+        :data-test="part('price-change')"
       >
         The last payment was {{ household.money(priceChange, account?.currency) }}, not
         {{ household.money(subscription.amount, account?.currency) }}.
@@ -203,7 +206,7 @@ const priceChange = computed(() => {
           <v-btn
             variant="text"
             size="small"
-            data-test="subscription-update-amount"
+            :data-test="part('update-amount')"
             @click="emit('update-amount', subscription)"
           >
             Update amount
@@ -217,7 +220,7 @@ const priceChange = computed(() => {
           size="small"
           color="primary"
           class="px-1"
-          data-test="subscription-view-payments"
+          :data-test="part('view-payments')"
         >
           View tracked payments
         </v-btn>
@@ -228,7 +231,7 @@ const priceChange = computed(() => {
           color="primary"
           :prepend-icon="Link2"
           class="px-1"
-          data-test="subscription-link-payments"
+          :data-test="part('link-payments')"
           @click="emit('link', subscription)"
         >
           Link payments
@@ -240,7 +243,7 @@ const priceChange = computed(() => {
         variant="tonal"
         density="compact"
         class="mt-4"
-        data-test="subscription-due-alert"
+        :data-test="part('due-alert')"
       >
         Payment due within your {{ alertDays }}-day reminder window.
       </v-alert>

@@ -19,6 +19,15 @@ def test_returns_defaults_before_anything_is_saved(viewer_client: TestClient) ->
     assert body == defaults()
     assert body["sync"] == {"auto_sync": True, "interval_hours": 6, "history_days": 730}
     assert body["alerts"]["low_balance_threshold"] == "100.00"
+    # Bills are due on a date they can't be late for, so they warn earlier than subscriptions.
+    assert (
+        body["alerts"]["subscription_due_days_before"],
+        body["alerts"]["bill_due_days_before"],
+    ) == (3, 5)
+    assert (body["alerts"]["subscription_due_enabled"], body["alerts"]["bill_due_enabled"]) == (
+        True,
+        True,
+    )
 
 
 def test_saves_and_reads_back_preferences(admin_client: TestClient, session: Session) -> None:
@@ -55,6 +64,9 @@ def test_rejects_invalid_values(admin_client: TestClient) -> None:
         ("general", "fiscal_year_start_month", 13),
         ("alerts", "low_balance_threshold", "-5"),
         ("alerts", "budget_threshold_percent", 200),
+        ("alerts", "bill_due_days_before", 31),
+        ("alerts", "bill_due_days_before", -1),
+        ("alerts", "bill_due_enabled", "sometimes"),
     ]:
         payload = defaults()
         payload[section][field] = value

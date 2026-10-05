@@ -1,4 +1,4 @@
-"""Automations: rules that sort transactions into a category and link them to a subscription."""
+"""Automations: rules that categorize transactions and link them to subscriptions and bills."""
 
 import uuid
 from decimal import Decimal

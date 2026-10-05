@@ -150,7 +150,7 @@ budget and the Budget tab says so, until they can be.
 - **No lookups at all:** set `CASHCOVE_EXCHANGE_RATE_URL=` to nothing. Only rates already kept
   are used, so accounts in other currencies count only for days Cashcove already has rates for.
 
-### Subscriptions and automations
+### Subscriptions, bills and automations
 
 The **Subscriptions** tab keeps track of recurring payments: what each costs, how often, which
 account pays it and when the next payment is due, with a reminder beforehand (**Settings >
@@ -160,13 +160,26 @@ Linked payments take the subscription's category, and the latest of them moves i
 on, so the next payment is always the one to come. Open a linked transaction on the
 Transactions tab to see which subscription it belongs to.
 
+The **Bills** tab, just under Subscriptions, is the same for what you owe a provider, like
+electricity or a phone line, which are usually a different amount each month. A bill is tracked,
+matched and linked exactly as a subscription is, and is kept apart from them: bills have their
+own reminder (**Settings > Alerts**, five days ahead until you change it), and one that has
+gone past its due date with no payment linked is called out at the top of the page. Add a
+bill from the payment that paid it, and Cashcove links every other payment like it that's
+already there, and each one that comes later, from Plaid, a statement file or by hand. For a
+payee that's written differently from one source to the next, an automation links them all.
+
+Both can have a **category**, which their linked payments take. Deleting a category moves the
+subscriptions, bills and automations that use it along with its transactions when you choose
+somewhere to move them, and otherwise leaves all of them uncategorized.
+
 The **Automations** tab does the sorting for you. Tick the transactions you want sorted (or
 type text to look for), say what should happen to them, and Cashcove finds every other
 transaction like them:
 
-- **What they get:** a category, a subscription their payments are linked to (only money going
-  out is linked), and/or counting toward budgets as income or spending. Any one of them is
-  enough.
+- **What they get:** a category, a subscription or bill their payments are linked to (only
+  money going out is linked), and/or counting toward budgets as income or spending. Any one of
+  them is enough.
 - **What they look for:** text in a transaction's payee or in what the bank called it, which
   differ between Plaid and statement files ("Amazon" and "AMZN Mktp US\*2K4TT3Y81"): the whole
   of it, the start of it or anywhere in it, ignoring letter case. An automation can also look
@@ -188,8 +201,8 @@ transaction like them:
 A subscription whose amount changes every time, like electricity, can be set up as such: it
 expects what its recent payments averaged, and says when the latest payment wasn't the price
 it has (**Update amount** takes the new one). Anything an automation gets wrong is fixed by
-hand: choose the subscription on a transaction's details, or select several payments on the
-Transactions tab and **Link to subscription**.
+hand: choose the subscription or bill on a transaction's details, or select several payments
+on the Transactions tab and **Link to subscription or bill**.
 
 ### Budgets
 
@@ -205,8 +218,9 @@ spending (money going out, which is taken off the amount):
   a statement file brings it or you add it by hand.
 - **An account**: its money out counts as spending, or its money in as income. Moving money
   between your own accounts, like paying a card, isn't counted.
-- **A category**, a **subscription** (its payments, and the ones still to come this period), or
-  an **automation**, which counts everything it finds, including what arrives later.
+- **A category**, a **subscription** or a **bill** (its payments, and the ones still to come
+  this period), or an **automation**, which counts everything it finds, including what arrives
+  later.
 
 A transaction counts once toward a budget, however many of those link it, and can count toward
 several budgets at once. Take one off a budget, even one that an account or category counts,
@@ -377,15 +391,24 @@ cd backend
 uv run alembic revision --autogenerate -m "describe the change"
 ```
 
-Migrations run automatically every time the container starts.
+Migrations run automatically every time the container starts. Write them so they can be run
+again on a database that already has some or all of the change: Alembic's `if_not_exists` and
+`if_exists` options on `add_column`, `create_index`, `drop_index` and the like, and a
+constraint dropped if it exists before it's created (`20261005_0012_bills.py` shows each). CI
+applies the newest migration a second time over a database that already has it, so one that
+can't be run again fails there. Migrations before it weren't written that way and are left as
+they were, since a database never runs one it has already passed.
 
 ## Releases
 
 Publishing a release on GitHub builds the image and pushes it to GitHub's container
 registry (`.github/workflows/release.yml`):
 
-1. Draft a release with a new tag like `v1.4.0` (or `v2.0.0-rc.1` for a pre-release).
-2. Publish it. GitHub doesn't run workflows for drafts, so publishing starts the build.
+1. Move what's under **Unreleased** in `CHANGELOG.md` under the new version and date, and
+   set the version in `backend/pyproject.toml`, `backend/app/__init__.py` and
+   `frontend/package.json` (and their lockfiles).
+2. Draft a release with a new tag like `v1.4.0` (or `v2.0.0-rc.1` for a pre-release).
+3. Publish it. GitHub doesn't run workflows for drafts, so publishing starts the build.
 
 The workflow builds the image, scans it with Trivy, starts it and smoke-tests it, then
 builds it for `linux/amd64` and `linux/arm64` and pushes `ghcr.io/brianbaggs35/cashcove`

@@ -13,6 +13,7 @@ import {
 import { AccountsPage } from './pages/accounts-page'
 import { AppShell } from './pages/app-shell'
 import { AutomationsPage } from './pages/automations-page'
+import { BillsPage } from './pages/bills-page'
 import { BudgetPage } from './pages/budget-page'
 import { CategoriesPage } from './pages/categories-page'
 import { ConnectPage } from './pages/connect-page'
@@ -46,6 +47,8 @@ export interface CashcoveFixtures {
   categoriesPage: CategoriesPage
   /** The Automations tab and its dialog. */
   automationsPage: AutomationsPage
+  /** The Bills tab and its dialogs. */
+  billsPage: BillsPage
   /** The Budget tab, its charts and its dialogs. */
   budgetPage: BudgetPage
   /** The Connect tab and its wizard. */
@@ -134,6 +137,10 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
 
   automationsPage: async ({ page }, use) => {
     await use(new AutomationsPage(page))
+  },
+
+  billsPage: async ({ page }, use) => {
+    await use(new BillsPage(page))
   },
 
   budgetPage: async ({ page }, use) => {

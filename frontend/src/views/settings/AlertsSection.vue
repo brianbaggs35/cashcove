@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { Bell, CalendarClock, ChartPie, Receipt, TriangleAlert, Wallet } from '@lucide/vue'
+import {
+  Bell,
+  CalendarClock,
+  ChartPie,
+  Receipt,
+  ReceiptText,
+  TriangleAlert,
+  Wallet,
+} from '@lucide/vue'
 
 import { currencySymbol } from '@/utils/format'
 import AlertRow from '@/views/settings/AlertRow.vue'
@@ -28,6 +36,26 @@ const amountRules = [
         <template #default="{ disabled }">
           <v-number-input
             v-model="draft.alerts.subscription_due_days_before"
+            :min="0"
+            :max="30"
+            :disabled="disabled"
+            control-variant="split"
+            label="Days before it's due"
+            hide-details
+          />
+        </template>
+      </AlertRow>
+
+      <AlertRow
+        v-model:enabled="draft.alerts.bill_due_enabled"
+        :icon="ReceiptText"
+        title="Upcoming bill payments"
+        description="A heads-up before a bill is due."
+        test-id="alert-bill"
+      >
+        <template #default="{ disabled }">
+          <v-number-input
+            v-model="draft.alerts.bill_due_days_before"
             :min="0"
             :max="30"
             :disabled="disabled"

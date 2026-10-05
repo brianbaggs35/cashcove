@@ -1,6 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
 
+import * as billsApi from '@/api/bills'
 import { ApiError } from '@/api/client'
 import * as subscriptionsApi from '@/api/subscriptions'
 import type { Subscription } from '@/api/subscriptions'
@@ -10,7 +11,7 @@ import { notices } from '@/composables/notify'
 import { page } from '@/test/dom'
 import { checking, latte, makePage, makeTransaction, seedFinance, wholeFoods } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import SubscriptionPaymentsDialog from '@/views/subscriptions/SubscriptionPaymentsDialog.vue'
 
 const subscription = makeSubscription()
@@ -27,6 +28,13 @@ const elsewhere = makeTransaction({
   subscription_id: 'subscription-hulu',
 })
 const free = makeTransaction({ id: 'transaction-free', payee: 'Zelle to Sam', amount: '-20.00' })
+const bill = makeBill()
+const billPayment = makeTransaction({
+  id: 'transaction-bill',
+  payee: 'City Power',
+  amount: '-96.40',
+  subscription_id: bill.id,
+})
 
 async function render(props: { subscription?: Subscription | null; items?: Transaction[] } = {}) {
   const open = ref(false)
@@ -50,6 +58,7 @@ async function render(props: { subscription?: Subscription | null; items?: Trans
     subscription,
     makeSubscription({ id: 'subscription-hulu', name: 'Hulu' }),
   ])
+  vi.spyOn(billsApi, 'fetchBills').mockResolvedValue([bill])
   const mounted = await mountWithPlugins(Host, {
     width: 1280,
     beforeMount: () => seedFinance(),
@@ -197,6 +206,46 @@ describe('SubscriptionPaymentsDialog', () => {
     await row.trigger('click')
 
     expect(notices.value).toEqual([])
+  })
+
+  describe('for a bill', () => {
+    it('is about the bill, and links payments through the bills API', async () => {
+      const updated = { ...bill, payment_count: 2 }
+      const link = vi
+        .spyOn(billsApi, 'linkBillPayments')
+        .mockResolvedValue({ count: 1, subscription: updated })
+      const unlink = vi.spyOn(billsApi, 'unlinkBillPayment').mockResolvedValue(bill)
+      const linkSubscription = vi.spyOn(subscriptionsApi, 'linkSubscriptionPayments')
+      const { overlay, find, changed } = await render({
+        subscription: bill,
+        items: [billPayment, elsewhere, free],
+      })
+
+      expect(overlay().find('h2').text()).toBe('Link payments to City Power')
+      expect(overlay().text()).toContain(
+        'Linked payments count toward the bill, take its category and settle its next due date.',
+      )
+      expect(page().find('[data-test="bill-payments-dialog"]').exists()).toBe(true)
+      expect(page().find('[data-test="subscription-payments-dialog"]').exists()).toBe(false)
+
+      await find('payment-link-transaction-free').trigger('click')
+      await flushPromises()
+      expect(link).toHaveBeenCalledWith('bill-power', ['transaction-free'])
+      expect(notices.value.at(-1)?.text).toBe('Linked Zelle to Sam to City Power')
+      expect(changed).toHaveBeenCalledWith(updated)
+
+      await find('payment-unlink-transaction-bill').trigger('click')
+      await flushPromises()
+      expect(unlink).toHaveBeenCalledWith('bill-power', 'transaction-bill')
+      expect(notices.value.at(-1)?.text).toBe('Unlinked City Power from City Power')
+      expect(linkSubscription).not.toHaveBeenCalled()
+    })
+
+    it('names the subscription a payment moves from, since bills share the list', async () => {
+      const { overlay } = await render({ subscription: bill, items: [elsewhere] })
+
+      expect(overlay().text()).toContain('Linked to Hulu')
+    })
   })
 
   it('closes from the dialog’s own close button', async () => {

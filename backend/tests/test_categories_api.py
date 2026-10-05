@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api import categories as categories_api
 from app.finance.categories import SUGGESTED
-from app.models import Category, CategoryGroup, CategoryKind, Transaction
+from app.models import Automation, Category, CategoryGroup, CategoryKind, Subscription, Transaction
 from tests.finance import add_account, add_category, add_group, add_transaction
 from tests.helpers import error
 
@@ -257,6 +257,52 @@ def test_deleting_a_category_uncategorizes_or_moves_its_transactions(
     assert admin_client.delete(f"/api/categories/{snacks.id}").status_code == 204
     assert category_of(session, chips) is None
     assert names(listed(admin_client)) == [("Food & drink", ["Cafes"])]
+
+
+def test_what_files_into_a_deleted_category_follows_its_transactions(
+    admin_client: TestClient, session: Session
+) -> None:
+    utilities = add_category(session, "Utilities", add_group(session, "Home"))
+    home = add_category(session, "Household", add_group(session, "Other"))
+    account = add_account(session)
+
+    def recurring(kind: str) -> dict[str, Any]:
+        response = admin_client.post(
+            f"/api/{kind}",
+            json={
+                "name": f"The {kind}",
+                "amount": "50.00",
+                "frequency": "monthly",
+                "account_id": str(account.id),
+                "next_due_date": "2026-10-01",
+                "category_id": str(utilities.id),
+            },
+        )
+        assert response.status_code == 201, response.text
+        return dict(response.json())
+
+    power, streaming = recurring("bills"), recurring("subscriptions")
+    automation = admin_client.post(
+        "/api/automations",
+        json={"name": "Power", "payees": ["city power"], "category_id": str(utilities.id)},
+    ).json()
+    paid = add_transaction(session, account, "-50.00", "The bills", category_id=utilities.id)
+
+    moved = admin_client.delete(f"/api/categories/{utilities.id}", params={"move_to": str(home.id)})
+
+    assert moved.status_code == 204
+    session.expire_all()
+    # Everything that put things in the category now puts them in the one they were moved to.
+    assert session.get_one(Transaction, paid.id).category_id == home.id
+    for item in (power, streaming):
+        assert session.get_one(Subscription, uuid.UUID(item["id"])).category_id == home.id
+    assert session.get_one(Automation, uuid.UUID(automation["id"])).category_id == home.id
+
+    # Without one to move to, they have no category, as the transactions do.
+    assert admin_client.delete(f"/api/categories/{home.id}").status_code == 204
+    session.expire_all()
+    assert session.get_one(Subscription, uuid.UUID(power["id"])).category_id is None
+    assert session.get_one(Transaction, paid.id).category_id is None
 
 
 def test_transactions_move_to_another_real_category(

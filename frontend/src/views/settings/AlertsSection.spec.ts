@@ -7,7 +7,14 @@ import AlertsSection from '@/views/settings/AlertsSection.vue'
 describe('AlertsSection', () => {
   it('lists every alert, switched on by default', async () => {
     const { wrapper } = await mountSection(AlertsSection)
-    for (const id of ['subscription', 'low-balance', 'large-transaction', 'budget', 'sync']) {
+    for (const id of [
+      'subscription',
+      'bill',
+      'low-balance',
+      'large-transaction',
+      'budget',
+      'sync',
+    ]) {
       const row = wrapper.find(`[data-test="alert-${id}"]`)
       expect(row.exists()).toBe(true)
       expect(row.find('input[type="checkbox"]').element).toHaveProperty('checked', true)
@@ -50,6 +57,21 @@ describe('AlertsSection', () => {
     wrapper.unmount()
   })
 
+  it('edits the days before a bill is due apart from subscriptions', async () => {
+    const { wrapper, preferences } = await mountSection(AlertsSection)
+    const alerts = preferences.draft!.alerts
+    // Bills start warning earlier than subscriptions.
+    expect([alerts.subscription_due_days_before, alerts.bill_due_days_before]).toEqual([3, 5])
+    const row = wrapper.find('[data-test="alert-bill"]')
+    expect(row.text()).toContain('Upcoming bill payments')
+    await row.find('input[type="text"], input:not([type])').setValue('9')
+    await flushPromises()
+
+    expect(alerts.bill_due_days_before).toBe(9)
+    expect(alerts.subscription_due_days_before).toBe(3)
+    wrapper.unmount()
+  })
+
   it('writes every switch and control back to the draft', async () => {
     const { wrapper, preferences } = await mountSection(AlertsSection)
     const alerts = preferences.draft!.alerts
@@ -68,6 +90,7 @@ describe('AlertsSection', () => {
     expect(
       [
         alerts.subscription_due_enabled,
+        alerts.bill_due_enabled,
         alerts.low_balance_enabled,
         alerts.large_transaction_enabled,
         alerts.budget_threshold_enabled,

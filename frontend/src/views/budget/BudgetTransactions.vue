@@ -118,15 +118,17 @@ const empty = computed(
 
 function reason(item: BudgetTransaction): string {
   if (item.via === 'transaction') return 'Linked by hand'
-  const name = props.sources.find((source) => source.id === item.source_id)?.name
+  const source = props.sources.find((candidate) => candidate.id === item.source_id)
   const labels = {
     automation: ['Rule', 'A rule'],
     subscription: ['Subscription', 'A subscription'],
+    bill: ['Bill', 'A bill'],
     category: ['Category', 'A category'],
     account: ['Account', 'An account'],
   } as const
-  const [prefix, fallback] = labels[item.via]
-  return name ? `${prefix}: ${name}` : fallback
+  // A bill's payments are counted via the subscription link, and the source says which it is.
+  const [prefix, fallback] = labels[source?.type ?? item.via]
+  return source ? `${prefix}: ${source.name}` : fallback
 }
 
 function details(item: BudgetTransaction): string {

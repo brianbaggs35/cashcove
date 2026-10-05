@@ -7,8 +7,9 @@ import { useHousehold } from '@/composables/useHousehold'
 import { fromIsoDate } from '@/utils/dates'
 import { formatShortDate } from '@/utils/format'
 import { sumAmounts, toCents } from '@/utils/money'
+import { kinds } from '@/views/subscriptions/kinds'
 
-/** The subscription payments this budget counts that are still to come before the period ends, and what would be left after them. */
+/** The subscription and bill payments this budget counts that are still to come before the period ends, and what would be left after them. */
 const props = defineProps<{ bills: UpcomingBill[]; left: string }>()
 
 const { money, locale } = useHousehold()
@@ -42,6 +43,7 @@ const after = computed(() => toCents(props.left) - toCents(total.value))
           class="upcoming__bill d-flex align-center ga-3"
           data-test="upcoming-bill"
         >
+          <v-icon :icon="kinds[bill.kind].icon" size="18" class="text-medium-emphasis" />
           <div class="flex-grow-1 min-width-0">
             <p class="text-body-medium font-weight-medium text-truncate ma-0">{{ bill.name }}</p>
             <p class="text-body-small text-medium-emphasis ma-0">

@@ -29,3 +29,4 @@ certs/*
 *.log
 .DS_Store
 .vscode/
+.scannerwork/

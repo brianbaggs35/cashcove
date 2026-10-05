@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { FileSpreadsheet, Landmark, Link, Pencil, Repeat } from '@lucide/vue'
+import { FileSpreadsheet, Landmark, Link, Pencil } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 
-import { linkSubscriptionPayments, unlinkSubscriptionPayment } from '@/api/subscriptions'
+import { recurringApi } from '@/api/recurring'
 import { fetchTransaction, updateTransaction, type Transaction } from '@/api/transactions'
 import CategoryPicker from '@/components/finance/CategoryPicker.vue'
 import CategoryChip from '@/components/finance/CategoryChip.vue'
@@ -10,12 +10,13 @@ import AppDialog from '@/components/ui/AppDialog.vue'
 import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
 import { useHousehold } from '@/composables/useHousehold'
+import { useRecurringChoices } from '@/composables/useRecurringChoices'
 import { useAccountsStore } from '@/stores/accounts'
 import { useImportsStore } from '@/stores/imports'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { fromIsoDate } from '@/utils/dates'
 import { toCents } from '@/utils/money'
-import { expectedAmount, frequencyTitle } from '@/views/subscriptions/recurrence'
+import { kinds } from '@/views/subscriptions/kinds'
 import { formatShortDate } from '@/utils/format'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
 
@@ -32,13 +33,15 @@ const emit = defineEmits<{
 const accounts = useAccountsStore()
 const imports = useImportsStore()
 const subscriptions = useSubscriptionsStore()
-const { locale, money } = useHousehold()
+const { locale } = useHousehold()
+const { choices } = useRecurringChoices()
 const displayed = ref<Transaction | null>(null)
 const account = computed(() => accounts.find(displayed.value?.account_id))
 const importName = computed(() => imports.findImport(displayed.value?.import_id)?.file_name)
-const subscriptionName = computed(
-  () => subscriptions.find(displayed.value?.subscription_id)?.name ?? 'A subscription',
-)
+/** The subscription or bill a payment is linked to, once it's known. */
+const linkedTo = computed(() => subscriptions.find(displayed.value?.subscription_id))
+const linkedName = computed(() => linkedTo.value?.name ?? 'A subscription or bill')
+const linkedKind = computed(() => kinds[linkedTo.value?.kind ?? 'subscription'])
 const originalDescription = computed(() => {
   const transaction = displayed.value
   return transaction?.original_description &&
@@ -57,31 +60,29 @@ const source = computed(() => {
 
 const error = computed(() => categorizing.error.value ?? linking.error.value)
 
-/** Only money going out is a payment a subscription can have. */
+/** Only money going out is a payment a subscription or a bill can have. */
 const isPayment = computed(() => !!displayed.value && toCents(displayed.value.amount) < 0)
-const subscriptionItems = computed(() =>
-  subscriptions.subscriptions
-    .filter((item) => item.active || item.id === displayed.value?.subscription_id)
-    .map((item) => ({
-      value: item.id,
-      title: item.name,
-      props: {
-        subtitle: `${frequencyTitle(item.frequency)} · ${money(expectedAmount(item), accounts.find(item.account_id)?.currency)}`,
-      },
-    })),
-)
+const recurringItems = computed(() => choices(displayed.value?.subscription_id))
 
-/** Links the transaction to a subscription, moves it or takes it off, e.g. when an automation got it wrong. */
+/**
+ * Links the transaction to a subscription or a bill, moves it or takes it off, e.g. when an
+ * automation got it wrong.
+ */
 const linking = useAction(async (transaction: Transaction, subscriptionId: string | null) => {
   if (subscriptionId === transaction.subscription_id) return
+  // Which API to ask depends on whether it's a subscription or a bill.
+  await subscriptions.ensureLoaded()
   if (subscriptionId === null) {
-    await unlinkSubscriptionPayment(transaction.subscription_id as string, transaction.id)
-    notify('Took it off the subscription')
+    // One that has gone since is taken off the same way as a subscription.
+    const was = subscriptions.find(transaction.subscription_id)?.kind ?? 'subscription'
+    await recurringApi(was).unlink(transaction.subscription_id as string, transaction.id)
+    notify(`Took it off the ${was}`)
   } else {
-    await linkSubscriptionPayments(subscriptionId, [transaction.id])
-    notify(`Linked it to ${subscriptions.find(subscriptionId)?.name ?? 'the subscription'}`)
+    const target = subscriptions.find(subscriptionId)
+    await recurringApi(target?.kind ?? 'subscription').link(subscriptionId, [transaction.id])
+    notify(`Linked it to ${target?.name ?? 'the subscription or bill'}`)
   }
-  // The subscription's category may have changed the transaction's too.
+  // The category of the subscription or bill may have changed the transaction's too.
   const saved = await fetchTransaction(transaction.id)
   displayed.value = saved
   emit('saved', saved)
@@ -100,8 +101,8 @@ watch(
   ([isOpen, transaction]) => {
     displayed.value = isOpen ? transaction : null
     if (isOpen && transaction?.import_id) void imports.ensureLoaded()
-    // An admin chooses the subscription a payment is for, and anyone is told which it is, among
-    // subscriptions that may have been added since they were loaded.
+    // An admin chooses the subscription or bill a payment is for, and anyone is told which it is,
+    // among those that may have been added since they were loaded.
     if (isOpen && transaction) {
       const choosing = props.editable && toCents(transaction.amount) < 0
       const unknown =
@@ -193,30 +194,30 @@ function changeSubscription(transaction: Transaction, subscriptionId: string | n
           <dd>{{ importName }}</dd>
         </div>
         <div v-if="editable && isPayment" class="transaction-info__row">
-          <dt>Subscription</dt>
+          <dt>Subscription or bill</dt>
           <dd>
             <v-select
               :model-value="displayed.subscription_id"
-              :items="subscriptionItems"
-              label="Subscription"
-              placeholder="Not a subscription payment"
+              :items="recurringItems"
+              label="Subscription or bill"
+              placeholder="Not a subscription or bill payment"
               persistent-placeholder
               clearable
               hide-details
-              :prepend-inner-icon="Repeat"
+              :prepend-inner-icon="linkedKind.icon"
               :disabled="linking.busy.value"
-              no-data-text="Add a subscription in the Subscriptions tab first"
+              no-data-text="Add a subscription or a bill first"
               data-test="transaction-info-subscription-select"
               @update:model-value="(id: string | null) => changeSubscription(displayed!, id)"
             />
           </dd>
         </div>
         <div v-else-if="displayed.subscription_id" class="transaction-info__row">
-          <dt>Subscription</dt>
+          <dt>{{ linkedKind.title }}</dt>
           <dd>
             <span class="d-inline-flex align-center ga-2" data-test="transaction-info-subscription">
-              <v-icon :icon="Repeat" size="16" />
-              {{ subscriptionName }}
+              <v-icon :icon="linkedKind.icon" size="16" />
+              {{ linkedName }}
             </span>
           </dd>
         </div>

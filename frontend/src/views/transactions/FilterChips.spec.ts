@@ -1,15 +1,23 @@
+import * as billsApi from '@/api/bills'
+import * as subscriptionsApi from '@/api/subscriptions'
+import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { checking, coffee, seedFinance } from '@/test/finance'
 import { checkingImport, seedImports } from '@/test/imports'
 import { mountWithPlugins } from '@/test/mount'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import FilterChips from '@/views/transactions/FilterChips.vue'
 import { emptyFilters, type TransactionFilters } from '@/views/transactions/view'
 
-async function render(changes: Partial<TransactionFilters>) {
+async function render(changes: Partial<TransactionFilters>, loaded = true) {
   const { wrapper } = await mountWithPlugins(FilterChips, {
     props: { filters: { ...emptyFilters(), ...changes } },
     beforeMount: () => {
       seedFinance()
       seedImports()
+      const store = useSubscriptionsStore()
+      store.subscriptions = [makeSubscription()]
+      store.bills = [makeBill()]
+      store.loaded = loaded
     },
   })
   const chip = (key: string) => wrapper.find(`[data-test="filter-chip-${key}"]`)
@@ -63,10 +71,38 @@ describe('FilterChips', () => {
     [{ period: 'custom', start: null, end: '2026-09-15' }, 'Until Sep 15, 2026'],
     [{ importId: checkingImport.id }, 'From harbor-checking.csv'],
     [{ importId: 'import-undone' }, 'From an import'],
-    [{ subscriptionId: 'subscription-streamflix' }, 'Subscription payments'],
+    [{ subscriptionId: 'subscription-streamflix' }, 'Streamflix payments'],
+    [{ subscriptionId: 'bill-power' }, 'City Power payments'],
+    [{ subscriptionId: 'subscription-gone' }, 'Subscription or bill payments'],
   ])('describes %o', async (filters, expected) => {
     const { labels } = await render(filters)
     expect(labels().join(' ')).toBe(expected)
+  })
+
+  it('names a subscription or bill, with its icon, loading them when it is not known yet', async () => {
+    const fetchSubscriptions = vi
+      .spyOn(subscriptionsApi, 'fetchSubscriptions')
+      .mockResolvedValue([makeSubscription()])
+    const fetchBills = vi.spyOn(billsApi, 'fetchBills').mockResolvedValue([makeBill()])
+    const { wrapper, chip } = await render({ subscriptionId: 'bill-power' }, false)
+    await vi.waitFor(() => {
+      expect(fetchBills).toHaveBeenCalledTimes(1)
+    })
+
+    expect(fetchSubscriptions).toHaveBeenCalledTimes(1)
+    expect(chip('subscription').text()).toBe('City Power payments')
+    expect(chip('subscription').find('svg').classes()).toContain('lucide-receipt-text')
+    await wrapper.setProps({
+      filters: { ...emptyFilters(), subscriptionId: 'subscription-streamflix' },
+    })
+    expect(chip('subscription').find('svg').classes()).toContain('lucide-repeat')
+  })
+
+  it('does not load them when no subscription or bill is filtered', async () => {
+    const fetchSubscriptions = vi.spyOn(subscriptionsApi, 'fetchSubscriptions')
+    await render({ q: 'coffee', uncategorized: true }, false)
+
+    expect(fetchSubscriptions).not.toHaveBeenCalled()
   })
 
   it('removes one filter at a time, or all of them', async () => {

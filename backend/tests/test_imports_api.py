@@ -919,6 +919,78 @@ def test_imported_transactions_are_sorted_by_automations_and_subscriptions(
     assert rows["NORTHWIND HEALTH PAYROLL PPD"].subscription_id is None
 
 
+def test_imported_transactions_are_linked_to_a_bill_by_its_own_payee(
+    admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
+) -> None:
+    bill = admin_client.post(
+        "/api/bills",
+        json={
+            "name": "Power",
+            "payee": "City Power & Light",
+            "amount": "90.00",
+            "amount_varies": True,
+            "frequency": "monthly",
+            "account_id": str(checking.id),
+            "next_due_date": "2026-09-05",
+            "category_id": categories["Utilities"],
+        },
+    ).json()
+
+    imported(admin_client, CHECKING_CSV, checking)
+
+    rows = {row.payee: row for row in transactions(session)}
+    power = rows["CITY POWER & LIGHT"]
+    assert (power.subscription_id, power.category_id) == (
+        uuid.UUID(bill["id"]),
+        uuid.UUID(categories["Utilities"]),
+    )
+    assert rows["NORTHWIND HEALTH PAYROLL PPD"].subscription_id is None
+    updated = admin_client.get(f"/api/bills/{bill['id']}").json()
+    # The bill it was linked to is paid, so it is next due a month on.
+    assert (updated["payment_count"], updated["last_payment_on"], updated["next_due_date"]) == (
+        1,
+        "2026-09-05",
+        "2026-10-05",
+    )
+
+
+def test_an_automation_links_a_statement_files_payments_to_a_bill(
+    admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
+) -> None:
+    bill = admin_client.post(
+        "/api/bills",
+        json={
+            "name": "Electricity",
+            "payee": "Not what the bank calls it",
+            "amount": "90.00",
+            "frequency": "monthly",
+            "account_id": str(checking.id),
+            "next_due_date": "2026-09-05",
+        },
+    ).json()
+    created = admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Electricity",
+            "payees": ["city power"],
+            "match": "contains",
+            "subscription_id": bill["id"],
+            "category_id": categories["Utilities"],
+            "apply_to": "future",
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    imported(admin_client, CHECKING_CSV, checking)
+
+    power = next(row for row in transactions(session) if "CITY POWER" in row.payee)
+    assert (power.subscription_id, power.category_id) == (
+        uuid.UUID(bill["id"]),
+        uuid.UUID(categories["Utilities"]),
+    )
+    assert admin_client.get(f"/api/bills/{bill['id']}").json()["payment_count"] == 1
+
+
 def test_a_statement_files_noisy_descriptions_are_sorted_by_text_in_them(
     admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
 ) -> None:

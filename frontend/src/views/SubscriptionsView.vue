@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { CalendarClock, CalendarDays, CalendarRange, Plus, Repeat, Search } from '@lucide/vue'
+import {
+  CalendarClock,
+  CalendarDays,
+  CalendarRange,
+  Plus,
+  Search,
+  TriangleAlert,
+} from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 
-import {
-  deleteSubscription,
-  fetchSubscriptions,
-  updateSubscription,
-  type Subscription,
-} from '@/api/subscriptions'
 import { errorMessage } from '@/api/client'
+import { recurringApi } from '@/api/recurring'
+import type { RecurringKind, Subscription } from '@/api/subscriptions'
 import TabPage from '@/components/TabPage.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ReadOnlyNotice from '@/components/ui/ReadOnlyNotice.vue'
@@ -24,7 +27,17 @@ import { toCents, fromCents } from '@/utils/money'
 import SubscriptionCard from '@/views/subscriptions/SubscriptionCard.vue'
 import SubscriptionDialog from '@/views/subscriptions/SubscriptionDialog.vue'
 import SubscriptionPaymentsDialog from '@/views/subscriptions/SubscriptionPaymentsDialog.vue'
+import { dueReminder, kinds, partOf, partsOf } from '@/views/subscriptions/kinds'
 import { estimatedAmount, expectedAmount } from '@/views/subscriptions/recurrence'
+
+/**
+ * The page of subscriptions or of bills: tracked, matched to the transactions that pay them and
+ * sorted by automations the same way, so both are this page, told apart by `kind`.
+ */
+const props = withDefaults(defineProps<{ kind?: RecurringKind }>(), { kind: 'subscription' })
+const copy = computed(() => kinds[props.kind])
+const part = (name: string) => partOf(props.kind, name)
+const parts = (name: string) => partsOf(props.kind, name)
 
 const auth = useAuthStore()
 const accounts = useAccountsStore()
@@ -48,7 +61,7 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const result = await fetchSubscriptions()
+    const result = await recurringApi(props.kind).fetch()
     if (current === request) {
       subscriptions.value = result
       loaded.value = true
@@ -99,15 +112,19 @@ function daysUntil(date: string) {
   )
 }
 
-const alerts = computed(() => preferences.saved?.alerts)
-const alertDays = computed(() => alerts.value?.subscription_due_days_before ?? 3)
+const reminder = computed(() => dueReminder(preferences.saved?.alerts, props.kind))
+const alertDays = computed(() => reminder.value.days)
 const dueSoon = computed(
   () =>
-    alerts.value?.subscription_due_enabled === true &&
+    reminder.value.enabled &&
     activeSubscriptions.value.filter((item) => {
       const days = daysUntil(item.next_due_date)
       return days >= 0 && days <= alertDays.value
     }).length,
+)
+/** How many it's still tracking that were due before today and haven't been paid. */
+const overdue = computed(
+  () => activeSubscriptions.value.filter((item) => daysUntil(item.next_due_date) < 0).length,
 )
 const noSubscriptions = computed(() => loaded.value && subscriptions.value.length === 0)
 
@@ -131,10 +148,10 @@ async function remove(subscription: Subscription) {
     {
       title: `Delete ${subscription.name}?`,
       text: 'Its tracked transactions will stay in your history, but will no longer be linked.',
-      confirmText: 'Delete subscription',
+      confirmText: `Delete ${copy.value.noun}`,
       tone: 'error',
     },
-    () => deleteSubscription(subscription.id),
+    () => recurringApi(props.kind).remove(subscription.id),
   )
   if (!done) return
   notify(`Deleted ${subscription.name}`)
@@ -143,7 +160,7 @@ async function remove(subscription: Subscription) {
 
 async function toggle(subscription: Subscription) {
   try {
-    await updateSubscription(subscription.id, { active: !subscription.active })
+    await recurringApi(props.kind).update(subscription.id, { active: !subscription.active })
     notify(subscription.active ? 'Paused automatic matching' : 'Resumed automatic matching')
     await load()
   } catch (updateError) {
@@ -159,7 +176,9 @@ async function saved() {
 async function updateAmount(subscription: Subscription) {
   if (subscription.last_payment_amount === null) return
   try {
-    await updateSubscription(subscription.id, { amount: subscription.last_payment_amount })
+    await recurringApi(props.kind).update(subscription.id, {
+      amount: subscription.last_payment_amount,
+    })
     notify(`Updated ${subscription.name} to ${money(subscription.last_payment_amount)}`)
     await load()
   } catch (updateError) {
@@ -169,22 +188,22 @@ async function updateAmount(subscription: Subscription) {
 </script>
 
 <template>
-  <TabPage name="subscriptions">
+  <TabPage :name="copy.tab">
     <template v-if="auth.isAdmin && !noSubscriptions" #actions>
       <v-btn
         color="primary"
         variant="flat"
         :prepend-icon="Plus"
-        data-test="subscription-add"
+        :data-test="part('add')"
         @click="add"
       >
-        Add subscription
+        Add {{ copy.noun }}
       </v-btn>
     </template>
 
     <ReadOnlyNotice
       v-if="!auth.isAdmin"
-      text="You can see subscriptions. Only an admin can change them."
+      :text="`You can see ${copy.nouns}. Only an admin can change them.`"
     />
 
     <v-alert
@@ -192,36 +211,32 @@ async function updateAmount(subscription: Subscription) {
       type="error"
       variant="tonal"
       class="mb-4"
-      title="Couldn't load or update subscriptions"
+      :title="`Couldn't load or update ${copy.nouns}`"
       :text="error"
-      data-test="subscriptions-error"
+      :data-test="parts('error')"
     >
       <template #append>
-        <v-btn variant="text" size="small" data-test="subscriptions-retry" @click="load">
+        <v-btn variant="text" size="small" :data-test="parts('retry')" @click="load">
           Try again
         </v-btn>
       </template>
     </v-alert>
 
-    <div v-if="loading && !loaded" data-test="subscriptions-loading">
+    <div v-if="loading && !loaded" :data-test="parts('loading')">
       <v-skeleton-loader type="heading, paragraph, card@3" class="rounded-xl" />
     </div>
 
     <v-card v-else-if="noSubscriptions">
-      <EmptyState
-        :icon="Repeat"
-        title="Know what’s coming up"
-        text="Keep recurring bills and memberships in one place, with reminders before they renew."
-      >
+      <EmptyState :icon="copy.icon" :title="copy.empty.title" :text="copy.empty.text">
         <v-btn
           v-if="auth.isAdmin"
           color="primary"
           variant="flat"
           :prepend-icon="Plus"
-          data-test="subscription-add-first"
+          :data-test="part('add-first')"
           @click="add"
         >
-          Add your first subscription
+          Add your first {{ copy.noun }}
         </v-btn>
       </EmptyState>
     </v-card>
@@ -229,13 +244,13 @@ async function updateAmount(subscription: Subscription) {
     <template v-else-if="loaded">
       <v-row class="mb-2" density="compact">
         <v-col cols="12" md="4">
-          <v-card class="h-100" data-test="subscriptions-count">
+          <v-card class="h-100" :data-test="parts('count')">
             <v-card-text class="d-flex align-center ga-4 pa-5">
               <v-avatar color="primary" variant="tonal" rounded="lg">
-                <v-icon :icon="Repeat" />
+                <v-icon :icon="copy.icon" />
               </v-avatar>
               <div>
-                <p class="text-body-small text-medium-emphasis mb-1">Active subscriptions</p>
+                <p class="text-body-small text-medium-emphasis mb-1">Active {{ copy.nouns }}</p>
                 <p class="text-headline-small font-weight-bold ma-0">
                   {{ activeSubscriptions.length }}
                 </p>
@@ -244,7 +259,7 @@ async function updateAmount(subscription: Subscription) {
           </v-card>
         </v-col>
         <v-col cols="12" md="4">
-          <v-card class="h-100" data-test="subscriptions-monthly">
+          <v-card class="h-100" :data-test="parts('monthly')">
             <v-card-text class="d-flex align-center ga-4 pa-5">
               <v-avatar color="primary" variant="tonal" rounded="lg">
                 <v-icon :icon="CalendarDays" />
@@ -266,7 +281,7 @@ async function updateAmount(subscription: Subscription) {
           </v-card>
         </v-col>
         <v-col cols="12" md="4">
-          <v-card class="h-100" data-test="subscriptions-yearly">
+          <v-card class="h-100" :data-test="parts('yearly')">
             <v-card-text class="d-flex align-center ga-4 pa-5">
               <v-avatar color="primary" variant="tonal" rounded="lg">
                 <v-icon :icon="CalendarRange" />
@@ -288,12 +303,25 @@ async function updateAmount(subscription: Subscription) {
       </v-row>
 
       <v-alert
+        v-if="overdue"
+        color="error"
+        variant="tonal"
+        :icon="TriangleAlert"
+        class="mb-5"
+        :data-test="parts('overdue-alert')"
+      >
+        {{ overdue }} {{ overdue === 1 ? `${copy.noun} is` : `${copy.nouns} are` }} past
+        {{ overdue === 1 ? 'its' : 'their' }} due date without a payment linked. Link the payment,
+        or change the date if it was paid another way.
+      </v-alert>
+
+      <v-alert
         v-if="dueSoon"
         color="warning"
         variant="tonal"
         :icon="CalendarClock"
         class="mb-5"
-        data-test="subscriptions-due-alert"
+        :data-test="parts('due-alert')"
       >
         {{ dueSoon }} {{ dueSoon === 1 ? 'payment is' : 'payments are' }} due within your
         {{ alertDays }}-day reminder window. You can change this in
@@ -306,11 +334,11 @@ async function updateAmount(subscription: Subscription) {
         <v-text-field
           v-model="search"
           :prepend-inner-icon="Search"
-          label="Search subscriptions"
+          :label="`Search ${copy.nouns}`"
           hide-details
           clearable
           class="subscription-search"
-          data-test="subscription-search"
+          :data-test="part('search')"
         />
         <v-btn-toggle
           v-model="activeFilter"
@@ -318,19 +346,19 @@ async function updateAmount(subscription: Subscription) {
           divided
           variant="outlined"
           color="primary"
-          aria-label="Subscription status"
-          data-test="subscription-filter"
+          :aria-label="`${copy.title} status`"
+          :data-test="part('filter')"
         >
           <v-btn value="active">Active</v-btn>
           <v-btn value="paused">Paused</v-btn>
         </v-btn-toggle>
       </div>
 
-      <v-card v-if="!visibleSubscriptions.length" data-test="subscriptions-none-match">
+      <v-card v-if="!visibleSubscriptions.length" :data-test="parts('none-match')">
         <EmptyState
           :icon="Search"
           title="No matches"
-          text="Try a different search or switch between active and paused subscriptions."
+          :text="`Try a different search or switch between active and paused ${copy.nouns}.`"
           compact
         />
       </v-card>
@@ -346,7 +374,7 @@ async function updateAmount(subscription: Subscription) {
             :subscription="subscription"
             :days-until-due="daysUntil(subscription.next_due_date)"
             :alert-days="alertDays"
-            :due-alerts-enabled="alerts?.subscription_due_enabled ?? false"
+            :due-alerts-enabled="reminder.enabled"
             :readonly="!auth.isAdmin"
             @edit="edit"
             @delete="remove"
@@ -362,6 +390,7 @@ async function updateAmount(subscription: Subscription) {
       v-if="auth.isAdmin"
       v-model="dialog"
       :subscription="editing"
+      :kind="kind"
       @saved="saved"
     />
     <SubscriptionPaymentsDialog

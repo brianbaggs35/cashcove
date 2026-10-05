@@ -2,22 +2,21 @@
 import { Repeat } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 
-import { linkSubscriptionPayments } from '@/api/subscriptions'
+import { recurringApi } from '@/api/recurring'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
-import { useHousehold } from '@/composables/useHousehold'
-import { useAccountsStore } from '@/stores/accounts'
+import { useRecurringChoices } from '@/composables/useRecurringChoices'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
-import { expectedAmount, frequencyTitle } from '@/views/subscriptions/recurrence'
 
 /**
- * Links the selected payments to a subscription by hand, e.g. when an automation got one wrong
- * or a bill didn't have the payee it usually does. They take its category and settle its due date.
+ * Links the selected payments to a subscription or a bill by hand, e.g. when an automation got
+ * one wrong or a bill didn't have the payee it usually does. They take its category and settle
+ * its due date.
  */
 const open = defineModel<boolean>({ required: true })
 const props = defineProps<{
-  /** The money going out among the selected transactions, which a subscription can have. */
+  /** The money going out among the selected transactions, which a subscription or bill can have. */
   ids: string[]
   /** How many were selected in all, so the dialog can say when some can't be linked. */
   selected: number
@@ -25,19 +24,10 @@ const props = defineProps<{
 const emit = defineEmits<{ done: [] }>()
 
 const subscriptions = useSubscriptionsStore()
-const accounts = useAccountsStore()
-const { money } = useHousehold()
+const { choices } = useRecurringChoices()
 
 const subscriptionId = ref<string | null>(null)
-const items = computed(() =>
-  subscriptions.active.map((item) => ({
-    value: item.id,
-    title: item.name,
-    props: {
-      subtitle: `${frequencyTitle(item.frequency)} · ${money(expectedAmount(item), accounts.find(item.account_id)?.currency)}`,
-    },
-  })),
-)
+const items = computed(() => choices())
 const skipped = computed(() => props.selected - props.ids.length)
 
 watch(open, (value) => {
@@ -49,8 +39,9 @@ watch(open, (value) => {
 
 const saving = useAction(async () => {
   const id = subscriptionId.value as string
-  const { count } = await linkSubscriptionPayments(id, props.ids)
-  const name = subscriptions.find(id)?.name ?? 'the subscription'
+  const target = subscriptions.find(id)
+  const { count } = await recurringApi(target?.kind ?? 'subscription').link(id, props.ids)
+  const name = target?.name ?? 'it'
   const what = props.ids.length === 1 ? '1 payment' : `${props.ids.length} payments`
   notify(count ? `Linked ${what} to ${name}` : `${what} already linked to ${name}`)
   emit('done')
@@ -63,19 +54,19 @@ const saving = useAction(async () => {
     v-model="open"
     :title="
       ids.length === 1
-        ? 'Link 1 payment to a subscription'
-        : `Link ${ids.length} payments to a subscription`
+        ? 'Link 1 payment to a subscription or bill'
+        : `Link ${ids.length} payments to a subscription or bill`
     "
-    subtitle="They count toward the subscription, take its category and settle its next due date."
+    subtitle="They count toward it, take its category and settle its next due date."
     :icon="Repeat"
     :persistent="saving.busy.value"
   >
     <v-select
       v-model="subscriptionId"
       :items="items"
-      label="Subscription"
-      no-data-text="Add a subscription in the Subscriptions tab first"
-      data-test="link-subscription"
+      label="Subscription or bill"
+      no-data-text="Add a subscription or a bill first"
+      data-test="link-target"
     />
     <v-alert
       v-if="skipped > 0"

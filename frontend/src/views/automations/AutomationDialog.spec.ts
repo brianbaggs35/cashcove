@@ -2,6 +2,7 @@ import { flushPromises, type DOMWrapper } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
 
 import * as automationsApi from '@/api/automations'
+import * as billsApi from '@/api/bills'
 import * as budgetApi from '@/api/budget'
 import type {
   Automation,
@@ -29,8 +30,9 @@ import {
   wholeFoods,
 } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import AutomationDialog from '@/views/automations/AutomationDialog.vue'
+import { kinds } from '@/views/subscriptions/kinds'
 
 const shouty = makeTransaction({ id: 'transaction-shouty', payee: ' WHOLE FOODS ' })
 
@@ -65,6 +67,10 @@ async function render({
   vi.spyOn(subscriptionsApi, 'fetchSubscriptions').mockResolvedValue([
     makeSubscription(),
     makeSubscription({ id: 'subscription-paused', name: 'Old gym', active: false }),
+  ])
+  vi.spyOn(billsApi, 'fetchBills').mockResolvedValue([
+    makeBill(),
+    makeBill({ id: 'bill-old', name: 'Old gas', active: false }),
   ])
   vi.spyOn(budgetApi, 'fetchBudgets').mockResolvedValue([
     makeBudget(),
@@ -471,7 +477,9 @@ describe('AutomationDialog', () => {
         'Payee starts with “Whole Foods”, in Rainy day fund, for exactly $84.12',
       )
       expect(field('then').text()).toBe('nothing yet')
-      expect(field('action-hint').text()).toBe('Choose a category, a subscription or a budget.')
+      expect(field('action-hint').text()).toBe(
+        'Choose a category, a subscription, a bill or a budget.',
+      )
       expect(field('save').attributes('disabled')).toBeDefined()
 
       category().vm.$emit('update:modelValue', groceries.id)
@@ -500,6 +508,26 @@ describe('AutomationDialog', () => {
       expect(field('save').attributes('disabled')).toBeUndefined()
     })
 
+    it('can link payments to a bill, which is chosen from the same list as a subscription', async () => {
+      const { wrapper, field, picks, select, next } = await render()
+      await picks()[0]!.setValue(true)
+      await next()
+
+      // They're offered in a group each, so it's clear which is which.
+      expect(
+        select('subscription')
+          .props('items')
+          .map((item: { title: string }) => item.title),
+      ).toEqual(['Subscriptions', 'Streamflix', 'Bills', 'City Power'])
+      expect(select('subscription').props('items')[3].props.subtitle).toBe('Monthly · $96.40')
+      select('subscription').vm.$emit('update:modelValue', 'bill-power')
+      await makeFormValid(wrapper)
+
+      expect(field('then').text()).toBe('link payments to City Power')
+      expect(field('save').attributes('disabled')).toBeUndefined()
+      expect(select('subscription').props('prependInnerIcon')).toBe(kinds.bill.icon)
+    })
+
     it('tells the subscription it links to from one it cannot find', async () => {
       const { field, next } = await render({
         automation: makeAutomation({ subscription_id: 'subscription-gone' }),
@@ -507,7 +535,7 @@ describe('AutomationDialog', () => {
       await next()
 
       expect(field('then').text()).toBe(
-        'put them in 🛒 Groceries and link payments to the subscription',
+        'put them in 🛒 Groceries and link payments to the subscription or bill',
       )
     })
 
@@ -762,8 +790,8 @@ describe('AutomationDialog', () => {
         select('subscription')
           .props('items')
           .map((item: { title: string }) => item.title),
-      ).toEqual(['Streamflix', 'Old gym'])
-      expect(select('subscription').props('items')[0].props.subtitle).toBe('Monthly · $14.99')
+      ).toEqual(['Subscriptions', 'Streamflix', 'Old gym', 'Bills', 'City Power'])
+      expect(select('subscription').props('items')[1].props.subtitle).toBe('Monthly · $14.99')
 
       await next()
       expect(field('action-hint').exists()).toBe(false)
@@ -835,7 +863,7 @@ describe('AutomationDialog', () => {
         select('subscription')
           .props('items')
           .map((item: { title: string }) => item.title),
-      ).toEqual(['Streamflix'])
+      ).toEqual(['Subscriptions', 'Streamflix', 'Bills', 'City Power'])
       expect(
         select('account')
           .props('items')
