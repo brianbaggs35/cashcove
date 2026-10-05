@@ -107,7 +107,7 @@ function edit(account: Account) {
     </v-card>
 
     <template v-else>
-      <NetWorthCard :accounts="store.open" />
+      <NetWorthCard :accounts="store.open" class="mb-6" />
 
       <AccountGroupCard
         v-for="{ group, accounts } in groups"

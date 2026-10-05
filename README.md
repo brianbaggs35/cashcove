@@ -150,6 +150,27 @@ budget and the Budget tab says so, until they can be.
 - **No lookups at all:** set `CASHCOVE_EXCHANGE_RATE_URL=` to nothing. Only rates already kept
   are used, so accounts in other currencies count only for days Cashcove already has rates for.
 
+### Dashboard
+
+The **Dashboard** is the first tab, and where you land after signing in. It is for seeing how the
+household is doing without opening anything else:
+
+- **Net worth**, with what you have and what you owe, and the accounts with the most in them or
+  owed on them.
+- **This month**: what came in, what you spent and what is left over, each against the same
+  days of last month, and how spending has built up day by day.
+- **Income and spending** for each of the last six months, and **where it went**, by category,
+  drawn with Vuetify's own sparkline and pie charts. Every chart can also be read as a table.
+- **Budgets** and how much of each is spent, the bills and subscriptions **coming up** (or
+  overdue), the payees you spent the most with, and your latest transactions. Each links to
+  its own tab, and what needs attention, like a bank that wants you to sign in again or
+  transactions with no category, is pointed out at the top.
+
+It is worked out from the transactions each time you open it, across every account, so it is
+always up to date with what synced, was imported or was sorted by an automation. Money moving
+between your own accounts (a category in a transfer group) is neither income nor spending, and
+accounts in other currencies are converted as the budgets do.
+
 ### Subscriptions, bills and automations
 
 The **Subscriptions** tab keeps track of recurring payments: what each costs, how often, which
@@ -185,15 +206,27 @@ transaction like them:
   of it, the start of it or anywhere in it, ignoring letter case. An automation can also look
   only in one account, or only at an amount or a range of amounts, which tells apart a payee
   that bills several subscriptions, while a bill that changes every month leaves the amount open.
+- **Which way the money went:** **Money in** or **Money out** only, or either way. A paycheck
+  automation that looks for your employer is for money in, so what you buy from a shop of the
+  same name isn't filed as a paycheck or counted as income. Ticking transactions to start an
+  automation chooses it for you from them. Only money going out is linked to a subscription or
+  a bill, so money in can't be combined with one.
 - **Which transactions:** an automation can cover **past and future** transactions, sorting the
   ones you already have as soon as you save it, or **future** ones only, leaving what's there
   alone.
 - **When it happens:** as transactions come in, whether Plaid syncs them, a statement file
-  brings them or you add them by hand, and when you change an automation, or resume a paused
-  one, that covers the past.
+  brings them or you add them by hand, when the bank changes one it already sent, and when you
+  change an automation, or resume a paused one, that covers the past. Importing a file says
+  what your automations will do to each row before anything is imported (the category, and the
+  subscription or bill a payment is linked to), and how many they sorted afterwards.
+- **Counting toward budgets:** the automation's second step also chooses the budgets it counts
+  toward, as income or as spending. That is worked out from the transactions it finds, so
+  whatever comes in later, from Plaid or from a file, counts without anything else to do.
 - **Never takes anything away:** automations only add. A category you choose yourself, such
-  as in a transaction's own form, stays, and deleting an automation leaves what it sorted as
-  it is.
+  as in a transaction's own form, on its details or for several at once on the Transactions
+  tab, is kept for good, however often an automation is changed, paused or resumed; taking it
+  away hands the transaction back to them. Deleting an automation leaves what it sorted as it
+  is.
 - **Overlaps are fine:** when several automations would give a transaction a category or a
   subscription, the oldest wins, and the dialog tells you which others already do the same
   thing before you save.

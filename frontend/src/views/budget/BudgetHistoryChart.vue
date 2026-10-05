@@ -6,7 +6,7 @@ import type { BudgetHistory, BudgetPeriodKind } from '@/api/budget'
 import { useHousehold } from '@/composables/useHousehold'
 import { toCents } from '@/utils/money'
 import { columnPath, compactMoney, niceTicks, tipShift } from '@/views/budget/chart'
-import ChartFrame from '@/views/budget/ChartFrame.vue'
+import ChartFrame from '@/components/ui/ChartFrame.vue'
 import { periodLabel, shortPeriodLabel } from '@/views/budget/periods'
 
 /**

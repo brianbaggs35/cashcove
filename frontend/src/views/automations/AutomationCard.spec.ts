@@ -61,6 +61,22 @@ describe('AutomationCard', () => {
     expect(find('automation-scope').text()).toBe('Future only')
   })
 
+  it.each([
+    ['in', 'Money in', 'lucide-trending-up'],
+    ['out', 'Money out', 'lucide-trending-down'],
+  ] as const)('says when it is only for money %s', async (direction, title, icon) => {
+    const { find } = await render(makeAutomation({ direction }))
+
+    expect(find('automation-direction').text()).toBe(title)
+    expect(find('automation-direction').find('svg').classes()).toContain(icon)
+  })
+
+  it('says nothing about which way the money went when it is either', async () => {
+    const { find } = await render(makeAutomation({ direction: 'any' }))
+
+    expect(find('automation-direction').exists()).toBe(false)
+  })
+
   it('says when its account is not known', async () => {
     const { find } = await render(makeAutomation({ account_id: 'account-gone' }))
     expect(find('automation-account').text()).toBe('Account unavailable')

@@ -48,6 +48,7 @@ export {
 } from './pages/budget-page'
 export { CategoriesPage } from './pages/categories-page'
 export { ConnectPage, type ConnectionAction } from './pages/connect-page'
+export { DashboardPage, usd, type MonthFigure } from './pages/dashboard-page'
 export {
   ImportPage,
   type BalanceChoice,

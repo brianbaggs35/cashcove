@@ -12,6 +12,7 @@ import { navItems, type NavName } from '@/navigation'
 import { useAuthStore } from '@/stores/auth'
 
 const views: Record<NavName, NonNullable<RouteRecordRaw['component']>> = {
+  dashboard: () => import('@/views/DashboardView.vue'),
   accounts: () => import('@/views/AccountsView.vue'),
   budget: () => import('@/views/BudgetView.vue'),
   subscriptions: () => import('@/views/SubscriptionsView.vue'),
@@ -24,7 +25,7 @@ const views: Record<NavName, NonNullable<RouteRecordRaw['component']>> = {
   settings: () => import('@/views/SettingsView.vue'),
 }
 
-export const HOME = '/accounts'
+export const HOME = '/dashboard'
 /** Where a bank's own sign-in page sends people back to; Plaid's dashboard must allow it. */
 export const CONNECT_OAUTH = '/connect/oauth'
 

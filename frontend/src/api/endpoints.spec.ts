@@ -6,6 +6,7 @@ import * as auth from '@/api/auth'
 import * as budget from '@/api/budget'
 import * as categories from '@/api/categories'
 import * as connections from '@/api/connections'
+import * as dashboard from '@/api/dashboard'
 import * as imports from '@/api/imports'
 import * as preferences from '@/api/preferences'
 import * as system from '@/api/system'
@@ -54,6 +55,13 @@ const importRequest: imports.ImportRequest = {
 // Each API function, the request it should make, and the body it should send.
 const endpoints: [string, () => Promise<unknown>, string, string, unknown][] = [
   ['fetchSession', () => auth.fetchSession(), 'GET', '/auth/session', undefined],
+  [
+    'fetchDashboard',
+    () => dashboard.fetchDashboard('2026-09-20'),
+    'GET',
+    '/dashboard?today=2026-09-20',
+    undefined,
+  ],
   [
     'fetchBudgets',
     () => budget.fetchBudgets('2026-09-20'),

@@ -22,6 +22,6 @@ test('the setup wizard creates the first admin on a new install', async ({ page 
   await page.getByTestId('household-submit').click()
   await page.getByTestId('welcome-finish').click()
 
-  await expect(page).toHaveURL(/\/accounts$/)
+  await expect(page).toHaveURL(/\/dashboard$/)
   expect(problems).toEqual([])
 })

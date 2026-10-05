@@ -5,6 +5,10 @@ import {
   amountMode,
   amountRange,
   amountsValid,
+  directionHints,
+  directionOf,
+  directionPhrases,
+  directionTitles,
   keyOf,
   matchItems,
   nameFor,
@@ -14,6 +18,26 @@ describe('what automations look for', () => {
   it('offers each way of matching with what it means', () => {
     expect(matchItems.map((item) => item.title)).toEqual(['Exactly', 'Starts with', 'Contains'])
     expect(matchItems[2]!.props.subtitle).toContain('has this in it')
+  })
+
+  it('names each way the money can go, with where to use it', () => {
+    expect(directionTitles).toEqual({ any: 'Either way', in: 'Money in', out: 'Money out' })
+    expect(directionPhrases).toEqual({ any: null, in: 'money in', out: 'money out' })
+    expect(directionHints.in).toContain('paycheck')
+    expect(directionHints.out).toContain('purchase')
+    expect(directionHints.any).toContain('whichever way')
+  })
+
+  it.each([
+    [[], 'any'],
+    [['2400.00'], 'in'],
+    [['2400.00', '18.20'], 'in'],
+    [['-84.12'], 'out'],
+    [['-84.12', '-4.50'], 'out'],
+    [['2400.00', '-84.12'], 'any'],
+    [['0.00'], 'any'],
+  ] as const)('reads the amounts %j as going %s', (amounts, direction) => {
+    expect(directionOf([...amounts])).toBe(direction)
   })
 
   it('compares texts ignoring letter case and extra spaces', () => {

@@ -102,7 +102,7 @@ describe('ResetPasswordView', () => {
     const { wrapper, router } = await render('#reset-token', makeSessionState())
     await choose(wrapper, 'violet harbor compass 58')
     await vi.waitFor(() => {
-      expect(router.currentRoute.value.name).toBe('accounts')
+      expect(router.currentRoute.value.name).toBe('dashboard')
     })
     expect(useAuthStore().signedIn).toBe(true)
     expect(notices.value.at(-1)?.text).toBe('Password changed for sam@example.com.')

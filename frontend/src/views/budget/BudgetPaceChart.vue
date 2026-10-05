@@ -14,7 +14,7 @@ import {
   runningTotal,
   tipShift,
 } from '@/views/budget/chart'
-import ChartFrame from '@/views/budget/ChartFrame.vue'
+import ChartFrame from '@/components/ui/ChartFrame.vue'
 
 /**
  * How spending builds up over a period against the amount, day by day, with the straight line an

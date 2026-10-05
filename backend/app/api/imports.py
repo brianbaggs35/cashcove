@@ -49,8 +49,10 @@ def preview_import(body: ImportPreviewRequest, auth: AdminAuth, db: Db) -> Impor
 def create_import(body: ImportCreate, auth: AdminAuth, db: Db) -> FileImportOut:
     """Imports the chosen transactions from a file into an open account."""
     locale = load_preferences(db).general.locale
-    record = import_file(db, body, auth.user, locale, utcnow().date())
-    return FileImportOut.model_validate(record).model_copy(update={"created_by": auth.user.name})
+    record, sorted_count = import_file(db, body, auth.user, locale, utcnow().date())
+    return FileImportOut.model_validate(record).model_copy(
+        update={"created_by": auth.user.name, "sorted": sorted_count}
+    )
 
 
 @router.delete("/{import_id}")

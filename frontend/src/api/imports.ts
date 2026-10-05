@@ -73,6 +73,13 @@ export interface ImportMatch {
   source: TransactionSource
 }
 
+/** What the household's automations will do to a row when it is imported. */
+export interface AutomationEffect {
+  category_id: string | null
+  /** The subscription or bill its payment will be linked to. */
+  subscription_id: string | null
+}
+
 export interface PreviewRow {
   /** Where it is in the file, counted from 1, as a spreadsheet numbers rows. */
   line: number
@@ -82,11 +89,14 @@ export interface PreviewRow {
   payee: string | null
   description: string | null
   memo: string | null
+  /** What it will be filed under: an automation's category when one gives it. */
   category_id: string | null
   status: RowStatus
   /** Why it can't be imported. */
   problem: string | null
   match: ImportMatch | null
+  /** Set when automations will sort it as it is imported. */
+  automation: AutomationEffect | null
 }
 
 export interface CsvColumn {
@@ -152,6 +162,8 @@ export interface ImportSummary {
   invalid: number
   first_date: string | null
   last_date: string | null
+  /** How many of the new rows automations will sort. */
+  sorted: number
 }
 
 export interface ImportPreview {
@@ -214,6 +226,8 @@ export interface FileImport {
   created_at: string
   /** Who imported it, by name. */
   created_by: string | null
+  /** How many of what it added the household's automations sorted, when it was imported. */
+  sorted: number
 }
 
 /** A CSV layout saved for a bank's files, which the next file with its columns is read with. */

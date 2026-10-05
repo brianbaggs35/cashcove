@@ -16,8 +16,8 @@ async function visit(path: string, session: Parameters<typeof useSession>[0] = m
 }
 
 describe('router', () => {
-  it('redirects the root to Accounts', async () => {
-    expect((await visit('/')).name).toBe('accounts')
+  it('redirects the root to the Dashboard', async () => {
+    expect((await visit('/')).name).toBe('dashboard')
   })
 
   it.each(navItems.map((item) => [item.path, item.title]))(

@@ -188,6 +188,7 @@ def _new_from_bank(
         account_id=account.id,
         payee=before.payee if before else payee,
         category_id=before.category_id if before else chooser.choose(transaction, payee),
+        category_chosen=before.category_chosen if before else False,
         notes=before.notes if before else None,
         source=TransactionSource.PLAID,
         external_id=transaction.transaction_id,
@@ -223,6 +224,9 @@ def _apply_account(
         row = rows.get(transaction.transaction_id)
         if row is not None and _update_from_bank(row, transaction):
             counts.updated += 1
+            # What the bank changed, like its amount or how it names it, can be what an
+            # automation looks for.
+            rules.sort(row)
     gone = [rows[item].id for item in changes.removed if item in rows]
     if gone:
         db.execute(delete(Transaction).where(Transaction.id.in_(gone)))

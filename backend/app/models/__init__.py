@@ -12,7 +12,12 @@ from app.models.auth import (
     RecoveryCode,
     UserSession,
 )
-from app.models.automation import Automation, AutomationMatch, AutomationScope
+from app.models.automation import (
+    Automation,
+    AutomationDirection,
+    AutomationMatch,
+    AutomationScope,
+)
 from app.models.base import Base, TimestampMixin
 from app.models.budget import (
     Budget,
@@ -46,6 +51,7 @@ __all__ = [
     "AuditEvent",
     "AuthChallenge",
     "Automation",
+    "AutomationDirection",
     "AutomationMatch",
     "AutomationScope",
     "Base",

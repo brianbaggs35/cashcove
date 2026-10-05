@@ -204,6 +204,19 @@ describe('ImportDialog', () => {
     expect(open.value).toBe(false)
   })
 
+  it.each([
+    [1, 'Your automations sorted 1 of them.'],
+    [3, 'Your automations sorted 3 of them.'],
+  ])('says how many automations sorted once imported: %s', async (sorted, note) => {
+    const { start } = await render()
+    await start(makePreview({ account_id: visa.id, rows: [makeRow({ amount: '-12.00' })] }))
+    await press('import-continue')
+    answerImport({ ...imported, account_id: visa.id, skipped: 0, sorted })
+    await press('import-submit')
+
+    expect(find('import-done-note').text()).toContain(note)
+  })
+
   it('says what’s owed on a card once imported', async () => {
     const { start } = await render()
     await start(

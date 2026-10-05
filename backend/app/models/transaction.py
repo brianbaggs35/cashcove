@@ -45,6 +45,9 @@ class Transaction(TimestampMixin, Base):
     category_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("categories.id", ondelete=SET_NULL), index=True
     )
+    # Someone chose the category, so automations leave it as it is. Taking it away hands it back
+    # to them, like every other category, from an automation, the bank or a file.
+    category_chosen: Mapped[bool] = mapped_column(default=False)
     subscription_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("subscriptions.id", ondelete=SET_NULL), index=True
     )

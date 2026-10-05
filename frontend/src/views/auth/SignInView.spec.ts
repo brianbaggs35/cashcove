@@ -78,7 +78,7 @@ async function submit(view: View) {
   await flushPromises()
 }
 
-async function landed(view: View, name = 'accounts') {
+async function landed(view: View, name = 'dashboard') {
   await vi.waitFor(() => {
     expect(view.router.currentRoute.value.name).toBe(name)
   })

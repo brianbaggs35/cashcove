@@ -28,6 +28,7 @@ describe('automation API', () => {
       name: 'Streaming',
       payees: ['Netflix', 'Hulu'],
       match: 'contains',
+      direction: 'in',
       account_id: null,
       min_amount: '2.99',
       max_amount: '10.99',
@@ -62,6 +63,7 @@ describe('automation API', () => {
       previewAutomation({
         payees: ['Netflix'],
         match: 'starts_with',
+        direction: 'out',
         accountId: 'account-visa',
         minAmount: '2.99',
         maxAmount: null,
@@ -75,6 +77,7 @@ describe('automation API', () => {
     expect(JSON.parse(fetch.mock.calls[0]![1].body as string)).toEqual({
       payees: ['Netflix'],
       match: 'starts_with',
+      direction: 'out',
       account_id: 'account-visa',
       min_amount: '2.99',
       max_amount: null,
