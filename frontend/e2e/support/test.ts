@@ -17,6 +17,7 @@ import { BillsPage } from './pages/bills-page'
 import { BudgetPage } from './pages/budget-page'
 import { CategoriesPage } from './pages/categories-page'
 import { ConnectPage } from './pages/connect-page'
+import { DashboardPage } from './pages/dashboard-page'
 import { ImportPage } from './pages/import-page'
 import { SignInPage } from './pages/sign-in-page'
 import { TransactionsPage } from './pages/transactions-page'
@@ -53,6 +54,8 @@ export interface CashcoveFixtures {
   budgetPage: BudgetPage
   /** The Connect tab and its wizard. */
   connectPage: ConnectPage
+  /** The Dashboard: net worth, the month so far, charts, budgets and what is coming up. */
+  dashboardPage: DashboardPage
   /** The Import tab and its import dialog. */
   importPage: ImportPage
   /** Plaid Link's window, which a stand-in replaces in every test, and the banks behind the
@@ -149,6 +152,10 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
 
   connectPage: async ({ page }, use) => {
     await use(new ConnectPage(page))
+  },
+
+  dashboardPage: async ({ page }, use) => {
+    await use(new DashboardPage(page))
   },
 
   importPage: async ({ page }, use) => {

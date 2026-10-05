@@ -6,6 +6,11 @@ spec starts from the same **baseline** data, so you always know what's in the da
 The Budget spec makes budgets, switches between them and counts income and spending toward
 them in every way (transactions, accounts, categories, subscriptions, bills and automations),
 including what Plaid and statement files bring in, on both screen sizes.
+The Dashboard spec checks the new landing page against the API's own numbers after adding
+transactions, its charts as tables, what needs attention and where each card links, in both
+themes and on a phone. The Automation flows spec follows a paycheck into a statement file and from
+the bank (classified, counted in a budget, and left alone when it is a purchase of the same name),
+links payments to a bill from both, and keeps a category chosen by hand.
 The Bills spec adds bills from the payment that paid them and links payments to them by hand and
 by automation, from the bank and from a statement file, and checks their reminders, categories
 and place in a budget.

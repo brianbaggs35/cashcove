@@ -170,6 +170,9 @@ const adding = useAction(async () => {
         name: `${name} (${where})`.slice(0, 120),
         payees: payees.value,
         match: 'exact',
+        // Income is money coming in, so a payee counted as income isn't counted for what was
+        // paid to it; spending also counts what comes back, which takes it off.
+        direction: kind === 'income' ? 'in' : 'any',
         account_id: null,
         min_amount: null,
         max_amount: null,

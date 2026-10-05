@@ -6,7 +6,7 @@ import { findNavItem } from '@/navigation'
 
 const emit = defineEmits<{ more: [] }>()
 const alerts = useConnectionAlerts()
-const items = (['accounts', 'transactions', 'budget', 'subscriptions'] as const).map(findNavItem)
+const items = (['dashboard', 'accounts', 'transactions', 'budget'] as const).map(findNavItem)
 </script>
 
 <template>

@@ -19,8 +19,16 @@ from app.finance.automations import (
 )
 from app.finance.budget import automation_counts, set_automation_counts
 from app.finance.categories import find_category
-from app.models import Account, Automation, AutomationMatch, AutomationScope, Subscription
+from app.models import (
+    Account,
+    Automation,
+    AutomationDirection,
+    AutomationMatch,
+    AutomationScope,
+    Subscription,
+)
 from app.schemas.automations import (
+    MONEY_IN_LINK,
     NO_ACTION,
     AutomationCreate,
     AutomationOut,
@@ -116,7 +124,12 @@ def preview_automation(
     """What an automation like this would sort, and which other automations already give some of
     the same transactions the same kind of thing. Nothing is saved."""
     looks = Looks(
-        distinct_payees(body.payees), body.match, body.account_id, body.min_amount, body.max_amount
+        distinct_payees(body.payees),
+        body.match,
+        body.account_id,
+        body.min_amount,
+        body.max_amount,
+        body.direction,
     )
     return AutomationPreview(
         matching=match_count(db, looks),
@@ -145,6 +158,7 @@ def create_automation(body: AutomationCreate, auth: AdminAuth, db: Db) -> Automa
         name=body.name,
         payees=distinct_payees(body.payees),
         match=body.match,
+        direction=body.direction,
         account_id=body.account_id,
         min_amount=body.min_amount,
         max_amount=body.max_amount,
@@ -178,6 +192,7 @@ class _Settings(NamedTuple):
 
     payees: list[str]
     match: AutomationMatch
+    direction: AutomationDirection
     account_id: uuid.UUID | None
     min_amount: Decimal | None
     max_amount: Decimal | None
@@ -193,6 +208,7 @@ def _settings(automation: Automation, body: AutomationUpdate) -> _Settings:
     return _Settings(
         payees=automation.payees if body.payees is None else distinct_payees(body.payees),
         match=body.match or automation.match,
+        direction=body.direction or automation.direction,
         account_id=body.account_id if "account_id" in fields else automation.account_id,
         min_amount=_limit(fields, "min_amount", body.min_amount, automation.min_amount),
         max_amount=_limit(fields, "max_amount", body.max_amount, automation.max_amount),
@@ -212,6 +228,7 @@ def _sorts_everything_again(automation: Automation, new: _Settings) -> bool:
         (new.active and not automation.active)
         or (new.apply_to == AutomationScope.ALL and automation.apply_to != new.apply_to)
         or new.match != automation.match
+        or new.direction != automation.direction
         or new.account_id != automation.account_id
         or (new.min_amount, new.max_amount) != (automation.min_amount, automation.max_amount)
         or new.category_id != automation.category_id
@@ -230,6 +247,8 @@ def update_automation(
     counts = _counts(db, automation) if body.counts is None else body.counts
     if new.category_id is None and new.subscription_id is None and not counts:
         raise ApiError(status.HTTP_422_UNPROCESSABLE_CONTENT, "no_action", NO_ACTION)
+    if new.subscription_id is not None and new.direction == AutomationDirection.IN:
+        raise ApiError(status.HTTP_422_UNPROCESSABLE_CONTENT, "money_in_link", MONEY_IN_LINK)
     if not amounts_in_order(new.min_amount, new.max_amount):
         raise ApiError(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -244,6 +263,7 @@ def update_automation(
     automation.name = body.name or automation.name
     automation.payees = new.payees
     automation.match = new.match
+    automation.direction = new.direction
     automation.account_id = new.account_id
     automation.min_amount = new.min_amount
     automation.max_amount = new.max_amount

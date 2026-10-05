@@ -23,6 +23,7 @@ const PAGES = [
 
 /** What pages that load data show once they have, so axe checks the finished page. */
 const LOADED: Record<string, string> = {
+  '/dashboard': 'month-summary',
   '/accounts': 'net-worth',
   '/transactions': 'transaction-totals',
   '/connect': 'connection-card',

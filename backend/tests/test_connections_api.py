@@ -1070,3 +1070,72 @@ def test_what_the_bank_calls_a_transaction_is_found_too(
     rows = [row for row in transactions_in(session, card) if row.payee == "Starbucks"]
     assert len(rows) == 2
     assert {row.category_id for row in rows} == {shopping}
+
+
+def test_a_transaction_the_bank_changes_is_sorted_by_what_it_now_is(
+    admin_client: TestClient, session: Session, fake: FakePlaid
+) -> None:
+    connection = imported(admin_client)
+    card = by_name(accounts_of(session, connection["id"]))["Plaid Credit Card"]
+    account = next(item for item in fake.item("platypus").accounts if item.subtype == "credit card")
+    events = {kind_tx[1]["merchant_name"]: kind_tx[1] for kind_tx in account.events}
+    shopping = category(session, "Shopping")
+    # Only what costs at least 20 is sorted, and Uber came to less.
+    admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Rides",
+            "payees": ["uber"],
+            "category_id": str(shopping),
+            "min_amount": "20.00",
+            "apply_to": "future",
+        },
+    )
+    before = {item.payee: item for item in transactions_in(session, card)}["Uber"]
+    assert before.category_id != shopping
+    account.events += [("modified", events["Uber"] | {"amount": 25.18})]
+
+    last = sync(admin_client, connection)["last_sync"]
+
+    assert last["updated"] == 1
+    session.expire_all()
+    after = {item.payee: item for item in transactions_in(session, card)}["Uber"]
+    assert (after.amount, after.category_id) == (Decimal("-25.18"), shopping)
+
+
+def test_a_category_chosen_for_a_pending_transaction_is_still_chosen_when_it_posts(
+    admin_client: TestClient, session: Session, fake: FakePlaid
+) -> None:
+    connection = imported(admin_client)
+    card = by_name(accounts_of(session, connection["id"]))["Plaid Credit Card"]
+    account = next(item for item in fake.item("platypus").accounts if item.subtype == "credit card")
+    pending = {event[1]["merchant_name"]: event[1] for event in account.events}["Starbucks"]
+    shopping, restaurants = category(session, "Shopping"), category(session, "Restaurants")
+    row = {item.payee: item for item in transactions_in(session, card)}["Starbucks"]
+    admin_client.patch(f"/api/transactions/{row.id}", json={"category_id": str(restaurants)})
+    posted = pending | {
+        "transaction_id": "posted-coffee",
+        "pending": False,
+        "pending_transaction_id": pending["transaction_id"],
+    }
+    account.events += [("added", posted), ("removed", pending)]
+    sync(admin_client, connection)
+
+    # An automation made after, which covers the past, leaves what the household chose.
+    created = admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Coffee runs",
+            "payees": ["starbucks"],
+            "category_id": str(shopping),
+            "apply_to": "all",
+        },
+    )
+
+    assert created.json()["applied"] == 0
+    session.expire_all()
+    after = {item.external_id: item for item in transactions_in(session, card)}
+    assert (after["posted-coffee"].category_id, after["posted-coffee"].category_chosen) == (
+        restaurants,
+        True,
+    )

@@ -153,6 +153,14 @@ class MatchOut(BaseModel):
     source: TransactionSource
 
 
+class AutomationEffect(BaseModel):
+    """What the household's automations will do to a row when it's imported."""
+
+    category_id: uuid.UUID | None
+    # The subscription or bill its payment will be linked to.
+    subscription_id: uuid.UUID | None
+
+
 class PreviewRow(BaseModel):
     # Where it is in the file, counted from 1, as a spreadsheet numbers rows.
     line: int
@@ -164,11 +172,15 @@ class PreviewRow(BaseModel):
     # As the file has it.
     description: str | None
     memo: str | None
+    # What it will be filed under: an automation's category when one gives it, otherwise the
+    # bank's or the one it had the last time one with that description came in.
     category_id: uuid.UUID | None
     status: RowStatus
     # Why it can't be imported.
     problem: str | None
     match: MatchOut | None
+    # Set when automations will sort it as it's imported.
+    automation: AutomationEffect | None = None
 
 
 class CsvColumnOut(BaseModel):
@@ -238,6 +250,8 @@ class ImportSummary(BaseModel):
     # The days the rows that can be imported span.
     first_date: dt.date | None
     last_date: dt.date | None
+    # How many of the new rows automations will sort.
+    sorted: int = 0
 
 
 class ImportPreview(BaseModel):
@@ -276,6 +290,8 @@ class FileImportOut(BaseModel):
     created_at: dt.datetime
     # Who imported it, by name.
     created_by: str | None = None
+    # How many of what it added automations sorted, when it was imported (not kept after).
+    sorted: int = 0
 
 
 class ImportProfileOut(BaseModel):

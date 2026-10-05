@@ -7,7 +7,10 @@ import { useHousehold } from '@/composables/useHousehold'
 import { netWorth } from '@/views/accounts/totals'
 import { toCents } from '@/utils/money'
 
-/** What the household has, what it owes, and the difference, across its open accounts. */
+/**
+ * What the household has, what it owes, and the difference, across its open accounts. Whatever
+ * is put in the slot goes under the figures.
+ */
 const props = defineProps<{ accounts: Account[] }>()
 
 const { currency, money } = useHousehold()
@@ -24,7 +27,7 @@ const share = computed(() => {
 </script>
 
 <template>
-  <v-card class="net-worth pa-5 pa-md-6 mb-6" data-test="net-worth">
+  <v-card class="net-worth pa-5 pa-md-6" data-test="net-worth">
     <div class="net-worth__glow" aria-hidden="true" />
     <div class="position-relative">
       <div class="d-flex align-center ga-2 text-label-large text-medium-emphasis">
@@ -79,6 +82,7 @@ const share = computed(() => {
           {{ other.currency }}
         </template>
       </p>
+      <slot />
     </div>
   </v-card>
 </template>

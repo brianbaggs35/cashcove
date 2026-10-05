@@ -251,7 +251,7 @@ describe('WelcomeView', () => {
     ])
     await view.find('welcome-finish').trigger('click')
     await vi.waitFor(() => {
-      expect(view.router.currentRoute.value.name).toBe('accounts')
+      expect(view.router.currentRoute.value.name).toBe('dashboard')
     })
     expect(onboardingStep()).toBeNull()
   })

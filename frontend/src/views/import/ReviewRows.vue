@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CircleAlert, CopyCheck } from '@lucide/vue'
+import { CircleAlert, CopyCheck, WandSparkles } from '@lucide/vue'
 import { computed, ref, useId, watch } from 'vue'
 
 import type { ImportPreview, PreviewRow, RowStatus } from '@/api/imports'
@@ -8,11 +8,13 @@ import CategoryChip from '@/components/finance/CategoryChip.vue'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
 import { useHousehold } from '@/composables/useHousehold'
 import { importable, useImportWizard } from '@/stores/importWizard'
+import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { formatListDate } from '@/utils/dates'
 import { coveredByBank } from '@/views/import/columns'
 
 /** The file's rows: which are new, which the account already has, and which to import. */
 const wizard = useImportWizard()
+const subscriptions = useSubscriptionsStore()
 const { locale } = useHousehold()
 const filterLabel = useId()
 
@@ -97,6 +99,16 @@ function note(row: PreviewRow): string | null {
         return 'On a day the bank already shared through Plaid'
       return row.description && row.description !== row.payee ? row.description : null
   }
+}
+
+/** What automations will do to a row, in words. */
+function automationNote(row: PreviewRow): string | null {
+  const effect = row.automation
+  if (!effect) return null
+  const linked = effect.subscription_id
+    ? ` · linked to ${subscriptions.find(effect.subscription_id)?.name ?? 'a subscription or bill'}`
+    : ''
+  return `Sorted by your automations${linked}`
 }
 
 const name = (row: PreviewRow) => row.payee ?? row.description ?? 'Unknown payee'
@@ -185,6 +197,14 @@ const name = (row: PreviewRow) => row.payee ?? row.description ?? 'Unknown payee
             />
           </span>
           <span
+            v-if="automationNote(row)"
+            class="review-rows__auto d-flex align-center ga-1 text-body-small"
+            data-test="review-row-automation"
+          >
+            <v-icon :icon="WandSparkles" size="14" aria-hidden="true" />
+            {{ automationNote(row) }}
+          </span>
+          <span
             v-if="note(row)"
             class="review-rows__note text-body-small"
             data-test="review-row-note"
@@ -251,6 +271,10 @@ label.review-rows__row:hover {
 .review-rows__row--invalid .review-rows__mark,
 .review-rows__row--invalid .review-rows__note {
   color: rgb(var(--v-theme-error));
+}
+
+.review-rows__auto {
+  color: rgb(var(--v-theme-primary));
 }
 
 .review-rows__row--possible_duplicate .review-rows__note {

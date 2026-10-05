@@ -69,6 +69,6 @@ test.describe('The baseline', () => {
     await page.getByTestId('household-skip').click()
     await page.getByTestId('welcome-finish').click()
 
-    await expect(page).toHaveURL(/\/accounts$/)
+    await expect(page).toHaveURL(/\/dashboard$/)
   })
 })

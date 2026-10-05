@@ -1,4 +1,4 @@
-import type { AutomationMatch } from '@/api/automations'
+import type { AutomationDirection, AutomationMatch } from '@/api/automations'
 import { toCents } from '@/utils/money'
 
 /** What an automation is for in how much a transaction was: any amount, one, or a range. */
@@ -28,6 +28,33 @@ export const matchPhrases: Record<AutomationMatch, string> = {
   exact: 'Payee is',
   starts_with: 'Payee starts with',
   contains: 'Payee contains',
+}
+
+export const directionTitles: Record<AutomationDirection, string> = {
+  any: 'Either way',
+  in: 'Money in',
+  out: 'Money out',
+}
+
+/** What each choice of which way the money went is for, to say where to use it. */
+export const directionHints: Record<AutomationDirection, string> = {
+  any: 'Sorts the transaction whichever way the money went.',
+  in: 'For money coming in, like a paycheck or a refund. A purchase from the same name is left alone.',
+  out: 'For money going out, like a purchase or a bill.',
+}
+
+/** How the way the money went reads in a sentence about what an automation looks for. */
+export const directionPhrases: Record<AutomationDirection, string | null> = {
+  any: null,
+  in: 'money in',
+  out: 'money out',
+}
+
+/** Which way the money went in all of some transactions, or either way when it's mixed or there are none. */
+export function directionOf(amounts: string[]): AutomationDirection {
+  if (amounts.length && amounts.every((amount) => toCents(amount) > 0)) return 'in'
+  if (amounts.length && amounts.every((amount) => toCents(amount) < 0)) return 'out'
+  return 'any'
 }
 
 /** What payees are compared by, so "Netflix" and "NETFLIX  " are one. */

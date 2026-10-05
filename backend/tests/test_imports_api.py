@@ -192,6 +192,7 @@ def test_a_csv_file_previews_with_its_layout_and_what_importing_it_would_do(
         "status": "new",
         "problem": None,
         "match": None,
+        "automation": None,
     }
     assert preview["summary"] == {
         "rows": 5,
@@ -201,6 +202,7 @@ def test_a_csv_file_previews_with_its_layout_and_what_importing_it_would_do(
         "invalid": 0,
         "first_date": "2026-09-01",
         "last_date": "2026-09-05",
+        "sorted": 0,
     }
     assert preview["balance"] == {
         "current": "1000.00",
@@ -627,6 +629,7 @@ def test_importing_adds_the_transactions_and_takes_the_files_balance(
         "last_date": "2026-09-05",
         "created_at": record["created_at"],
         "created_by": "Alex Rivera",
+        "sorted": 0,
     }
     assert balance_of(session, checking) == Decimal("2685.48")
     first = transactions(session)[0]
@@ -1044,3 +1047,139 @@ def test_a_files_history_in_a_linked_account_is_sorted_like_the_banks_own(
     netflix = [row for row in transactions(session) if "NETFLIX" in row.payee.upper()]
     assert len(netflix) == 2
     assert {row.category_id for row in netflix} == {uuid.UUID(categories["Utilities"])}
+
+
+# ---- Automations while importing -------------------------------------------------------------
+
+
+def paycheck_automation(
+    client: TestClient, categories: dict[str, str], **changes: Any
+) -> dict[str, Any]:
+    response = client.post(
+        "/api/automations",
+        json={
+            "name": "Paycheck",
+            "payees": ["northwind health payroll"],
+            "match": "contains",
+            "direction": "in",
+            "category_id": categories["Paycheck"],
+            "apply_to": "future",
+            **changes,
+        },
+    )
+    assert response.status_code == 201, response.text
+    result: dict[str, Any] = response.json()
+    return result
+
+
+def test_the_preview_says_what_automations_will_do_to_each_row(
+    admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
+) -> None:
+    paycheck_automation(admin_client, categories)
+    bill = admin_client.post(
+        "/api/bills",
+        json={
+            "name": "Power",
+            "payee": "City Power & Light",
+            "amount": "96.40",
+            "frequency": "monthly",
+            "account_id": str(checking.id),
+            "next_due_date": "2026-09-05",
+            "category_id": categories["Utilities"],
+        },
+    ).json()
+
+    preview = previewed(admin_client, CHECKING_CSV, account_id=str(checking.id))
+
+    rows = {row["payee"]: row for row in preview["rows"]}
+    assert rows["NORTHWIND HEALTH PAYROLL PPD"]["automation"] == {
+        "category_id": categories["Paycheck"],
+        "subscription_id": None,
+    }
+    # The category an automation gives is the one the row will be filed under.
+    assert rows["NORTHWIND HEALTH PAYROLL PPD"]["category_id"] == categories["Paycheck"]
+    assert rows["CITY POWER & LIGHT"]["automation"] == {
+        "category_id": categories["Utilities"],
+        "subscription_id": bill["id"],
+    }
+    assert rows["WHOLEFDS MKT #10234 AUSTIN TX"]["automation"] is None
+    assert preview["summary"]["sorted"] == 2
+    # Nothing was changed by looking: the bill is still due when it was.
+    assert admin_client.get(f"/api/bills/{bill['id']}").json()["next_due_date"] == "2026-09-05"
+    assert transactions(session) == []
+
+
+def test_the_preview_leaves_out_what_will_not_be_imported(
+    admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
+) -> None:
+    paycheck_automation(admin_client, categories)
+    imported(admin_client, CHECKING_CSV, checking)
+
+    again = previewed(admin_client, CHECKING_CSV, account_id=str(checking.id))
+
+    assert set(statuses(again)) == {"duplicate"}
+    assert [row["automation"] for row in again["rows"]] == [None] * 5
+    assert again["summary"]["sorted"] == 0
+
+
+def test_a_file_without_an_account_yet_is_previewed_without_that_accounts_automations(
+    admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
+) -> None:
+    paycheck_automation(admin_client, categories, account_id=str(checking.id))
+    add_account(session, "Savings")
+
+    preview = previewed(admin_client, CHECKING_CSV)
+
+    assert preview["account_id"] is None
+    assert preview["summary"]["sorted"] == 0
+    assert (
+        previewed(admin_client, CHECKING_CSV, account_id=str(checking.id))["summary"]["sorted"] == 1
+    )
+
+
+def test_importing_says_how_many_it_sorted_with_automations(
+    admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
+) -> None:
+    paycheck_automation(admin_client, categories)
+    # Already the category it would be given, which isn't sorting it.
+    admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Coffee",
+            "payees": ["blue bottle coffee"],
+            "category_id": categories["Groceries"],
+            "apply_to": "future",
+        },
+    )
+
+    record = imported(admin_client, CHECKING_CSV, checking)
+
+    assert (record["added"], record["sorted"]) == (5, 3)
+    assert admin_client.get("/api/imports").json()[0]["sorted"] == 0
+
+
+def test_a_file_sorts_money_by_the_way_it_went(
+    admin_client: TestClient, session: Session, checking: Account, categories: dict[str, str]
+) -> None:
+    csv = """Date,Description,Amount
+09/01/2026,ACME PAYROLL,2500.00
+09/02/2026,ACME STORE PURCHASE,-45.00
+"""
+    admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Paycheck",
+            "payees": ["acme"],
+            "match": "contains",
+            "direction": "in",
+            "category_id": categories["Paycheck"],
+            "apply_to": "future",
+        },
+    )
+
+    record = imported(admin_client, csv, checking)
+
+    assert record["sorted"] == 1
+    by_payee = {row.payee: row for row in transactions(session)}
+    assert by_payee["ACME PAYROLL"].category_id == uuid.UUID(categories["Paycheck"])
+    assert by_payee["ACME STORE PURCHASE"].category_id is None

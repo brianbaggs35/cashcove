@@ -8,7 +8,7 @@ from typing import Annotated, Self
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from pydantic_core import PydanticCustomError
 
-from app.models import AutomationMatch, AutomationScope
+from app.models import AutomationDirection, AutomationMatch, AutomationScope
 from app.schemas.budget import AutomationCount
 from app.schemas.fields import STRICT, AmountOut, Payee, PositiveAmount
 
@@ -24,6 +24,8 @@ MAX_COUNTS = 20
 # The budgets an automation counts what it sorts toward, as income or as spending.
 Counts = Annotated[list[AutomationCount], Field(max_length=MAX_COUNTS)]
 NO_ACTION = "Choose a category, a subscription, a bill or a budget for it to give."
+# Only payments are linked to a subscription or a bill, so money coming in has nothing to link.
+MONEY_IN_LINK = "A subscription or bill is linked to payments, which is money going out."
 
 
 def amounts_in_order(low: Decimal | None, high: Decimal | None) -> bool:
@@ -45,6 +47,8 @@ class AutomationCreate(BaseModel):
     payees: Payees
     # How the payees are compared with a transaction's payee and the bank's description.
     match: AutomationMatch = AutomationMatch.EXACT
+    # Only money coming in, or only money going out, or either.
+    direction: AutomationDirection = AutomationDirection.ANY
     # Only transactions in this account, or in any when left out.
     account_id: uuid.UUID | None = None
     # Only transactions of this much, whichever way the money went; either end can be left open.
@@ -61,6 +65,8 @@ class AutomationCreate(BaseModel):
     def _is_sensible(self) -> Self:
         if self.category_id is None and self.subscription_id is None and not self.counts:
             raise PydanticCustomError("no_action", NO_ACTION)
+        if self.subscription_id is not None and self.direction == AutomationDirection.IN:
+            raise PydanticCustomError("money_in_link", MONEY_IN_LINK)
         _in_order(self.min_amount, self.max_amount)
         return self
 
@@ -74,6 +80,7 @@ class AutomationUpdate(BaseModel):
     name: AutomationName | None = None
     payees: Payees | None = None
     match: AutomationMatch | None = None
+    direction: AutomationDirection | None = None
     account_id: uuid.UUID | None = None
     min_amount: PositiveAmount | None = None
     max_amount: PositiveAmount | None = None
@@ -91,6 +98,7 @@ class AutomationOut(BaseModel):
     name: str
     payees: list[str]
     match: AutomationMatch
+    direction: AutomationDirection
     account_id: uuid.UUID | None
     min_amount: AmountOut | None
     max_amount: AmountOut | None
@@ -118,6 +126,7 @@ class AutomationPreviewRequest(BaseModel):
 
     payees: Payees
     match: AutomationMatch = AutomationMatch.EXACT
+    direction: AutomationDirection = AutomationDirection.ANY
     account_id: uuid.UUID | None = None
     min_amount: PositiveAmount | None = None
     max_amount: PositiveAmount | None = None

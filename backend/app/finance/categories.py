@@ -2,9 +2,10 @@
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import status
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth.deps import ApiError
@@ -177,3 +178,20 @@ def find_category(db: Session, category_id: uuid.UUID | None) -> Category | None
             "That category doesn't exist anymore. Choose another one.",
         )
     return category
+
+
+def transfer_categories() -> Select[*tuple[Any, ...]]:
+    """The categories of money moving between the household's own accounts."""
+    return (
+        select(Category.id)
+        .join(CategoryGroup, CategoryGroup.id == Category.group_id)
+        .where(CategoryGroup.kind == CategoryKind.TRANSFER)
+    )
+
+
+def not_a_transfer() -> ColumnElement[bool]:
+    """What a transaction has to be to count as income or spending: moving money between the
+    household's own accounts is neither."""
+    return or_(
+        Transaction.category_id.is_(None), Transaction.category_id.not_in(transfer_categories())
+    )

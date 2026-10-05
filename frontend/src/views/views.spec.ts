@@ -4,6 +4,7 @@ import BillsView from '@/views/BillsView.vue'
 import BudgetView from '@/views/BudgetView.vue'
 import CategoriesView from '@/views/CategoriesView.vue'
 import ConnectView from '@/views/ConnectView.vue'
+import DashboardView from '@/views/DashboardView.vue'
 import ImportView from '@/views/ImportView.vue'
 import NotFoundView from '@/views/NotFoundView.vue'
 import SubscriptionsView from '@/views/SubscriptionsView.vue'
@@ -12,6 +13,7 @@ import { mountWithPlugins } from '@/test/mount'
 
 describe('tab views', () => {
   it.each([
+    ['Dashboard', DashboardView],
     ['Accounts', AccountsView],
     ['Budget', BudgetView],
     ['Subscriptions', SubscriptionsView],
@@ -27,10 +29,10 @@ describe('tab views', () => {
     wrapper.unmount()
   })
 
-  it('the not-found page links back to Accounts', async () => {
+  it('the not-found page links back to the Dashboard', async () => {
     const { wrapper } = await mountWithPlugins(NotFoundView)
     expect(wrapper.text()).toContain('Page not found')
-    expect(wrapper.find('a').attributes('href')).toBe('/accounts')
+    expect(wrapper.find('a').attributes('href')).toBe('/dashboard')
     wrapper.unmount()
   })
 })

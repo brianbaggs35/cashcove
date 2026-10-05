@@ -214,6 +214,22 @@ describe('ReviewStep', () => {
     expect(find('balance-choice').exists()).toBe(false)
   })
 
+  it.each([
+    [1, 'Your automations will sort 1 of the new transactions as they come in.'],
+    [1234, 'Your automations will sort 1,234 of the new transactions as they come in.'],
+  ])('says how many of the new rows automations will sort: %s', async (sorted, note) => {
+    const preview = makePreview()
+    const { find } = await render({ ...preview, summary: { ...preview.summary, sorted } })
+
+    expect(find('review-sorted').text()).toBe(note)
+  })
+
+  it('says nothing about automations when none will sort a row', async () => {
+    const { find } = await render()
+
+    expect(find('review-sorted').exists()).toBe(false)
+  })
+
   it('says when the bank shared some of the file’s days', async () => {
     const { find } = await render(
       makePreview({

@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.auth.deps import ApiError
 from app.auth.service import load_preferences
 from app.finance.automations import Looks, matching
+from app.finance.categories import not_a_transfer
 from app.finance.exchange_rates import ExchangeRateClient, RateBook
 from app.finance.periods import (
     default_start,
@@ -62,8 +63,6 @@ from app.models import (
     BudgetLink,
     BudgetPeriod,
     Category,
-    CategoryGroup,
-    CategoryKind,
     RecurringKind,
     Subscription,
     Transaction,
@@ -155,15 +154,6 @@ def amount_at(budget: Budget, start: dt.date) -> Decimal:
 # ---- What counts ------------------------------------------------------------------------
 
 
-def _transfers() -> Select[*tuple[Any, ...]]:
-    """The categories of money moving between the household's own accounts."""
-    return (
-        select(Category.id)
-        .join(CategoryGroup, CategoryGroup.id == Category.group_id)
-        .where(CategoryGroup.kind == CategoryKind.TRANSFER)
-    )
-
-
 def _counted(
     db: Session,
     budget: Budget,
@@ -224,10 +214,7 @@ def _counted(
                     and_(kind == BudgetKind.INCOME, Transaction.amount > 0),
                 ),
                 # Moving money between accounts isn't income or spending.
-                or_(
-                    Transaction.category_id.is_(None),
-                    Transaction.category_id.not_in(_transfers()),
-                ),
+                not_a_transfer(),
                 *limits,
             ),
         ]

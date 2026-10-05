@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookmarkCheck, Link, Plus } from '@lucide/vue'
+import { BookmarkCheck, Link, Plus, WandSparkles } from '@lucide/vue'
 import { computed, nextTick, useTemplateRef, watch } from 'vue'
 
 import type { Account } from '@/api/accounts'
@@ -82,6 +82,15 @@ const bankNote = computed(() => {
     return `Plaid brings in ${name}’s transactions from ${from} on, so ${rows} from then ${start} unticked. Tick any the bank missed.`
   const end = formatListDate(history.end, locale.value)
   return `Plaid brought in ${name}’s transactions from ${from} to ${end}, so ${rows} from those days ${start} unticked.`
+})
+
+/** How many of the new rows automations will sort. */
+const sortedNote = computed(() => {
+  const { sorted } = preview.value.summary
+  if (!sorted) return null
+  return sorted === 1
+    ? 'Your automations will sort 1 of the new transactions as they come in.'
+    : `Your automations will sort ${sorted.toLocaleString('en-US')} of the new transactions as they come in.`
 })
 
 /** A linked account's balance, which its bank keeps. */
@@ -198,6 +207,17 @@ const saveLabel = computed(() =>
         class="mt-3"
         :text="bankNote"
         data-test="review-bank-history"
+      />
+
+      <v-alert
+        v-if="sortedNote"
+        :icon="WandSparkles"
+        color="primary"
+        variant="tonal"
+        density="compact"
+        class="mt-3"
+        :text="sortedNote"
+        data-test="review-sorted"
       />
 
       <div class="text-title-small font-weight-bold mt-5 mb-2">Transactions</div>

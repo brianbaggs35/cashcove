@@ -150,6 +150,24 @@ describe('BudgetLinkDialog', () => {
     expect(overlay().text()).toContain('Tick the money that came in, like your paycheck.')
   })
 
+  it('counts spending either way, since what comes back takes it off', async () => {
+    const create = vi
+      .spyOn(automationsApi, 'createAutomation')
+      .mockResolvedValue({ ...makeAutomation(), applied: 0 })
+    const { field, picks } = await render({ kind: 'spending' })
+    await picks()[0]!.setValue(true)
+
+    await field('add').trigger('click')
+    await flushPromises()
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: 'any',
+        counts: [{ budget_id: 'budget-monthly', kind: 'spending' }],
+      }),
+    )
+  })
+
   it('counts every later transaction like the ones ticked, which makes an automation', async () => {
     const create = vi
       .spyOn(automationsApi, 'createAutomation')
@@ -169,6 +187,8 @@ describe('BudgetLinkDialog', () => {
       name: 'Whole Foods and 1 more (Household)',
       payees: ['Whole Foods', 'Blue Bottle'],
       match: 'exact',
+      // Income is money that came in, so what was paid to the same names isn't counted as it.
+      direction: 'in',
       account_id: null,
       min_amount: null,
       max_amount: null,

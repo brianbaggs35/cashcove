@@ -1,7 +1,7 @@
 import { h } from 'vue'
 
 import { mountWithPlugins } from '@/test/mount'
-import ChartFrame from '@/views/budget/ChartFrame.vue'
+import ChartFrame from '@/components/ui/ChartFrame.vue'
 
 async function render(withLegend = true) {
   const mounted = await mountWithPlugins(ChartFrame, {

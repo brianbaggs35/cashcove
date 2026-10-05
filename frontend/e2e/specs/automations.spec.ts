@@ -154,7 +154,8 @@ test.describe('Automations', () => {
     await expect(automationsPage.dialog.getByTestId('automation-save')).toBeDisabled()
     await automationsPage.thenFill({ category: 'Gifts & donations' })
     await expect(automationsPage.dialog.getByTestId('automation-when')).toHaveText(
-      'Payee is “Venmo”, in any account',
+      // What was ticked was paid, so only payments to it are sorted.
+      'Payee is “Venmo”, in any account, money out',
     )
     await expect(automationsPage.dialog.getByTestId('automation-then')).toContainText('put them in')
     await expectAccessible(page, { include: '.v-overlay--active' })
@@ -518,7 +519,7 @@ test.describe('Automations', () => {
     )
     await automationsPage.dialog.getByTestId('automation-use-amounts').click()
     await expect(automationsPage.dialog.getByTestId('automation-looks')).toHaveText(
-      'Exactly · any account · exactly $15.49',
+      'Exactly · any account · money out · exactly $15.49',
     )
     await expectAccessible(page, { include: '.v-overlay--active' })
     await automationsPage.next()
