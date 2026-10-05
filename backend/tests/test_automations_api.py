@@ -257,7 +257,7 @@ def test_an_automation_needs_something_to_do_and_something_to_match(
     streaming = category(session)
     no_action = admin_client.post("/api/automations", json=payload())
     assert no_action.status_code == 422
-    assert "Choose a category, a subscription or a budget" in no_action.text
+    assert "Choose a category, a subscription, a bill or a budget" in no_action.text
     for body in (
         payload(category_id=str(streaming.id), payees=[]),
         payload(category_id=str(streaming.id), payees=[f"Payee {n}" for n in range(51)]),
@@ -1093,3 +1093,90 @@ def test_counting_stops_with_the_automation_or_the_budget(
 
     assert session.query(BudgetLink).count() == 0
     assert admin_client.get(f"/api/automations/{second['id']}").json()["counts"] == []
+
+
+# ---- Bills ---------------------------------------------------------------------------------
+
+
+def create_bill(client: TestClient, account: Account, **changes: Any) -> dict[str, Any]:
+    body = {
+        "name": "City Power",
+        "payee": "City Power",
+        "amount": "96.40",
+        "amount_varies": True,
+        "frequency": "monthly",
+        "account_id": str(account.id),
+        "next_due_date": (TODAY + dt.timedelta(days=12)).isoformat(),
+        **changes,
+    }
+    response = client.post("/api/bills", json=body)
+    assert response.status_code == 201, response.text
+    result: dict[str, Any] = response.json()
+    return result
+
+
+def test_an_automation_links_a_bills_payments_from_any_account_whatever_they_are_called(
+    admin_client: TestClient, session: Session
+) -> None:
+    checking = add_account(session)
+    card = add_account(session, "Rewards card")
+    utilities = category(session, "Utilities", "Home")
+    bill = create_bill(admin_client, checking, category_id=str(utilities.id))
+    # Each account writes the same company differently, and neither is the bill's own payee.
+    by_card = add_transaction(
+        session,
+        card,
+        "-101.25",
+        "City Power",
+        original_description="CITYPWR*8841 AUSTIN TX",
+        date=TODAY - dt.timedelta(days=45),
+    )
+    by_bank = add_transaction(
+        session, checking, "-88.10", "CITYPWR ONLINE", date=TODAY - dt.timedelta(days=15)
+    )
+    refund = add_transaction(session, card, "12.00", "CITYPWR refund")
+
+    saved = create(
+        admin_client,
+        payload(
+            name="Electricity", payees=["citypwr"], match="contains", subscription_id=bill["id"]
+        ),
+    )
+
+    # Money out was linked to the bill and took its category; money in wasn't.
+    assert saved["applied"] >= 2
+    for linked in (by_card, by_bank):
+        row = reload(session, linked)
+        assert (row.subscription_id, row.category_id) == (uuid.UUID(bill["id"]), utilities.id)
+    assert reload(session, refund).subscription_id is None
+    result = admin_client.get(f"/api/bills/{bill['id']}").json()
+    assert (result["kind"], result["payment_count"]) == ("bill", 2)
+    assert result["last_payment_on"] == (TODAY - dt.timedelta(days=15)).isoformat()
+
+    # The next one to come in is linked as it arrives, however it gets there.
+    coming = post_payment(admin_client, card, "CITYPWR*9912", "-97.00")
+    assert (coming["subscription_id"], coming["category_id"]) == (bill["id"], str(utilities.id))
+    after = admin_client.get(f"/api/bills/{bill['id']}").json()
+    assert after["payment_count"] == 3
+    assert after["next_due_date"] > bill["next_due_date"]
+    # And the automation says which bill it links to.
+    listed = admin_client.get("/api/automations").json()
+    assert [item["subscription_id"] for item in listed] == [bill["id"]]
+
+
+def test_an_existing_automation_can_be_pointed_at_a_bill_and_sorts_what_is_there(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    bill = create_bill(admin_client, account, payee="Somewhere else")
+    payment = add_transaction(session, account, "-90.00", "City Power")
+    automation = create(
+        admin_client,
+        payload(name="Power", payees=["City Power"], category_id=str(category(session).id)),
+    )
+    assert reload(session, payment).subscription_id is None
+
+    saved = patch(admin_client, automation, subscription_id=bill["id"])
+
+    assert saved["subscription_id"] == bill["id"]
+    assert reload(session, payment).subscription_id == uuid.UUID(bill["id"])

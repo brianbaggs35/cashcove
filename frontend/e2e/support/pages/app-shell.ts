@@ -7,6 +7,7 @@ export const TABS = {
   accounts: 'Accounts',
   budget: 'Budget',
   subscriptions: 'Subscriptions',
+  bills: 'Bills',
   transactions: 'Transactions',
   categories: 'Categories',
   automations: 'Automations',

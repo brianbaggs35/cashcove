@@ -1,13 +1,10 @@
 <script setup lang="ts">
 import { Link2 } from '@lucide/vue'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { errorMessage } from '@/api/client'
-import {
-  linkSubscriptionPayments,
-  unlinkSubscriptionPayment,
-  type Subscription,
-} from '@/api/subscriptions'
+import { recurringApi } from '@/api/recurring'
+import type { Subscription } from '@/api/subscriptions'
 import type { Transaction } from '@/api/transactions'
 import TransactionFinder from '@/components/finance/TransactionFinder.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
@@ -16,9 +13,10 @@ import { useHousehold } from '@/composables/useHousehold'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { fromIsoDate } from '@/utils/dates'
 import { formatShortDate } from '@/utils/format'
+import { kinds } from '@/views/subscriptions/kinds'
 
 /**
- * Links payments, from any account, to a subscription and takes them off again. Linked
+ * Links payments, from any account, to a subscription or a bill and takes them off again. Linked
  * payments count toward it, take its category and settle its next due date.
  */
 const open = defineModel<boolean>({ required: true })
@@ -29,6 +27,7 @@ const subscriptions = useSubscriptionsStore()
 const { locale } = useHousehold()
 
 const current = ref<Subscription | null>(props.subscription)
+const copy = computed(() => kinds[props.subscription?.kind ?? 'subscription'])
 const scope = ref<'all' | 'linked'>('all')
 /** Counts openings, so each starts with a fresh list. */
 const openings = ref(0)
@@ -58,25 +57,24 @@ function summaryOf(subscription: Subscription): string {
   return `${linked} Next payment due ${due}.`
 }
 
-/** Where a payment linked to another subscription says so. */
+/** Where a payment linked to another subscription or bill says so. */
 function linkedElsewhere(transaction: Transaction): string | null {
   if (!transaction.subscription_id || transaction.subscription_id === current.value?.id) return null
-  return `Linked to ${subscriptions.find(transaction.subscription_id)?.name ?? 'another subscription'}`
+  return `Linked to ${subscriptions.find(transaction.subscription_id)?.name ?? 'another subscription or bill'}`
 }
 
 async function toggle(transaction: Transaction) {
   const subscription = current.value
   if (!subscription) return
   const linked = transaction.subscription_id === subscription.id
+  const api = recurringApi(subscription.kind)
   busy.value = transaction.id
   try {
     if (linked) {
-      current.value = await unlinkSubscriptionPayment(subscription.id, transaction.id)
+      current.value = await api.unlink(subscription.id, transaction.id)
       notify(`Unlinked ${transaction.payee} from ${subscription.name}`)
     } else {
-      current.value = (
-        await linkSubscriptionPayments(subscription.id, [transaction.id])
-      ).subscription
+      current.value = (await api.link(subscription.id, [transaction.id])).subscription
       notify(`Linked ${transaction.payee} to ${subscription.name}`)
     }
     emit('changed', current.value)
@@ -92,12 +90,12 @@ async function toggle(transaction: Transaction) {
 <template>
   <AppDialog
     v-model="open"
-    :title="`Link payments to ${subscription?.name ?? 'a subscription'}`"
-    subtitle="Choose payments from any account. Linked payments count toward the subscription, take its category and settle its next due date."
+    :title="`Link payments to ${subscription?.name ?? `a ${copy.noun}`}`"
+    :subtitle="`Choose payments from any account. Linked payments count toward the ${copy.noun}, take its category and settle its next due date.`"
     :icon="Link2"
     max-width="680"
     fullscreen-on-mobile
-    data-test="subscription-payments-dialog"
+    :data-test="`${copy.noun}-payments-dialog`"
   >
     <template v-if="current">
       <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-3">

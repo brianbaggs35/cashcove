@@ -4,8 +4,11 @@ Playwright drives the real app in Chromium, on a computer-sized screen (`desktop
 phone (`mobile`, a Pixel 7), against a test server built from the production image. Every
 spec starts from the same **baseline** data, so you always know what's in the database.
 The Budget spec makes budgets, switches between them and counts income and spending toward
-them in every way (transactions, accounts, categories, subscriptions and automations),
+them in every way (transactions, accounts, categories, subscriptions, bills and automations),
 including what Plaid and statement files bring in, on both screen sizes.
+The Bills spec adds bills from the payment that paid them and links payments to them by hand and
+by automation, from the bank and from a statement file, and checks their reminders, categories
+and place in a budget.
 
 ## Running them
 

@@ -1,19 +1,24 @@
 import { flushPromises } from '@vue/test-utils'
 
+import type { MockInstance } from 'vitest'
+
+import * as billsApi from '@/api/bills'
 import * as subscriptionsApi from '@/api/subscriptions'
-import type { Subscription } from '@/api/subscriptions'
+import type { RecurringKind, Subscription } from '@/api/subscriptions'
 import * as transactionsApi from '@/api/transactions'
 import { confirmRequest } from '@/composables/confirm'
 import { notices } from '@/composables/notify'
 import { answer } from '@/test/confirm'
 import { checking, makeAccount, makePage, seedFinance } from '@/test/finance'
 import { makePreferences, makeSessionState, makeUser } from '@/test/fixtures'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import { mountWithPlugins } from '@/test/mount'
 import { addDays, todayIso } from '@/utils/dates'
 import SubscriptionsView from '@/views/SubscriptionsView.vue'
 
 interface Options {
+  /** Which page: subscriptions, or bills. */
+  kind?: RecurringKind
   role?: 'admin' | 'viewer'
   items?: Subscription[]
   fail?: boolean
@@ -30,6 +35,7 @@ interface Options {
 }
 
 async function render({
+  kind = 'subscription',
   role = 'admin',
   items = [],
   fail = false,
@@ -39,7 +45,14 @@ async function render({
   withoutPreferences = false,
   deferred,
 }: Options = {}) {
-  const fetch = vi.spyOn(subscriptionsApi, 'fetchSubscriptions')
+  const fetch = (
+    kind === 'bill'
+      ? vi.spyOn(billsApi, 'fetchBills')
+      : vi.spyOn(subscriptionsApi, 'fetchSubscriptions')
+  ) as MockInstance<(active?: boolean) => Promise<Subscription[]>>
+  // Dialogs name what payments are linked to from both, so the other kind is listed too.
+  if (kind === 'bill') vi.spyOn(subscriptionsApi, 'fetchSubscriptions').mockResolvedValue([])
+  else vi.spyOn(billsApi, 'fetchBills').mockResolvedValue([])
   if (deferred) {
     fetch.mockImplementation(
       () =>
@@ -54,7 +67,8 @@ async function render({
   vi.spyOn(transactionsApi, 'fetchTransactions').mockResolvedValue(makePage([]))
   const mounted = await mountWithPlugins(SubscriptionsView, {
     width: 1280,
-    route: '/subscriptions',
+    props: { kind },
+    route: kind === 'bill' ? '/bills' : '/subscriptions',
     session: makeSessionState({ user: makeUser({ role }) }),
     beforeMount: () => {
       const seeded = seedFinance({ accounts })
@@ -62,9 +76,13 @@ async function render({
         seeded.preferences.saved = null
         seeded.preferences.load = vi.fn()
       } else {
-        seeded.preferences.saved = makePreferences()
-        seeded.preferences.saved.alerts.subscription_due_enabled = alerts.enabled ?? true
-        seeded.preferences.saved.alerts.subscription_due_days_before = alerts.days ?? 3
+        const saved = makePreferences()
+        seeded.preferences.saved = saved
+        // The reminders are kept apart: turning off the other kind's changes nothing here.
+        saved.alerts.subscription_due_enabled = kind === 'bill' ? false : (alerts.enabled ?? true)
+        saved.alerts.subscription_due_days_before = alerts.days ?? 3
+        saved.alerts.bill_due_enabled = kind === 'bill' ? (alerts.enabled ?? true) : false
+        saved.alerts.bill_due_days_before = alerts.days ?? 5
       }
     },
   })
@@ -363,5 +381,171 @@ describe('SubscriptionsView', () => {
     const { find } = await render({ items: [subscription], accounts: [] })
     expect(find('subscriptions-monthly').text()).toContain('$14.99')
     expect(find('subscription-card').text()).toContain('Account unavailable')
+  })
+
+  describe('for bills', () => {
+    const overdue = (days: number) => addDays(todayIso(), -days)
+
+    it('invites admins to add their first bill, in its own words', async () => {
+      const { find, component, wrapper } = await render({ kind: 'bill' })
+
+      expect(wrapper.find('h1').text()).toBe('Bills')
+      expect(find('empty-state').text()).toContain('Never miss a due date')
+      expect(find('bill-add').exists()).toBe(false)
+      expect(find('subscription-add-first').exists()).toBe(false)
+      await find('bill-add-first').trigger('click')
+      await flushPromises()
+      expect(component('SubscriptionDialog').props()).toMatchObject({
+        modelValue: true,
+        kind: 'bill',
+        subscription: null,
+      })
+    })
+
+    it('lists the bills with totals, and warns by the bills’ own reminder', async () => {
+      const power = makeBill({ next_due_date: addDays(todayIso(), 4) })
+      const phone = makeBill({
+        id: 'bill-phone',
+        name: 'Phone',
+        amount: '55.00',
+        amount_varies: false,
+        expected_amount: '55.00',
+        next_due_date: addDays(todayIso(), 20),
+      })
+      const { find, wrapper } = await render({ kind: 'bill', items: [power, phone] })
+
+      expect(find('bills-count').text()).toContain('Active bills')
+      expect(find('bills-count').text()).toContain('2')
+      expect(find('bills-monthly').text()).toContain('$151.40')
+      expect(find('bills-yearly').text()).toContain('$1,816.80')
+      // Within the 5 days bills warn before, which subscriptions' 3 days wouldn't reach.
+      expect(find('bills-due-alert').text()).toContain('1 payment is due within your 5-day')
+      expect(wrapper.findAll('[data-test="bill-card"]')).toHaveLength(2)
+      expect(wrapper.findAll('[data-test="subscription-card"]')).toHaveLength(0)
+      expect(wrapper.findAllComponents({ name: 'SubscriptionCard' })[0]!.props()).toMatchObject({
+        alertDays: 5,
+        dueAlertsEnabled: true,
+      })
+    })
+
+    it('hides the reminder when the settings for bills turn it off, whatever subscriptions do', async () => {
+      const bill = makeBill({ next_due_date: todayIso() })
+      const { find } = await render({ kind: 'bill', items: [bill], alerts: { enabled: false } })
+
+      expect(find('bills-due-alert').exists()).toBe(false)
+      expect(find('bill-due-alert').exists()).toBe(false)
+    })
+
+    it('warns of bills past their due date without a payment linked', async () => {
+      const one = await render({
+        kind: 'bill',
+        items: [makeBill({ next_due_date: overdue(3) })],
+      })
+      expect(one.find('bills-overdue-alert').text()).toContain(
+        '1 bill is past its due date without a payment linked.',
+      )
+      expect(one.find('bill-due').classes()).toContain('text-error')
+
+      const several = await render({
+        kind: 'bill',
+        items: [
+          makeBill({ next_due_date: overdue(3) }),
+          makeBill({ id: 'bill-water', name: 'Water', next_due_date: overdue(1) }),
+          makeBill({ id: 'bill-gas', name: 'Gas', active: false, next_due_date: overdue(9) }),
+          makeBill({ id: 'bill-phone', name: 'Phone', next_due_date: addDays(todayIso(), 9) }),
+        ],
+      })
+      // A paused one isn't being tracked, so it isn't late, and one due later isn't either.
+      expect(several.find('bills-overdue-alert').text()).toContain(
+        '2 bills are past their due date without a payment linked.',
+      )
+      expect(several.find('bills-due-alert').exists()).toBe(false)
+    })
+
+    it('says so for subscriptions too, and nothing when none are late', async () => {
+      const late = await render({ items: [makeSubscription({ next_due_date: overdue(2) })] })
+      expect(late.find('subscriptions-overdue-alert').text()).toContain(
+        '1 subscription is past its due date',
+      )
+
+      const fine = await render({ items: [makeSubscription()] })
+      expect(fine.find('subscriptions-overdue-alert').exists()).toBe(false)
+    })
+
+    it('searches the bills and shows paused ones apart', async () => {
+      const { find, wrapper } = await render({
+        kind: 'bill',
+        items: [makeBill(), makeBill({ id: 'bill-gas', name: 'Gas', active: false })],
+      })
+      expect(find('bill-search').find('label').text()).toBe('Search bills')
+      expect(find('bill-filter').attributes('aria-label')).toBe('Bill status')
+      expect(wrapper.findAll('[data-test="bill-title"]').map((item) => item.text())).toEqual([
+        'City Power',
+      ])
+
+      await find('bill-filter').findAll('button').at(1)!.trigger('click')
+      await flushPromises()
+      expect(wrapper.findAll('[data-test="bill-title"]').map((item) => item.text())).toEqual([
+        'Gas',
+      ])
+
+      await find('bill-search').find('input').setValue('nothing like it')
+      await flushPromises()
+      expect(find('bills-none-match').text()).toContain('active and paused bills')
+    })
+
+    it('changes, pauses, links and deletes through the bills API', async () => {
+      const bill = makeBill()
+      const update = vi.spyOn(billsApi, 'updateBill').mockResolvedValue({ ...bill, active: false })
+      const remove = vi.spyOn(billsApi, 'deleteBill').mockResolvedValue(undefined)
+      const updateSubscription = vi.spyOn(subscriptionsApi, 'updateSubscription')
+      const { component, fetch } = await render({ kind: 'bill', items: [bill] })
+
+      component('SubscriptionCard').vm.$emit('toggle', bill)
+      await flushPromises()
+      expect(update).toHaveBeenCalledWith('bill-power', { active: false })
+      expect(fetch).toHaveBeenCalledTimes(2)
+
+      component('SubscriptionCard').vm.$emit('update-amount', {
+        ...bill,
+        last_payment_amount: '110.00',
+      })
+      await flushPromises()
+      expect(update).toHaveBeenLastCalledWith('bill-power', { amount: '110.00' })
+      expect(notices.value.at(-1)?.text).toBe('Updated City Power to $110.00')
+
+      component('SubscriptionCard').vm.$emit('link', bill)
+      await flushPromises()
+      expect(component('SubscriptionPaymentsDialog').props('subscription')).toEqual(bill)
+
+      component('SubscriptionCard').vm.$emit('delete', bill)
+      await flushPromises()
+      expect(confirmRequest.value).toMatchObject({
+        title: 'Delete City Power?',
+        confirmText: 'Delete bill',
+      })
+      await answer(true)
+      await flushPromises()
+      expect(remove).toHaveBeenCalledWith('bill-power')
+      expect(notices.value.at(-1)?.text).toBe('Deleted City Power')
+      expect(updateSubscription).not.toHaveBeenCalled()
+    })
+
+    it('says what viewers may do in terms of bills', async () => {
+      const { wrapper } = await render({ kind: 'bill', role: 'viewer', items: [makeBill()] })
+
+      expect(wrapper.text()).toContain('You can see bills. Only an admin can change them.')
+      expect(wrapper.find('[data-test="bill-add"]').exists()).toBe(false)
+    })
+
+    it('says what went wrong loading the bills, and tries again', async () => {
+      const { find, fetch } = await render({ kind: 'bill', items: [makeBill()], fail: true })
+
+      expect(find('bills-error').text()).toContain("Couldn't load or update bills")
+      await find('bills-retry').trigger('click')
+      await flushPromises()
+      expect(fetch).toHaveBeenCalledTimes(2)
+      expect(find('bills-error').exists()).toBe(false)
+    })
   })
 })

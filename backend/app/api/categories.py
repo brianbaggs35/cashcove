@@ -15,7 +15,7 @@ from app.finance.categories import (
     category_out,
     find_category,
 )
-from app.models import Category, CategoryGroup, Transaction
+from app.models import Automation, Category, CategoryGroup, Subscription, Transaction
 from app.schemas.categories import (
     CategoryCreate,
     CategoryGroupCreate,
@@ -166,7 +166,9 @@ def delete_category(
     db: Db,
     move_to: Annotated[uuid.UUID | None, Query()] = None,
 ) -> None:
-    """Removes the category. Its transactions move to `move_to`, or become uncategorized."""
+    """Removes the category. Its transactions move to `move_to`, or become uncategorized, and so
+    do the subscriptions, bills and automations that put transactions in it, so what arrives
+    later is filed with what's already there."""
     category = _category(db, category_id)
     if move_to is not None:
         if move_to == category.id:
@@ -176,10 +178,9 @@ def delete_category(
                 "Choose a different category for its transactions.",
             )
         find_category(db, move_to)
-        db.execute(
-            update(Transaction)
-            .where(Transaction.category_id == category.id)
-            .values(category_id=move_to)
-        )
+        for model in (Transaction, Subscription, Automation):
+            db.execute(
+                update(model).where(model.category_id == category.id).values(category_id=move_to)
+            )
     db.delete(category)
     db.commit()

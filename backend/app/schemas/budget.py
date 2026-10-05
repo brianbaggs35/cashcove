@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, StringConstraints, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.finance.periods import MAX_PERIODS
-from app.models import BudgetKind, BudgetPeriod
+from app.models import BudgetKind, BudgetPeriod, RecurringKind
 from app.schemas.fields import MAX_AMOUNT, STRICT, AmountOut
 
 # Far enough back for any history, and far enough ahead for any plan.
@@ -25,9 +25,10 @@ MAX_HISTORY = MAX_PERIODS
 MAX_LINKED = 500
 
 # What a source of a budget is: everything in an account or category, the payments of a
-# subscription, or what an automation sorts.
-SourceType = Literal["account", "category", "subscription", "automation"]
-# Why a transaction counts: it was linked itself, or by one of the sources.
+# subscription or of a bill, or what an automation sorts.
+SourceType = Literal["account", "category", "subscription", "bill", "automation"]
+# Why a transaction counts: it was linked itself, or by one of the sources. A payment linked to
+# a subscription or to a bill counts "via" the subscription, since they're linked the same way.
 Via = Literal["transaction", "automation", "subscription", "category", "account"]
 
 
@@ -83,8 +84,11 @@ class BudgetOut(BaseModel):
 
 class BudgetSourceIn(BaseModel):
     """Something to count toward a budget, other than single transactions: all the money out of
-    an account (as spending) or in (as income), everything in a category, a subscription's
-    payments or what an automation sorts. Name exactly one."""
+    an account (as spending) or in (as income), everything in a category, the payments of a
+    subscription or of a bill, or what an automation sorts. Name exactly one.
+
+    A bill is named by `subscription_id` too, since both are recurring payments that
+    transactions are linked to the same way."""
 
     model_config = STRICT
 
@@ -104,11 +108,11 @@ class BudgetSourceIn(BaseModel):
         ]
         if sum(item is not None for item in named) != 1:
             raise PydanticCustomError(
-                "one_source", "Choose one account, category, subscription or automation."
+                "one_source", "Choose one account, category, subscription, bill or automation."
             )
         if self.subscription_id is not None and self.kind != BudgetKind.SPENDING:
             raise PydanticCustomError(
-                "subscription_income", "A subscription's payments count as spending."
+                "subscription_income", "The payments of a subscription or bill count as spending."
             )
         return self
 
@@ -121,7 +125,8 @@ class BudgetLinkOut(BaseModel):
     type: SourceType
     target_id: uuid.UUID
     name: str
-    # Paused, for an automation or a subscription, which has nothing counted until it's resumed.
+    # Paused, for an automation, a subscription or a bill, which has nothing counted until it's
+    # resumed.
     active: bool = True
 
 
@@ -147,10 +152,11 @@ class CategoryTotal(BaseModel):
 
 
 class UpcomingBill(BaseModel):
-    """A subscription counted as spending that is due before the period ends."""
+    """A subscription or bill counted as spending that is due before the period ends."""
 
     subscription_id: uuid.UUID
     name: str
+    kind: RecurringKind
     due_on: dt.date
     amount: AmountOut
 

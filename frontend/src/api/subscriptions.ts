@@ -3,9 +3,18 @@ import { apiDelete, apiGet, apiPatch, apiPost, apiRequest } from '@/api/client'
 export type PaymentFrequency =
   'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'semiannual' | 'annual'
 
+/**
+ * What a recurring payment is called: a subscription, like a streaming plan, or a bill, like
+ * electricity. They're tracked, matched to transactions and sorted by automations the same way,
+ * so both have the shape of a `Subscription`, and `kind` says which page lists it.
+ */
+export type RecurringKind = 'subscription' | 'bill'
+
+/** A recurring payment: a subscription or, as `kind` says, a bill. */
 export interface Subscription {
   id: string
   name: string
+  kind: RecurringKind
   payee: string
   /** Amounts travel as decimal strings, never floating-point numbers. */
   amount: string
@@ -50,10 +59,11 @@ export interface SubscriptionInput {
 
 export type SubscriptionChanges = Partial<SubscriptionInput> & { active?: boolean }
 
-export const fetchSubscriptions = (active?: boolean) => {
-  const query = active === undefined ? '' : `?active=${active}`
-  return apiGet<Subscription[]>(`/subscriptions${query}`)
-}
+/** Which of them to list: all, or only the ones being tracked or only the paused. */
+export const activeQuery = (active?: boolean) => (active === undefined ? '' : `?active=${active}`)
+
+export const fetchSubscriptions = (active?: boolean) =>
+  apiGet<Subscription[]>(`/subscriptions${activeQuery(active)}`)
 export const createSubscription = (input: SubscriptionInput) =>
   apiPost<Subscription>('/subscriptions', input)
 export const updateSubscription = (id: string, changes: SubscriptionChanges) =>

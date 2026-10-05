@@ -3,7 +3,7 @@ import { Repeat, Tags, Trash2, WandSparkles, X } from '@lucide/vue'
 
 /**
  * What an admin can do with the transactions they've selected. `payments` is how many of them
- * are money going out, which are the ones a subscription can be linked to.
+ * are money going out, which are the ones a subscription or a bill can be linked to.
  */
 defineProps<{ count: number; payments: number }>()
 const emit = defineEmits<{ categorize: []; link: []; automate: []; delete: []; clear: [] }>()
@@ -28,7 +28,7 @@ const emit = defineEmits<{ categorize: []; link: []; automate: []; delete: []; c
       data-test="bulk-link"
       @click="emit('link')"
     >
-      Link to subscription
+      Link to subscription or bill
     </v-btn>
     <v-btn
       variant="text"

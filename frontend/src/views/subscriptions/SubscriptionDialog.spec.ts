@@ -1,28 +1,45 @@
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
 
-import type { Subscription } from '@/api/subscriptions'
+import * as billsApi from '@/api/bills'
+import type { RecurringKind, Subscription } from '@/api/subscriptions'
 import * as subscriptionsApi from '@/api/subscriptions'
 import { ApiError } from '@/api/client'
 import * as transactionsApi from '@/api/transactions'
 import { notices } from '@/composables/notify'
-import { checking, makeAccount, makePage, savings, seedFinance, wholeFoods } from '@/test/finance'
+import {
+  checking,
+  coffee,
+  makeAccount,
+  makePage,
+  makeTransaction,
+  savings,
+  seedFinance,
+  wholeFoods,
+} from '@/test/finance'
 import { page } from '@/test/dom'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import { mountWithPlugins } from '@/test/mount'
 import { addDays, todayIso } from '@/utils/dates'
 import SubscriptionDialog from '@/views/subscriptions/SubscriptionDialog.vue'
+import { kinds } from '@/views/subscriptions/kinds'
 
 interface Options {
   subscription?: Subscription | null
+  /** What is being added, when nothing is being changed. */
+  kind?: RecurringKind
   accounts?: (typeof checking)[]
   transactionFailure?: unknown
+  /** The payments of the account that can be picked to start from. */
+  payments?: ReturnType<typeof makeTransaction>[]
 }
 
 async function render({
   subscription = null,
+  kind,
   accounts = [checking, savings],
   transactionFailure,
+  payments = [wholeFoods],
 }: Options = {}) {
   const open = ref(false)
   const saved = vi.fn()
@@ -30,6 +47,7 @@ async function render({
     render: () =>
       h(SubscriptionDialog, {
         subscription,
+        ...(kind ? { kind } : {}),
         modelValue: open.value,
         'onUpdate:modelValue': (value: boolean) => (open.value = value),
         onSaved: saved,
@@ -37,7 +55,7 @@ async function render({
   })
   const fetch = vi.spyOn(transactionsApi, 'fetchTransactions')
   if (transactionFailure) fetch.mockRejectedValue(transactionFailure)
-  else fetch.mockResolvedValue(makePage([wholeFoods]))
+  else fetch.mockResolvedValue(makePage(payments))
   const mounted = await mountWithPlugins(Host, {
     width: 1280,
     beforeMount: () => seedFinance({ accounts }),
@@ -45,7 +63,8 @@ async function render({
   open.value = true
   await flushPromises()
   const overlay = () => page().find('.v-overlay--active .app-dialog')
-  const field = (name: string) => overlay().find(`[data-test="subscription-${name}"]`)
+  const prefix = subscription?.kind ?? kind ?? 'subscription'
+  const field = (name: string) => overlay().find(`[data-test="${prefix}-${name}"]`)
   const input = (name: string) => field(name).find('input:not([type="hidden"]), textarea')
   const value = (name: string) => (input(name).element as HTMLInputElement).value
   return {
@@ -112,13 +131,42 @@ describe('SubscriptionDialog', () => {
       frequency: 'monthly',
       account_id: checking.id,
       next_due_date: addDays(todayIso(), 30),
-      category_id: null,
+      // The payment's own category, since the others like it should have it too.
+      category_id: wholeFoods.category_id,
       notes: null,
       seed_transaction_id: wholeFoods.id,
     })
     expect(saved).toHaveBeenCalledWith(created)
     expect(open.value).toBe(false)
     expect(notices.value.at(-1)?.text).toBe('Added Grocery delivery')
+  })
+
+  it('keeps the category already chosen, and leaves none when the payment has none', async () => {
+    const uncategorized = makeTransaction({
+      id: 'transaction-plain',
+      payee: 'Zelle to Sam',
+      category_id: null,
+    })
+    const { component } = await render({ payments: [wholeFoods, uncategorized] })
+    const picker = () => component('SubscriptionDialog').findComponent({ name: 'CategoryPicker' })
+    const choose = async (id: string) => {
+      component('SubscriptionDialog')
+        .findComponent({ name: 'VAutocomplete' })
+        .vm.$emit('update:modelValue', id)
+      await flushPromises()
+    }
+
+    // One that has no category doesn't fill one in.
+    await choose(uncategorized.id)
+    expect(picker().props('modelValue')).toBeNull()
+
+    // One that has, does, but not over one chosen already.
+    await choose(wholeFoods.id)
+    expect(picker().props('modelValue')).toBe(wholeFoods.category_id)
+    picker().vm.$emit('update:modelValue', coffee.id)
+    await flushPromises()
+    await choose(wholeFoods.id)
+    expect(picker().props('modelValue')).toBe(coffee.id)
   })
 
   it('creates a rule without a historical payment using its name as the payee', async () => {
@@ -408,5 +456,85 @@ describe('SubscriptionDialog', () => {
     await component('SubscriptionDialog').findComponent({ name: 'VForm' }).trigger('submit')
     await flushPromises()
     expect(create).not.toHaveBeenCalled()
+  })
+
+  describe('for a bill', () => {
+    it('adds a bill, which is set up the same way, in its own words', async () => {
+      const created = makeBill({ name: 'City Power' })
+      const create = vi.spyOn(billsApi, 'createBill').mockResolvedValue(created)
+      const createSubscription = vi.spyOn(subscriptionsApi, 'createSubscription')
+      const { wrapper, overlay, field, input, saved, open, component } = await render({
+        kind: 'bill',
+      })
+
+      expect(overlay().find('h2').text()).toBe('Add a bill')
+      expect(overlay().text()).toContain(
+        'Track due dates and automatically link the payments you make from the same account.',
+      )
+      expect(field('name').text()).toContain('Bill name')
+      expect(field('payee').text()).toContain('Leave blank to match the bill name;')
+      expect(field('payee').text()).toContain('An automation can match those too.')
+      expect(field('due-date').text()).toContain('Next due date')
+      expect(component('AppDialog').props('icon')).toBe(kinds.bill.icon)
+      await input('name').setValue('City Power')
+      await input('amount').setValue('96.40')
+      component('SubscriptionDialog')
+        .findComponent({ name: 'VAutocomplete' })
+        .vm.$emit('update:modelValue', wholeFoods.id)
+      await flushPromises()
+      await makeFormValid(wrapper)
+      await field('save').trigger('click')
+      await flushPromises()
+
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'City Power',
+          payee: 'Whole Foods',
+          amount: '84.12',
+          account_id: checking.id,
+          category_id: wholeFoods.category_id,
+          seed_transaction_id: wholeFoods.id,
+        }),
+      )
+      expect(createSubscription).not.toHaveBeenCalled()
+      expect(saved).toHaveBeenCalledWith(created)
+      expect(open.value).toBe(false)
+      expect(notices.value.at(-1)?.text).toBe('Added City Power')
+    })
+
+    it('says the button adds a bill, and checks the name in its own words', async () => {
+      const { field, component } = await render({ kind: 'bill' })
+      expect(field('save').text()).toBe('Add bill')
+
+      const nameRules = component('SubscriptionDialog')
+        .findAllComponents({ name: 'VTextField' })
+        .at(0)!
+        .props('rules') as ((value: string) => true | string)[]
+      expect(nameRules[0]!('  ')).toBe('Give this bill a name')
+    })
+
+    it('changes a bill through the bills API, and can pause it', async () => {
+      const bill = makeBill()
+      const update = vi.spyOn(billsApi, 'updateBill').mockResolvedValue(bill)
+      const updateSubscription = vi.spyOn(subscriptionsApi, 'updateSubscription')
+      const { wrapper, overlay, field, saved, open } = await render({ subscription: bill })
+
+      expect(overlay().find('h2').text()).toBe('Edit bill')
+      expect(field('save').text()).toBe('Save changes')
+      expect(field('active').exists()).toBe(true)
+      wrapper
+        .findAllComponents({ name: 'VSwitch' })
+        .find((item) => item.attributes('data-test') === 'bill-active')!
+        .vm.$emit('update:modelValue', false)
+      await makeFormValid(wrapper)
+      await field('save').trigger('click')
+      await flushPromises()
+
+      expect(update).toHaveBeenCalledWith('bill-power', expect.objectContaining({ active: false }))
+      expect(updateSubscription).not.toHaveBeenCalled()
+      expect(saved).toHaveBeenCalledWith(bill)
+      expect(open.value).toBe(false)
+      expect(notices.value.at(-1)?.text).toBe('Saved the bill')
+    })
   })
 })

@@ -86,6 +86,11 @@ jobs:
           alembic check
           alembic downgrade base
           alembic upgrade head
+          # The newest migration can be applied again to a database that already has it, and
+          # changes nothing (see Database migrations in the README).
+          alembic stamp "$(alembic show head | sed -n 's/^Parent: //p')"
+          alembic upgrade head
+          alembic check
 
       # After the migration checks, because the tests replace the schema with the models' own.
       - name: Tests with 100% coverage on Postgres 18

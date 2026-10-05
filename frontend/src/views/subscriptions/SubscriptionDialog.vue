@@ -3,13 +3,13 @@ import { CalendarClock, Pencil, Repeat } from '@lucide/vue'
 import { computed, reactive, ref, watch } from 'vue'
 
 import { errorMessage } from '@/api/client'
+import { recurringApi } from '@/api/recurring'
 import { fetchTransactions, type Transaction } from '@/api/transactions'
-import {
-  createSubscription,
-  updateSubscription,
-  type PaymentFrequency,
-  type Subscription,
-  type SubscriptionInput,
+import type {
+  PaymentFrequency,
+  RecurringKind,
+  Subscription,
+  SubscriptionInput,
 } from '@/api/subscriptions'
 import CategoryPicker from '@/components/finance/CategoryPicker.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
@@ -21,13 +21,24 @@ import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { addDays, formatListDate, todayIso } from '@/utils/dates'
 import { negate } from '@/utils/money'
+import { kinds, partOf } from '@/views/subscriptions/kinds'
 import { frequencies } from '@/views/subscriptions/recurrence'
 
+/**
+ * Adds a subscription or a bill, or changes one: they're set up the same way, and it's `kind`
+ * that says which this is when adding one. Choosing a payment it was made with links the others
+ * like it, and the ones that come later.
+ */
 const open = defineModel<boolean>({ required: true })
-const props = defineProps<{ subscription: Subscription | null }>()
+const props = withDefaults(
+  defineProps<{ subscription: Subscription | null; kind?: RecurringKind }>(),
+  { kind: 'subscription' },
+)
 const emit = defineEmits<{ saved: [subscription: Subscription] }>()
 const accounts = useAccountsStore()
 const { locale, money } = useHousehold()
+const copy = computed(() => kinds[props.subscription?.kind ?? props.kind])
+const part = (name: string) => partOf(props.subscription?.kind ?? props.kind, name)
 
 interface SubscriptionForm {
   name: string
@@ -81,10 +92,12 @@ const paymentItems = computed(() =>
     },
   })),
 )
-const title = computed(() => (props.subscription ? 'Edit subscription' : 'Add a subscription'))
+const title = computed(() =>
+  props.subscription ? `Edit ${copy.value.noun}` : `Add a ${copy.value.noun}`,
+)
 const notesRules = [(value: string) => value.length <= 1000 || 'Keep notes under 1,000 characters']
 const nameRules = [
-  (value: string) => value.trim().length > 0 || 'Give this subscription a name',
+  (value: string) => value.trim().length > 0 || `Give this ${copy.value.noun} a name`,
   (value: string) => value.trim().length <= 120 || 'Keep it under 120 characters',
 ]
 const accountRules = [(value: string | null) => !!value || 'Choose an account']
@@ -147,6 +160,8 @@ function selectTransaction(transactionId: string | null) {
   if (!transaction) return
   form.payee = transaction.payee
   form.amount = negate(transaction.amount)
+  // The category the payment already has is the one the others like it should have.
+  if (!form.categoryId && transaction.category_id) form.categoryId = transaction.category_id
 }
 
 watch(open, (value) => {
@@ -172,10 +187,11 @@ const saving = useAction(async () => {
     notes: form.notes.trim() || null,
     seed_transaction_id: form.seedTransactionId,
   }
+  const api = recurringApi(props.subscription?.kind ?? props.kind)
   const subscription = props.subscription
-    ? await updateSubscription(props.subscription.id, { ...input, active: form.active })
-    : await createSubscription(input)
-  notify(props.subscription ? 'Saved the subscription' : `Added ${subscription.name}`)
+    ? await api.update(props.subscription.id, { ...input, active: form.active })
+    : await api.create(input)
+  notify(props.subscription ? `Saved the ${copy.value.noun}` : `Added ${subscription.name}`)
   emit('saved', subscription)
   open.value = false
 })
@@ -189,8 +205,8 @@ function submit() {
   <AppDialog
     v-model="open"
     :title="title"
-    subtitle="Track renewals and automatically match payments from the same account."
-    :icon="subscription ? Pencil : Repeat"
+    :subtitle="copy.dialogSubtitle"
+    :icon="subscription ? Pencil : copy.icon"
     :persistent="saving.busy.value"
     max-width="640"
     fullscreen-on-mobile
@@ -200,12 +216,12 @@ function submit() {
         <v-col cols="12" sm="7">
           <v-text-field
             v-model="form.name"
-            label="Subscription name"
+            :label="copy.nameLabel"
             :rules="nameRules"
             :error-messages="fieldError('name')"
             autocomplete="off"
             required
-            data-test="subscription-name"
+            :data-test="part('name')"
           />
         </v-col>
         <v-col cols="12" sm="5">
@@ -216,7 +232,7 @@ function submit() {
             required
             non-zero
             :error-messages="fieldError('amount')"
-            data-test="subscription-amount"
+            :data-test="part('amount')"
           />
         </v-col>
         <v-col cols="12">
@@ -226,7 +242,7 @@ function submit() {
             hint="Cashcove uses the average of recent payments once there are some, and the estimate until then."
             persistent-hint
             color="primary"
-            data-test="subscription-varies"
+            :data-test="part('varies')"
           />
         </v-col>
         <v-col cols="12" sm="6">
@@ -235,16 +251,16 @@ function submit() {
             :items="frequencies"
             label="Payment frequency"
             :prepend-inner-icon="Repeat"
-            data-test="subscription-frequency"
+            :data-test="part('frequency')"
           />
         </v-col>
         <v-col cols="12" sm="6">
           <DateField
             v-model="form.nextDueDate"
-            label="Next payment date"
+            :label="copy.dueLabel"
             required
             :error-messages="fieldError('next_due_date')"
-            data-test="subscription-due-date"
+            :data-test="part('due-date')"
           />
         </v-col>
         <v-col cols="12">
@@ -256,7 +272,7 @@ function submit() {
             :rules="accountRules"
             :error-messages="fieldError('account_id')"
             no-data-text="Add an account in the Accounts tab first"
-            data-test="subscription-account"
+            :data-test="part('account')"
             @update:model-value="selectAccount"
           />
         </v-col>
@@ -264,11 +280,11 @@ function submit() {
           <v-text-field
             v-model="form.payee"
             label="Match transactions with this payee"
-            hint="Leave blank to match the subscription name. Matching ignores letter case."
+            :hint="`Leave blank to match the ${copy.noun} name; letter case is ignored. Other spellings? An automation can match those too.`"
             persistent-hint
             :error-messages="fieldError('payee')"
             autocomplete="off"
-            data-test="subscription-payee"
+            :data-test="part('payee')"
           />
         </v-col>
         <v-col cols="12">
@@ -282,7 +298,7 @@ function submit() {
             clearable
             no-data-text="No outgoing transactions found for this account"
             :error-messages="transactionError"
-            data-test="subscription-seed-transaction"
+            :data-test="part('seed-transaction')"
             @update:model-value="selectTransaction"
           />
         </v-col>
@@ -291,7 +307,7 @@ function submit() {
             v-model="form.categoryId"
             label="Transaction category"
             :error-messages="fieldError('category_id')"
-            data-test="subscription-category"
+            :data-test="part('category')"
           />
         </v-col>
         <v-col cols="12">
@@ -304,7 +320,7 @@ function submit() {
             counter="1000"
             :rules="notesRules"
             :error-messages="fieldError('notes')"
-            data-test="subscription-notes"
+            :data-test="part('notes')"
           />
         </v-col>
       </v-row>
@@ -314,7 +330,7 @@ function submit() {
         label="Automatically track matching payments"
         color="primary"
         hide-details
-        data-test="subscription-active"
+        :data-test="part('active')"
       />
       <v-alert
         v-if="formError"
@@ -323,7 +339,7 @@ function submit() {
         density="compact"
         class="mt-4"
         :text="formError"
-        data-test="subscription-error"
+        :data-test="part('error')"
       />
       <button type="submit" hidden />
     </v-form>
@@ -334,10 +350,10 @@ function submit() {
         variant="flat"
         :loading="saving.busy.value"
         :disabled="!valid"
-        data-test="subscription-save"
+        :data-test="part('save')"
         @click="submit"
       >
-        {{ subscription ? 'Save changes' : 'Add subscription' }}
+        {{ subscription ? 'Save changes' : `Add ${copy.noun}` }}
       </v-btn>
     </template>
   </AppDialog>

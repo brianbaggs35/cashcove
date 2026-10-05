@@ -29,6 +29,7 @@ const LOADED: Record<string, string> = {
   '/import': 'import-item',
   '/categories': 'category-row',
   '/subscriptions': 'empty-state',
+  '/bills': 'empty-state',
   '/automations': 'empty-state',
   '/budget': 'budget-summary',
 }
@@ -121,6 +122,7 @@ test.describe('Accessibility', () => {
           '/connect',
           '/import',
           '/subscriptions',
+          '/bills',
           '/categories',
           '/automations',
           '/settings/general',
@@ -345,6 +347,34 @@ test.describe('Accessibility', () => {
           'a subscription’s menu': () => card.getByTestId('subscription-actions').click(),
           'adding a subscription': () => page.getByTestId('subscription-add').click(),
           'linking payments': () => card.getByTestId('subscription-link-payments').click(),
+        })
+      })
+
+      test('the bill dialogs', async ({ page, signInAs, apiAs, baseline, billsPage }) => {
+        const api = await apiAs('admin')
+        await api.post('/bills', {
+          name: 'City Power',
+          amount: '96.40',
+          amount_varies: true,
+          frequency: 'monthly',
+          account_id: baseline.accounts.checking.id,
+          // Past due, so the page also shows what warns of that.
+          next_due_date: new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10),
+          category_id: baseline.categories.Utilities.id,
+          notes: null,
+          payee: 'City Power & Light',
+          seed_transaction_id: baseline.transactions.power.id,
+        })
+        await signInAs('admin')
+        await billsPage.goto()
+        await expect(billsPage.cards).toHaveCount(1)
+        await expect(billsPage.overdueAlert).toBeVisible()
+
+        await expectAccessibleOverlays(page, {
+          'a bill’s menu': () => billsPage.cards.first().getByTestId('bill-actions').click(),
+          'adding a bill': () => billsPage.addButton.click(),
+          'linking payments': () =>
+            billsPage.cards.first().getByTestId('bill-link-payments').click(),
         })
       })
 

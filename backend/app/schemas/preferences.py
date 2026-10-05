@@ -23,6 +23,9 @@ class GeneralPreferences(_Strict):
 class AlertPreferences(_Strict):
     subscription_due_enabled: bool = True
     subscription_due_days_before: Annotated[int, Field(ge=0, le=30)] = 3
+    # Bills are due on a date they can't be late for, so the heads-up starts earlier.
+    bill_due_enabled: bool = True
+    bill_due_days_before: Annotated[int, Field(ge=0, le=30)] = 5
     low_balance_enabled: bool = True
     low_balance_threshold: Money = Decimal("100.00")
     large_transaction_enabled: bool = True

@@ -15,6 +15,7 @@ const views: Record<NavName, NonNullable<RouteRecordRaw['component']>> = {
   accounts: () => import('@/views/AccountsView.vue'),
   budget: () => import('@/views/BudgetView.vue'),
   subscriptions: () => import('@/views/SubscriptionsView.vue'),
+  bills: () => import('@/views/BillsView.vue'),
   transactions: () => import('@/views/TransactionsView.vue'),
   categories: () => import('@/views/CategoriesView.vue'),
   automations: () => import('@/views/AutomationsView.vue'),

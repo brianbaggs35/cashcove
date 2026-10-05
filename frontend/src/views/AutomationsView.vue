@@ -59,7 +59,7 @@ async function load() {
 onMounted(() => {
   void accounts.ensureLoaded()
   void categories.ensureLoaded()
-  // Fresh each time, since an automation names the subscription it links to.
+  // Fresh each time, since an automation names the subscription or bill it links to.
   void subscriptions.load()
   void budgets.load()
   void load()
@@ -166,7 +166,7 @@ async function toggle(automation: Automation) {
       <EmptyState
         :icon="WandSparkles"
         title="Let Cashcove do the sorting"
-        text="Pick a few transactions and Cashcove sorts every one like them into a category or a subscription, now and whenever more arrive."
+        text="Pick a few transactions and Cashcove sorts every one like them into a category, a subscription or a bill, now and whenever more arrive."
       >
         <v-btn
           v-if="auth.isAdmin"
