@@ -105,8 +105,7 @@ watch(
     if (isOpen && transaction) {
       const choosing = props.editable && toCents(transaction.amount) < 0
       const unknown =
-        !!transaction.subscription_id &&
-        subscriptions.find(transaction.subscription_id) === undefined
+        !!transaction.subscription_id && !subscriptions.byId.has(transaction.subscription_id)
       if (choosing || unknown) void subscriptions.load()
     }
     categorizing.clear()
