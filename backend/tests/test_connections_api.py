@@ -925,6 +925,80 @@ def test_what_the_bank_sends_is_sorted_by_automations_and_subscriptions(
     assert updated["next_due_date"] > utcnow().date().isoformat()
 
 
+def test_what_the_bank_sends_is_linked_to_bills_by_their_payee_and_by_automations(
+    admin_client: TestClient, session: Session, fake: FakePlaid
+) -> None:
+    connection = imported(admin_client)
+    card = by_name(accounts_of(session, connection["id"]))["Plaid Credit Card"]
+    item = fake.item("platypus")
+    utilities = category(session, "Utilities")
+    today = utcnow().date()
+    own = admin_client.post(
+        "/api/bills",
+        json={
+            "name": "Phone",
+            "payee": "Tartan Mobile",
+            "amount": "55.00",
+            "frequency": "monthly",
+            "account_id": str(card.id),
+            "next_due_date": today.isoformat(),
+            "category_id": str(utilities),
+        },
+    ).json()
+    by_automation = admin_client.post(
+        "/api/bills",
+        json={
+            "name": "Water",
+            "payee": "Not what Plaid calls it",
+            "amount": "40.00",
+            "amount_varies": True,
+            "frequency": "monthly",
+            "account_id": str(card.id),
+            "next_due_date": today.isoformat(),
+        },
+    ).json()
+    admin_client.post(
+        "/api/automations",
+        json={
+            "name": "Water",
+            "payees": ["metro water"],
+            "match": "contains",
+            "subscription_id": by_automation["id"],
+            "apply_to": "future",
+        },
+    )
+    fake.add_transaction(
+        item.item_id,
+        str(card.external_id),
+        "55.00",
+        "Tartan Mobile",
+        "RENT_AND_UTILITIES_TELEPHONE",
+    )
+    fake.add_transaction(
+        item.item_id,
+        str(card.external_id),
+        "41.20",
+        "Metro Water District",
+        "RENT_AND_UTILITIES_WATER",
+    )
+    fake.add_transaction(
+        item.item_id, str(card.external_id), "9.00", "Corner Cafe", "FOOD_AND_DRINK_COFFEE"
+    )
+
+    last = sync(admin_client, connection)["last_sync"]
+
+    assert last["added"] == 3
+    by_payee = {row.payee: row for row in transactions_in(session, card) if row.date == today}
+    assert by_payee["Tartan Mobile"].subscription_id == uuid.UUID(own["id"])
+    assert by_payee["Tartan Mobile"].category_id == utilities
+    assert by_payee["Metro Water District"].subscription_id == uuid.UUID(by_automation["id"])
+    assert by_payee["Corner Cafe"].subscription_id is None
+    for bill in (own, by_automation):
+        updated = admin_client.get(f"/api/bills/{bill['id']}").json()
+        assert (updated["kind"], updated["payment_count"]) == ("bill", 1)
+        assert updated["next_due_date"] > today.isoformat()
+
+
 def test_what_the_household_chose_for_a_pending_transaction_survives_it_posting(
     admin_client: TestClient, session: Session, fake: FakePlaid
 ) -> None:

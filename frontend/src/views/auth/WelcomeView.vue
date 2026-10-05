@@ -234,7 +234,7 @@ const nextSteps = [
             <div>
               <div class="text-title-small font-weight-bold">Complete</div>
               <div class="text-body-small text-medium-emphasis">
-                Accounts, budgets and subscriptions.
+                Accounts, budgets, subscriptions and bills.
               </div>
             </div>
           </div>

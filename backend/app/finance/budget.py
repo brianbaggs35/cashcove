@@ -64,6 +64,7 @@ from app.models import (
     Category,
     CategoryGroup,
     CategoryKind,
+    RecurringKind,
     Subscription,
     Transaction,
 )
@@ -484,6 +485,7 @@ def budget_links(db: Session, budget: Budget) -> list[BudgetLinkOut]:
             Account.name,
             Category.name,
             Subscription.name,
+            Subscription.kind,
             Subscription.active,
             Automation.name,
             Automation.active,
@@ -496,8 +498,18 @@ def budget_links(db: Session, budget: Budget) -> list[BudgetLinkOut]:
         .order_by(BudgetLink.created_at, BudgetLink.id)
     )
     links: list[BudgetLinkOut] = []
-    for link, account, category, subscription, subscription_active, automation, active in rows:
-        # Each link is to exactly one thing, which the database makes sure of.
+    for (
+        link,
+        account,
+        category,
+        subscription,
+        kind,
+        subscription_active,
+        automation,
+        active,
+    ) in rows:
+        # Each link is to exactly one thing, which the database makes sure of. A bill is linked
+        # the way a subscription is, and told apart by its kind.
         target = {
             "account": (link.account_id, account, True),
             "category": (link.category_id, category, True),
@@ -510,7 +522,7 @@ def budget_links(db: Session, budget: Budget) -> list[BudgetLinkOut]:
                 {
                     "id": link.id,
                     "kind": link.kind,
-                    "type": source,
+                    "type": "bill" if kind == RecurringKind.BILL else source,
                     "target_id": target[source][0],
                     "name": target[source][1],
                     "active": target[source][2],
@@ -528,8 +540,8 @@ def _upcoming(
     first: dt.date,
     last: dt.date,
 ) -> list[UpcomingBill]:
-    """The payments of the budget's subscriptions that fall due in the days from `first` to
-    `last`, which haven't been paid, since paying one moves its next due date on."""
+    """The payments of the budget's subscriptions and bills that fall due in the days from
+    `first` to `last`, which haven't been paid, since paying one moves its next due date on."""
     subscriptions = list(
         db.scalars(
             select(Subscription)
@@ -566,6 +578,7 @@ def _upcoming(
             UpcomingBill(
                 subscription_id=subscription.id,
                 name=subscription.name,
+                kind=subscription.kind,
                 due_on=day,
                 amount=amount,
             )
@@ -842,10 +855,10 @@ def _exists(
 
 
 def add_source(db: Session, budget: Budget, body: BudgetSourceIn) -> BudgetLinkOut:
-    """Counts an account, a category, a subscription or an automation toward a budget."""
+    """Counts an account, a category, a subscription or bill, or an automation toward a budget."""
     _exists(db, Account, body.account_id, "unknown_account", "account")
     _exists(db, Category, body.category_id, "unknown_category", "category")
-    _exists(db, Subscription, body.subscription_id, "unknown_subscription", "subscription")
+    _exists(db, Subscription, body.subscription_id, "unknown_subscription", "subscription or bill")
     _exists(db, Automation, body.automation_id, "unknown_automation", "automation")
     link = BudgetLink(
         budget_id=budget.id,

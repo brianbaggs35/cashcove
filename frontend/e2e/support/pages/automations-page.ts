@@ -25,7 +25,10 @@ export interface AutomationFields {
   amount?: AutomationAmount
   name?: string
   category?: string
+  /** The subscription to link payments to. */
   subscription?: string
+  /** The bill to link payments to, chosen from the same list as a subscription. */
+  bill?: string
   applyTo?: 'all' | 'future'
 }
 
@@ -153,9 +156,8 @@ export class AutomationsPage {
       await field('automation-name').getByRole('textbox').fill(fields.name)
     }
     if (fields.category !== undefined) await choose(field('automation-category'), fields.category)
-    if (fields.subscription !== undefined) {
-      await choose(field('automation-subscription'), fields.subscription)
-    }
+    const recurring = fields.subscription ?? fields.bill
+    if (recurring !== undefined) await choose(field('automation-subscription'), recurring)
     if (fields.applyTo) {
       await field(`automation-apply-${fields.applyTo}`).getByRole('radio').check()
     }

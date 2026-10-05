@@ -1,5 +1,6 @@
 import AccountsView from '@/views/AccountsView.vue'
 import AutomationsView from '@/views/AutomationsView.vue'
+import BillsView from '@/views/BillsView.vue'
 import BudgetView from '@/views/BudgetView.vue'
 import CategoriesView from '@/views/CategoriesView.vue'
 import ConnectView from '@/views/ConnectView.vue'
@@ -14,6 +15,7 @@ describe('tab views', () => {
     ['Accounts', AccountsView],
     ['Budget', BudgetView],
     ['Subscriptions', SubscriptionsView],
+    ['Bills', BillsView],
     ['Transactions', TransactionsView],
     ['Categories', CategoriesView],
     ['Automations', AutomationsView],

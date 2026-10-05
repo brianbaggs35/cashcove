@@ -5,6 +5,7 @@ export function makeSubscription(changes: Partial<Subscription> = {}): Subscript
   return {
     id: 'subscription-streamflix',
     name: 'Streamflix',
+    kind: 'subscription',
     payee: 'Streamflix',
     amount,
     amount_varies: false,
@@ -23,4 +24,20 @@ export function makeSubscription(changes: Partial<Subscription> = {}): Subscript
     updated_at: '2026-09-01T12:00:00Z',
     ...changes,
   }
+}
+
+/** A bill, which is a recurring payment like a subscription: electricity, usually a different amount each month. */
+export function makeBill(changes: Partial<Subscription> = {}): Subscription {
+  return makeSubscription({
+    id: 'bill-power',
+    name: 'City Power',
+    kind: 'bill',
+    payee: 'City Power & Light',
+    amount: '96.40',
+    amount_varies: true,
+    expected_amount: '96.40',
+    typical_amount: '96.40',
+    last_payment_amount: '96.40',
+    ...changes,
+  })
 }

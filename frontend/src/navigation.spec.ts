@@ -1,11 +1,12 @@
 import { findNavItem, navItems, type NavName } from '@/navigation'
 
 describe('navigation', () => {
-  it('lists the nine tabs in menu order', () => {
+  it('lists the ten tabs in menu order', () => {
     expect(navItems.map((item) => item.title)).toEqual([
       'Accounts',
       'Budget',
       'Subscriptions',
+      'Bills',
       'Transactions',
       'Categories',
       'Automations',

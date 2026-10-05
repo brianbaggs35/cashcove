@@ -17,6 +17,8 @@ export function makePreferences(): Preferences {
     alerts: {
       subscription_due_enabled: true,
       subscription_due_days_before: 3,
+      bill_due_enabled: true,
+      bill_due_days_before: 5,
       low_balance_enabled: true,
       low_balance_threshold: '100.00',
       large_transaction_enabled: true,

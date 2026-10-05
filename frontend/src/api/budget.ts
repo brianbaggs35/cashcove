@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client'
+import type { RecurringKind } from '@/api/subscriptions'
 
 /** How often a budget's amount starts over. */
 export type BudgetPeriodKind = 'weekly' | 'biweekly' | 'monthly' | 'yearly'
@@ -7,10 +8,13 @@ export type BudgetPeriodKind = 'weekly' | 'biweekly' | 'monthly' | 'yearly'
 export type BudgetKind = 'income' | 'spending'
 
 /** What a source of a budget is, besides single transactions. */
-export type SourceType = 'account' | 'category' | 'subscription' | 'automation'
+export type SourceType = 'account' | 'category' | 'subscription' | 'bill' | 'automation'
 
-/** Why a transaction counts: it was linked itself, or one of the sources counts it. */
-export type Via = 'transaction' | SourceType
+/**
+ * Why a transaction counts: it was linked itself, or one of the sources counts it. The payments
+ * of a bill count via the subscription link, since both are linked the same way.
+ */
+export type Via = 'transaction' | Exclude<SourceType, 'bill'>
 
 /** What a budget came to in one of its periods. */
 export interface PeriodSummary {
@@ -86,10 +90,12 @@ export interface CategoryTotal {
   count: number
 }
 
-/** A subscription's payment that falls due before the period ends. */
+/** A subscription's or bill's payment that falls due before the period ends. */
 export interface UpcomingBill {
   subscription_id: string
   name: string
+  /** Whether it's a subscription or a bill. */
+  kind: RecurringKind
   due_on: string
   amount: string
 }

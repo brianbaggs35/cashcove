@@ -2,6 +2,7 @@ import { flushPromises, type DOMWrapper } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
 
 import * as automationsApi from '@/api/automations'
+import * as billsApi from '@/api/bills'
 import * as api from '@/api/budget'
 import type { BudgetKind, BudgetSource } from '@/api/budget'
 import { ApiError } from '@/api/client'
@@ -27,7 +28,7 @@ import {
   wholeFoods,
 } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import BudgetLinkDialog from '@/views/budget/BudgetLinkDialog.vue'
 
 const shouty = makeTransaction({ id: 'transaction-shouty', payee: ' WHOLE FOODS ' })
@@ -69,6 +70,11 @@ async function render({
     makeSubscription({ id: 'subscription-gym', name: 'Gym', amount: '30.00' }),
     makeSubscription({ id: 'subscription-old', name: 'Old magazine', active: false }),
   ])
+  vi.spyOn(billsApi, 'fetchBills').mockResolvedValue([
+    makeBill(),
+    makeBill({ id: 'bill-water', name: 'Water', amount: '41.20', expected_amount: '41.20' }),
+    makeBill({ id: 'bill-old', name: 'Old gas', active: false }),
+  ])
   const fetchRules = vi.spyOn(automationsApi, 'fetchAutomations')
   if (rulesFail) fetchRules.mockRejectedValue(new Error('Offline'))
   else {
@@ -93,7 +99,7 @@ async function render({
     await overlay().find(`[data-test="link-tab-${name}"]`).trigger('click')
     await flushPromises()
   }
-  const select = (name: 'account' | 'subscription' | 'rule') =>
+  const select = (name: 'account' | 'subscription' | 'bill' | 'rule') =>
     mounted.wrapper
       .findAllComponents({ name: 'VSelect' })
       .find((item) => item.attributes('data-test') === `link-${name}`)!
@@ -116,7 +122,7 @@ const titles = (items: { title: string }[]) => items.map((item) => item.title)
 const text = (wrapper: DOMWrapper<Element>) => wrapper.text().replace(/\s+/g, ' ')
 
 describe('BudgetLinkDialog', () => {
-  it('adds spending, starting with the money that went out, and offers a subscription', async () => {
+  it('adds spending, starting with the money that went out, and offers subscriptions and bills', async () => {
     const { overlay, field, fetchTransactions } = await render()
 
     expect(overlay().find('h2').text()).toBe('Add spending')
@@ -125,13 +131,13 @@ describe('BudgetLinkDialog', () => {
       overlay()
         .findAll('[role="tab"]')
         .map((item) => item.text()),
-    ).toEqual(['Transactions', 'An account', 'A category', 'A subscription', 'A rule'])
+    ).toEqual(['Transactions', 'An account', 'A category', 'A subscription', 'A bill', 'A rule'])
     expect(fetchTransactions).toHaveBeenCalledWith(expect.objectContaining({ direction: 'out' }))
     expect(field('add').attributes('disabled')).toBeDefined()
     expect(field('add').text()).toBe('Add transactions')
   })
 
-  it('adds income, which has no subscriptions, starting with the money that came in', async () => {
+  it('adds income, which has no subscriptions or bills, starting with the money that came in', async () => {
     const { overlay, fetchTransactions } = await render({ kind: 'income' })
 
     expect(overlay().find('h2').text()).toBe('Add income')
@@ -324,6 +330,36 @@ describe('BudgetLinkDialog', () => {
       kind: 'spending',
       subscription_id: 'subscription-gym',
     })
+  })
+
+  it('counts a bill that does not count yet, the way a subscription is', async () => {
+    const add = vi
+      .spyOn(api, 'addBudgetSource')
+      .mockResolvedValue({ ...makeSource(), type: 'bill', name: 'Water' })
+    const { field, tab, select } = await render({
+      // The bill counted already isn't offered again, and a subscription doesn't hide a bill.
+      sources: [
+        makeSource({ type: 'bill', target_id: 'bill-power' }),
+        makeSource({ type: 'subscription', target_id: 'subscription-streamflix' }),
+      ],
+    })
+
+    await tab('bill')
+    expect(field('add').text()).toBe('Count this bill')
+    expect(field('add').attributes('disabled')).toBeDefined()
+    expect(titles(select('bill').props('items'))).toEqual(['Water'])
+    expect(select('bill').props('items')[0].props.subtitle).toBe('Monthly · $41.20')
+    select('bill').vm.$emit('update:modelValue', 'bill-water')
+    await flushPromises()
+    await field('add').trigger('click')
+    await flushPromises()
+
+    // A bill is linked by the ID it has, like a subscription.
+    expect(add).toHaveBeenCalledWith('budget-monthly', {
+      kind: 'spending',
+      subscription_id: 'bill-water',
+    })
+    expect(notices.value.at(-1)?.text).toBe('Counting Water as spending in Household')
   })
 
   it('counts an automation that does not count yet', async () => {

@@ -39,6 +39,14 @@ const sources = [
     count: 3,
   }),
   makeSource({
+    id: 'source-power',
+    type: 'bill',
+    name: 'City Power',
+    target_id: 'bill-power',
+    amount: '96.40',
+    count: 1,
+  }),
+  makeSource({
     id: 'source-gone',
     name: 'Old category',
     target_id: 'category-deleted',
@@ -76,6 +84,7 @@ describe('BudgetSources', () => {
       'Rewards Visa Account · $0.00 from 0 transactions',
       'Netflix rule Paused Rule · $15.49 from 1 transaction',
       'Gym Subscription · $30.00 from 3 transactions',
+      'City Power Bill · $96.40 from 1 transaction',
       'Old category Category · $5.00 from 1 transaction',
     ])
   })

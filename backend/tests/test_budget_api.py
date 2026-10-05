@@ -22,6 +22,7 @@ from app.models import (
     Category,
     CategoryKind,
     PaymentFrequency,
+    RecurringKind,
     Subscription,
     Transaction,
 )
@@ -1529,3 +1530,46 @@ def test_the_list_follows_the_servers_date_unless_told_otherwise(
 
     assert response.status_code == 200
     assert response.json()["total"] == 3
+
+
+def test_a_bill_counts_toward_a_budget_like_a_subscription_and_is_told_apart(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    power = subscription(
+        session,
+        things.checking,
+        "Power",
+        kind=RecurringKind.BILL,
+        amount=Decimal("100.00"),
+        next_due_date=dt.date(2026, 9, 25),
+    )
+    add_transaction(
+        session, things.checking, "-120.00", "Power", date=day(3), subscription_id=power.id
+    )
+    # A subscription of the same budget is counted the same way, and is a subscription still.
+    budget = make_budget(admin_client)
+    count(admin_client, budget, "spending", subscription=things.netflix.id)
+
+    source = count(admin_client, budget, "spending", subscription=power.id)
+
+    assert (source["type"], source["name"], source["target_id"]) == ("bill", "Power", str(power.id))
+    period = view(admin_client, budget)
+    assert [
+        (item["type"], item["name"], item["amount"], item["count"]) for item in period["sources"]
+    ] == [
+        ("subscription", "Netflix", "15.49", 1),
+        ("bill", "Power", "120.00", 1),
+    ]
+    # What it paid counts as spending, and what it has still to pay this period is expected.
+    assert ("Power", "spending", "subscription") in summary(counted(admin_client, budget))
+    assert [(item["name"], item["kind"], item["due_on"]) for item in period["upcoming"]] == [
+        ("Power", "bill", "2026-09-25")
+    ]
+    # A bill's payments are money out, so it can't count as income.
+    income = admin_client.post(
+        f"/api/budgets/{budget['id']}/sources",
+        json={"kind": "income", "subscription_id": str(power.id)},
+    )
+    assert income.status_code == 422
+    assert "subscription or bill" in income.text

@@ -33,7 +33,7 @@ from app.models.connection import (
 )
 from app.models.exchange_rate import ExchangeRate, ExchangeRateSpan
 from app.models.imports import FileFormat, FileImport, ImportProfile
-from app.models.subscription import PaymentFrequency, Subscription
+from app.models.subscription import PaymentFrequency, RecurringKind, Subscription
 from app.models.transaction import Transaction, TransactionSource
 from app.models.user import Role, User
 
@@ -74,6 +74,7 @@ __all__ = [
     "PasswordReset",
     "PaymentFrequency",
     "RecoveryCode",
+    "RecurringKind",
     "Role",
     "Subscription",
     "SyncTrigger",

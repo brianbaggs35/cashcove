@@ -92,7 +92,7 @@ def _check_choices(
         raise ApiError(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "unknown_subscription",
-            "That subscription doesn't exist anymore. Choose another one.",
+            "That subscription or bill doesn't exist anymore. Choose another one.",
         )
 
 

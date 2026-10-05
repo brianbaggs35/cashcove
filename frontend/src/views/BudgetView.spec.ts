@@ -362,7 +362,15 @@ describe('BudgetView', () => {
     const { find, component } = await render({
       period: (budget) =>
         periodOf(budget, {
-          upcoming: [{ subscription_id: 's', name: 'Gym', due_on: '2026-09-25', amount: '30.00' }],
+          upcoming: [
+            {
+              subscription_id: 's',
+              name: 'Gym',
+              kind: 'subscription',
+              due_on: '2026-09-25',
+              amount: '30.00',
+            },
+          ],
           categories: [],
         }),
     })

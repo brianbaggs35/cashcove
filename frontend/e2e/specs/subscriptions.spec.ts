@@ -306,7 +306,7 @@ test.describe('Subscriptions', () => {
       '1 selected transaction is money coming in',
     )
     await expectAccessible(page, { include: '.v-overlay--active' })
-    await choose(dialog.getByTestId('link-subscription'), 'Shared costs')
+    await choose(dialog.getByTestId('link-target'), 'Shared costs')
     await dialog.getByTestId('link-apply').click()
     await expect(dialog).toBeHidden()
 

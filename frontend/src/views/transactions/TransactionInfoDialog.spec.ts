@@ -1,6 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
 
+import * as billsApi from '@/api/bills'
 import { ApiError } from '@/api/client'
 import type { Subscription } from '@/api/subscriptions'
 import * as subscriptionsApi from '@/api/subscriptions'
@@ -20,7 +21,7 @@ import {
 } from '@/test/finance'
 import { checkingImport, seedImports } from '@/test/imports'
 import { mountWithPlugins } from '@/test/mount'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import TransactionInfoDialog from '@/views/transactions/TransactionInfoDialog.vue'
 
 const describedTransaction = { ...wholeFoods, original_description: 'WHOLE FOODS MARKET' }
@@ -29,6 +30,7 @@ async function render(
   editable = true,
   transaction: Transaction = describedTransaction,
   known: Subscription[] = [],
+  knownBills: Subscription[] = [],
 ) {
   const open = ref(false)
   const saved = vi.fn()
@@ -51,10 +53,14 @@ async function render(
       seedImports()
       const store = useSubscriptionsStore()
       store.subscriptions = known
-      store.loaded = known.length > 0
+      store.bills = knownBills
+      store.loaded = known.length + knownBills.length > 0
       // What loading them again, as opening a payment does, comes back with.
       if (!vi.isMockFunction(subscriptionsApi.fetchSubscriptions)) {
         vi.spyOn(subscriptionsApi, 'fetchSubscriptions').mockResolvedValue(known)
+      }
+      if (!vi.isMockFunction(billsApi.fetchBills)) {
+        vi.spyOn(billsApi, 'fetchBills').mockResolvedValue(knownBills)
       }
     },
   })
@@ -168,14 +174,25 @@ describe('TransactionInfoDialog', () => {
 
     await render(false, makeTransaction({ subscription_id: 'subscription-gone' }))
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(document.body.textContent).toContain('A subscription')
+    expect(document.body.textContent).toContain('A subscription or bill')
+  })
+
+  it('names a bill a payment is linked to, as a bill', async () => {
+    await render(false, makeTransaction({ subscription_id: 'bill-power' }), [], [makeBill()])
+
+    const row = dialog().querySelector('[data-test="transaction-info-subscription"]')!
+    expect(row.textContent).toContain('City Power')
+    expect(row.closest('.transaction-info__row')?.querySelector('dt')?.textContent).toBe('Bill')
+    expect(row.querySelector('svg')?.classList).toContain('lucide-receipt-text')
   })
 
   it('loads the subscriptions an admin can choose from when opening a payment', async () => {
     const { subscriptionSelect } = await render(true, wholeFoods, [makeSubscription()])
 
     expect(subscriptionsApi.fetchSubscriptions).toHaveBeenCalledTimes(1)
-    expect(subscriptionSelect()!.props('items')).toHaveLength(1)
+    expect(billsApi.fetchBills).toHaveBeenCalledTimes(1)
+    // A heading, and the one subscription under it.
+    expect(subscriptionSelect()!.props('items')).toHaveLength(2)
   })
 
   it('does not load them for money coming in, or for a viewer who has nothing to name', async () => {
@@ -201,6 +218,7 @@ describe('TransactionInfoDialog', () => {
     const fetchOne = vi.spyOn(api, 'fetchTransaction').mockResolvedValue(linked)
     const { saved, subscriptionSelect } = await render(true, wholeFoods, [makeSubscription()])
     expect(subscriptionSelect()!.props('items')).toEqual([
+      { type: 'subheader', title: 'Subscriptions' },
       {
         value: 'subscription-streamflix',
         title: 'Streamflix',
@@ -230,7 +248,61 @@ describe('TransactionInfoDialog', () => {
     subscriptionSelect()!.vm.$emit('update:modelValue', 'subscription-gone')
     await flushPromises()
 
-    expect(notices.value.at(-1)?.text).toBe('Linked it to the subscription')
+    expect(notices.value.at(-1)?.text).toBe('Linked it to the subscription or bill')
+  })
+
+  it('links a payment to a bill, moves it between a bill and a subscription, and takes it off', async () => {
+    const linkBill = vi
+      .spyOn(billsApi, 'linkBillPayments')
+      .mockResolvedValue({ count: 1, subscription: makeBill() })
+    const unlinkBill = vi.spyOn(billsApi, 'unlinkBillPayment').mockResolvedValue(makeBill())
+    const linkSubscription = vi.spyOn(subscriptionsApi, 'linkSubscriptionPayments')
+    const unlinkSubscription = vi.spyOn(subscriptionsApi, 'unlinkSubscriptionPayment')
+    const payment = makeTransaction({ subscription_id: 'subscription-streamflix' })
+    const fetchOne = vi.spyOn(api, 'fetchTransaction')
+    const { saved, subscriptionSelect } = await render(
+      true,
+      payment,
+      [makeSubscription()],
+      [makeBill()],
+    )
+    expect(
+      subscriptionSelect()!
+        .props('items')
+        .map((item: { title: string }) => item.title),
+    ).toEqual(['Subscriptions', 'Streamflix', 'Bills', 'City Power'])
+
+    // Moved to a bill, which is linked through the bills API.
+    fetchOne.mockResolvedValueOnce({ ...payment, subscription_id: 'bill-power' })
+    subscriptionSelect()!.vm.$emit('update:modelValue', 'bill-power')
+    await flushPromises()
+    expect(linkBill).toHaveBeenCalledWith('bill-power', [payment.id])
+    expect(notices.value.at(-1)?.text).toBe('Linked it to City Power')
+
+    // Taken off it, which is unlinked through the same API, and says it was a bill.
+    fetchOne.mockResolvedValueOnce({ ...payment, subscription_id: null })
+    subscriptionSelect()!.vm.$emit('update:modelValue', null)
+    await flushPromises()
+    expect(unlinkBill).toHaveBeenCalledWith('bill-power', payment.id)
+    expect(notices.value.at(-1)?.text).toBe('Took it off the bill')
+    expect(linkSubscription).not.toHaveBeenCalled()
+    expect(unlinkSubscription).not.toHaveBeenCalled()
+    expect(saved).toHaveBeenCalledTimes(2)
+  })
+
+  it('takes a payment off a subscription or bill it can no longer find, as a subscription', async () => {
+    const unlink = vi
+      .spyOn(subscriptionsApi, 'unlinkSubscriptionPayment')
+      .mockResolvedValue(makeSubscription())
+    const payment = makeTransaction({ subscription_id: 'subscription-gone' })
+    vi.spyOn(api, 'fetchTransaction').mockResolvedValue({ ...payment, subscription_id: null })
+    const { subscriptionSelect } = await render(true, payment, [makeSubscription()])
+
+    subscriptionSelect()!.vm.$emit('update:modelValue', null)
+    await flushPromises()
+
+    expect(unlink).toHaveBeenCalledWith('subscription-gone', payment.id)
+    expect(notices.value.at(-1)?.text).toBe('Took it off the subscription')
   })
 
   it('moves a payment to another subscription, and takes it off one', async () => {
@@ -288,7 +360,7 @@ describe('TransactionInfoDialog', () => {
       subscriptionSelect()!
         .props('items')
         .map((item: { title: string }) => item.title),
-    ).toEqual(['Streamflix', 'Old gym'])
+    ).toEqual(['Subscriptions', 'Streamflix', 'Old gym'])
   })
 
   it('shows viewers, and money coming in, the subscription only as a name or not at all', async () => {

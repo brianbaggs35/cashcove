@@ -16,7 +16,7 @@ export interface BudgetFields {
 }
 
 /** Where to look for what counts in the link dialog. */
-export type LinkTab = 'transactions' | 'account' | 'category' | 'subscription' | 'rule'
+export type LinkTab = 'transactions' | 'account' | 'category' | 'subscription' | 'bill' | 'rule'
 
 /**
  * The Budget tab: the cards that switch between budgets, how the period being looked at is
@@ -146,7 +146,7 @@ export class BudgetPage {
     await row.getByTestId('link-pick').getByRole('checkbox').check()
   }
 
-  /** Picks an account, category, subscription or automation in the dialog. */
+  /** Picks an account, category, subscription, bill or automation in the dialog. */
   async pickIn(tab: Exclude<LinkTab, 'transactions'>, option: string): Promise<void> {
     await this.chooseTab(tab)
     await choose(this.linkDialog.getByTestId(`link-${tab}`), option)

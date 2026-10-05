@@ -1,13 +1,5 @@
 <script setup lang="ts">
-import {
-  Pencil,
-  Plus,
-  Repeat,
-  TrendingDown,
-  TrendingUp,
-  TriangleAlert,
-  WandSparkles,
-} from '@lucide/vue'
+import { Pencil, Plus, TrendingDown, TrendingUp, TriangleAlert, WandSparkles } from '@lucide/vue'
 import { computed, onScopeDispose, reactive, ref, watch } from 'vue'
 
 import {
@@ -31,6 +23,7 @@ import StepList from '@/components/ui/StepList.vue'
 import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
 import { useHousehold } from '@/composables/useHousehold'
+import { useRecurringChoices } from '@/composables/useRecurringChoices'
 import { useAccountsStore } from '@/stores/accounts'
 import { useBudgetsStore } from '@/stores/budgets'
 import { useCategoriesStore } from '@/stores/categories'
@@ -50,7 +43,7 @@ import {
   type AmountMode,
 } from '@/views/automations/looks'
 import { periodTitles } from '@/views/budget/periods'
-import { expectedAmount, frequencyTitle } from '@/views/subscriptions/recurrence'
+import { kinds } from '@/views/subscriptions/kinds'
 
 /**
  * Adds an automation, or changes one, in two steps. The first finds the transactions: ticked
@@ -69,6 +62,7 @@ const categories = useCategoriesStore()
 const subscriptions = useSubscriptionsStore()
 const budgets = useBudgetsStore()
 const { money } = useHousehold()
+const { choices } = useRecurringChoices()
 
 interface AutomationForm {
   name: string
@@ -80,6 +74,7 @@ interface AutomationForm {
   amountFrom: string | null
   amountTo: string | null
   categoryId: string | null
+  /** The subscription or the bill it links payments to. */
   subscriptionId: string | null
   /** The budgets it counts what it sorts toward, as income and as spending. */
   incomeBudgets: string[]
@@ -128,16 +123,11 @@ const accountItems = computed(() => {
     props: { subtitle: item.institution ?? undefined },
   }))
 })
-const subscriptionItems = computed(() =>
-  subscriptions.subscriptions
-    .filter((item) => item.active || item.id === props.automation?.subscription_id)
-    .map((item) => ({
-      value: item.id,
-      title: item.name,
-      props: {
-        subtitle: `${frequencyTitle(item.frequency)} · ${money(expectedAmount(item), accounts.find(item.account_id)?.currency)}`,
-      },
-    })),
+/** The subscriptions and bills to link payments to; a paused one stays if it's already chosen. */
+const subscriptionItems = computed(() => choices(props.automation?.subscription_id))
+/** What the one chosen is, a subscription or a bill, which says what to show beside it. */
+const linkedKind = computed(
+  () => kinds[subscriptions.find(form.subscriptionId)?.kind ?? 'subscription'],
 )
 
 const budgetItems = computed(() =>
@@ -231,7 +221,7 @@ const rule = computed(() => {
   if (category) does.push(`put them in ${category.emoji} ${category.name}`)
   if (form.subscriptionId) {
     does.push(
-      `link payments to ${subscriptions.find(form.subscriptionId)?.name ?? 'the subscription'}`,
+      `link payments to ${subscriptions.find(form.subscriptionId)?.name ?? 'the subscription or bill'}`,
     )
   }
   for (const [kind, ids] of [
@@ -603,12 +593,12 @@ function submit() {
         <v-select
           v-model="form.subscriptionId"
           :items="subscriptionItems"
-          label="Link payments to the subscription"
-          :prepend-inner-icon="Repeat"
+          label="Link payments to a subscription or bill"
+          :prepend-inner-icon="linkedKind.icon"
           hint="Only payments, money going out, are linked. They count toward its payments and settle its due date."
           persistent-hint
           clearable
-          no-data-text="Add a subscription in the Subscriptions tab first"
+          no-data-text="Add a subscription or a bill first"
           :error-messages="fieldError('subscription_id')"
           class="mt-2"
           data-test="automation-subscription"
@@ -649,7 +639,7 @@ function submit() {
           class="text-body-small text-medium-emphasis mt-1 mb-0"
           data-test="automation-action-hint"
         >
-          Choose a category, a subscription or a budget.
+          Choose a category, a subscription, a bill or a budget.
         </p>
         <v-alert
           v-for="overlap in overlaps"

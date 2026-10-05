@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { CalendarRange, CircleDashed, FileUp, Landmark, Scale, type LucideIcon } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 
 import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { useCategoriesStore } from '@/stores/categories'
 import { useImportsStore } from '@/stores/imports'
+import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { formatDateRange } from '@/utils/dates'
+import { kinds } from '@/views/subscriptions/kinds'
 import type { TransactionFilters } from '@/views/transactions/view'
 
 /** The filters narrowing the list, each removable on its own. */
@@ -16,7 +18,17 @@ const emit = defineEmits<{ change: [changes: Partial<TransactionFilters>]; clear
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const imports = useImportsStore()
+const subscriptions = useSubscriptionsStore()
 const { locale, money } = useHousehold()
+
+// Names the subscription or bill whose payments are listed.
+watch(
+  () => props.filters.subscriptionId,
+  (id) => {
+    if (id) void subscriptions.ensureLoaded()
+  },
+  { immediate: true },
+)
 
 interface Chip {
   key: string
@@ -112,10 +124,12 @@ function importChips({ importId }: TransactionFilters): Chip[] {
 
 function subscriptionChips({ subscriptionId }: TransactionFilters): Chip[] {
   if (!subscriptionId) return []
+  const found = subscriptions.find(subscriptionId)
   return [
     {
       key: 'subscription',
-      label: 'Subscription payments',
+      label: found ? `${found.name} payments` : 'Subscription or bill payments',
+      icon: found ? kinds[found.kind].icon : undefined,
       remove: { subscriptionId: null },
     },
   ]

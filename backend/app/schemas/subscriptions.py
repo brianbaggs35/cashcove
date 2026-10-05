@@ -1,4 +1,4 @@
-"""Request and response models for recurring payments."""
+"""Request and response models for recurring payments: subscriptions and bills."""
 
 import datetime as dt
 import uuid
@@ -7,7 +7,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from app.models import PaymentFrequency
+from app.models import PaymentFrequency, RecurringKind
 from app.schemas.fields import STRICT, AmountOut, TransactionNotes
 
 SubscriptionName = Annotated[
@@ -58,6 +58,8 @@ class SubscriptionOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    # Whether it's a subscription or a bill, which is the API it's under: it can't be changed.
+    kind: RecurringKind
     payee: str
     amount: AmountOut
     amount_varies: bool
@@ -82,7 +84,7 @@ class SubscriptionOut(BaseModel):
 
 
 class PaymentsLinked(BaseModel):
-    """What linking payments did: how many changed, and the subscription as it is now."""
+    """What linking payments did: how many changed, and the subscription (or bill) as it is now."""
 
     count: int
     subscription: SubscriptionOut

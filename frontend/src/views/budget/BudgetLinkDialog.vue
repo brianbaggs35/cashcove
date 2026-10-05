@@ -16,29 +16,28 @@ import TransactionFinder from '@/components/finance/TransactionFinder.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
-import { useHousehold } from '@/composables/useHousehold'
+import { useRecurringChoices } from '@/composables/useRecurringChoices'
 import { useAccountsStore } from '@/stores/accounts'
 import { useCategoriesStore } from '@/stores/categories'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { formatCount } from '@/utils/format'
 import { keyOf, nameFor } from '@/views/automations/looks'
-import { frequencyTitle, expectedAmount } from '@/views/subscriptions/recurrence'
 
 /**
  * Adds income or spending to a budget: single transactions (with the option to count every
  * later one like them, which is how a paycheck gets counted each time), or a whole account or
- * category, a subscription, or an automation's transactions.
+ * category, a subscription or a bill, or an automation's transactions.
  */
 const open = defineModel<boolean>({ required: true })
 const props = defineProps<{ budget: Budget; kind: BudgetKind; sources: BudgetSource[] }>()
 const emit = defineEmits<{ added: [] }>()
 
-type Tab = 'transactions' | 'account' | 'category' | 'subscription' | 'rule'
+type Tab = 'transactions' | 'account' | 'category' | 'subscription' | 'bill' | 'rule'
 
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const subscriptions = useSubscriptionsStore()
-const { money } = useHousehold()
+const { subtitle } = useRecurringChoices()
 
 const tab = ref<Tab>('transactions')
 /** Counts openings, so each starts with a fresh search of the transactions. */
@@ -48,6 +47,7 @@ const automate = ref(true)
 const accountId = ref<string | null>(null)
 const categoryId = ref<string | null>(null)
 const subscriptionId = ref<string | null>(null)
+const billId = ref<string | null>(null)
 const automationId = ref<string | null>(null)
 const automations = ref<Automation[]>([])
 
@@ -56,7 +56,12 @@ const tabs = computed(() => [
   { value: 'transactions', title: 'Transactions' },
   { value: 'account', title: 'An account' },
   { value: 'category', title: 'A category' },
-  ...(income.value ? [] : [{ value: 'subscription', title: 'A subscription' }]),
+  ...(income.value
+    ? []
+    : [
+        { value: 'subscription', title: 'A subscription' },
+        { value: 'bill', title: 'A bill' },
+      ]),
   { value: 'rule', title: 'A rule' },
 ])
 
@@ -78,18 +83,15 @@ const accountItems = computed(() => {
       props: { subtitle: account.institution ?? undefined },
     }))
 })
-const subscriptionItems = computed(() => {
-  const taken = counted('subscription')
-  return subscriptions.active
+/** The subscriptions or bills being tracked that don't count toward the budget yet. */
+function recurringItems(type: 'subscription' | 'bill') {
+  const taken = counted(type)
+  return (type === 'bill' ? subscriptions.activeBills : subscriptions.active)
     .filter((item) => !taken.has(item.id))
-    .map((item) => ({
-      value: item.id,
-      title: item.name,
-      props: {
-        subtitle: `${frequencyTitle(item.frequency)} · ${money(expectedAmount(item), accounts.find(item.account_id)?.currency)}`,
-      },
-    }))
-})
+    .map((item) => ({ value: item.id, title: item.name, props: { subtitle: subtitle(item) } }))
+}
+const subscriptionItems = computed(() => recurringItems('subscription'))
+const billItems = computed(() => recurringItems('bill'))
 const ruleItems = computed(() => {
   const taken = counted('automation')
   return automations.value
@@ -116,6 +118,7 @@ const ready = computed(
       account: accountId.value !== null,
       category: categoryId.value !== null,
       subscription: subscriptionId.value !== null,
+      bill: billId.value !== null,
       rule: automationId.value !== null,
     })[tab.value],
 )
@@ -124,6 +127,7 @@ const buttons: Record<Tab, string> = {
   account: 'Count this account',
   category: 'Count this category',
   subscription: 'Count this subscription',
+  bill: 'Count this bill',
   rule: 'Count this rule',
 }
 
@@ -137,7 +141,8 @@ function reset() {
   tab.value = 'transactions'
   picked.value = new Map()
   automate.value = true
-  accountId.value = categoryId.value = subscriptionId.value = automationId.value = null
+  accountId.value = categoryId.value = subscriptionId.value = billId.value = null
+  automationId.value = null
   adding.clear()
 }
 
@@ -187,6 +192,8 @@ const adding = useAction(async () => {
       account: { account_id: accountId.value ?? undefined },
       category: { category_id: categoryId.value ?? undefined },
       subscription: { subscription_id: subscriptionId.value ?? undefined },
+      // A bill is linked the way a subscription is, by the ID it has.
+      bill: { subscription_id: billId.value ?? undefined },
       rule: { automation_id: automationId.value ?? undefined },
     }[tab.value]
     const added = await addBudgetSource(id, { kind, ...target })
@@ -307,6 +314,19 @@ const adding = useAction(async () => {
         label="Subscription"
         no-data-text="Add a subscription in the Subscriptions tab first"
         data-test="link-subscription"
+      />
+    </section>
+
+    <section v-else-if="tab === 'bill'">
+      <p class="text-body-medium text-medium-emphasis mb-3">
+        Every payment of the bill counts, and the ones still to come this period are counted ahead.
+      </p>
+      <v-select
+        v-model="billId"
+        :items="billItems"
+        label="Bill"
+        no-data-text="Add a bill in the Bills tab first"
+        data-test="link-bill"
       />
     </section>
 

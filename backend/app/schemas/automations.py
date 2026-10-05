@@ -23,7 +23,7 @@ Payees = Annotated[list[Payee], Field(min_length=1, max_length=MAX_PAYEES)]
 MAX_COUNTS = 20
 # The budgets an automation counts what it sorts toward, as income or as spending.
 Counts = Annotated[list[AutomationCount], Field(max_length=MAX_COUNTS)]
-NO_ACTION = "Choose a category, a subscription or a budget for it to give."
+NO_ACTION = "Choose a category, a subscription, a bill or a budget for it to give."
 
 
 def amounts_in_order(low: Decimal | None, high: Decimal | None) -> bool:
@@ -51,6 +51,7 @@ class AutomationCreate(BaseModel):
     min_amount: PositiveAmount | None = None
     max_amount: PositiveAmount | None = None
     category_id: uuid.UUID | None = None
+    # The subscription or the bill it links payments to, which are linked the same way.
     subscription_id: uuid.UUID | None = None
     # Budgets it counts what it sorts toward, as income or as spending.
     counts: Counts = Field(default_factory=list[AutomationCount])

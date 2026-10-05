@@ -1,13 +1,14 @@
 import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
 
+import * as billsApi from '@/api/bills'
 import { ApiError } from '@/api/client'
 import * as api from '@/api/subscriptions'
 import { notices } from '@/composables/notify'
 import { page } from '@/test/dom'
 import { seedFinance } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import LinkSubscriptionDialog from '@/views/transactions/LinkSubscriptionDialog.vue'
 
 const power = makeSubscription({
@@ -39,6 +40,10 @@ async function render(ids: string[], selected = ids.length) {
       power,
       makeSubscription({ id: 'subscription-paused', name: 'Old gym', active: false }),
     ])
+  vi.spyOn(billsApi, 'fetchBills').mockResolvedValue([
+    makeBill(),
+    makeBill({ id: 'bill-old', name: 'Old gas', active: false }),
+  ])
   const { wrapper } = await mountWithPlugins(Host, {
     width: 1280,
     beforeMount: () => seedFinance(),
@@ -62,7 +67,7 @@ describe('LinkSubscriptionDialog', () => {
       .spyOn(api, 'linkSubscriptionPayments')
       .mockResolvedValue({ count: 2, subscription: makeSubscription() })
     const { open, done, select } = await render(['a', 'b'])
-    expect(dialog().find('h2').text()).toBe('Link 2 payments to a subscription')
+    expect(dialog().find('h2').text()).toBe('Link 2 payments to a subscription or bill')
     expect(dialog().find('[data-test="link-apply"]').attributes('disabled')).toBeDefined()
 
     select().vm.$emit('update:modelValue', 'subscription-power')
@@ -75,16 +80,37 @@ describe('LinkSubscriptionDialog', () => {
     expect(open.value).toBe(false)
   })
 
-  it('offers the subscriptions still being matched, with how often and how much', async () => {
+  it('links them to a bill through the bills API', async () => {
+    const linkBill = vi
+      .spyOn(billsApi, 'linkBillPayments')
+      .mockResolvedValue({ count: 1, subscription: makeBill() })
+    const linkSubscription = vi.spyOn(api, 'linkSubscriptionPayments')
+    const { done, select } = await render(['a'])
+    expect(dialog().find('h2').text()).toBe('Link 1 payment to a subscription or bill')
+
+    select().vm.$emit('update:modelValue', 'bill-power')
+    await flushPromises()
+    await apply()
+
+    expect(linkBill).toHaveBeenCalledWith('bill-power', ['a'])
+    expect(linkSubscription).not.toHaveBeenCalled()
+    expect(notices.value.at(-1)?.text).toBe('Linked 1 payment to City Power')
+    expect(done).toHaveBeenCalled()
+  })
+
+  it('offers the subscriptions and the bills still being matched, with how often and how much', async () => {
     const { select } = await render(['a'])
 
     expect(select().props('items')).toEqual([
+      { type: 'subheader', title: 'Subscriptions' },
       {
         value: 'subscription-streamflix',
         title: 'Streamflix',
         props: { subtitle: 'Monthly · $14.99' },
       },
       { value: 'subscription-power', title: 'Power', props: { subtitle: 'Monthly · $120.00' } },
+      { type: 'subheader', title: 'Bills' },
+      { value: 'bill-power', title: 'City Power', props: { subtitle: 'Monthly · $96.40' } },
     ])
   })
 
@@ -94,7 +120,7 @@ describe('LinkSubscriptionDialog', () => {
       subscription: makeSubscription(),
     })
     const { select } = await render(['a'])
-    expect(dialog().find('h2').text()).toBe('Link 1 payment to a subscription')
+    expect(dialog().find('h2').text()).toBe('Link 1 payment to a subscription or bill')
 
     select().vm.$emit('update:modelValue', 'subscription-streamflix')
     await flushPromises()
@@ -103,7 +129,7 @@ describe('LinkSubscriptionDialog', () => {
     expect(notices.value.at(-1)?.text).toBe('1 payment already linked to Streamflix')
   })
 
-  it('names a subscription that is no longer in the list only as the subscription', async () => {
+  it('names one that is no longer in the list only as it', async () => {
     vi.spyOn(api, 'linkSubscriptionPayments').mockResolvedValue({
       count: 1,
       subscription: makeSubscription(),
@@ -114,7 +140,7 @@ describe('LinkSubscriptionDialog', () => {
     await flushPromises()
     await apply()
 
-    expect(notices.value.at(-1)?.text).toBe('Linked 1 payment to the subscription')
+    expect(notices.value.at(-1)?.text).toBe('Linked 1 payment to it')
   })
 
   it('says which of the selected were left out because money came in', async () => {

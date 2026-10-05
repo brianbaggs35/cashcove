@@ -9,17 +9,21 @@ import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
 import { useCategoriesStore } from '@/stores/categories'
 
-/** Deletes a category, first asking where its transactions should go. */
+/**
+ * Deletes a category. What used it goes back to being uncategorized, unless it's moved to
+ * another category first. That's its transactions, and the subscriptions, bills and automations
+ * that file things in it.
+ */
 const open = defineModel<boolean>({ required: true })
 const props = defineProps<{ category: Category }>()
 
 const store = useCategoriesStore()
-const keep = ref<'move' | 'uncategorize'>('move')
+const keep = ref<'move' | 'uncategorize'>('uncategorize')
 const moveTo = ref<string | null>(null)
 
 watch(open, (value) => {
   if (!value) return
-  keep.value = 'move'
+  keep.value = 'uncategorize'
   moveTo.value = null
   deleting.clear()
 })
@@ -47,10 +51,11 @@ const deleting = useAction(async () => {
   >
     <template v-if="count">
       <p class="text-body-medium mt-0 mb-3">
-        {{ count === 1 ? '1 transaction uses' : `${count} transactions use` }} it. Where should
-        {{ count === 1 ? 'it' : 'they' }} go?
+        {{ count === 1 ? '1 transaction uses' : `${count} transactions use` }} it. What should
+        happen to {{ count === 1 ? 'it' : 'them' }}?
       </p>
       <v-radio-group v-model="keep" color="primary" hide-details data-test="delete-category-keep">
+        <v-radio value="uncategorize" label="Leave them uncategorized" />
         <v-radio value="move" label="Move them to another category" />
         <CategoryPicker
           v-if="keep === 'move'"
@@ -60,10 +65,16 @@ const deleting = useAction(async () => {
           class="ms-10 mt-1 mb-2"
           data-test="delete-category-move-to"
         />
-        <v-radio value="uncategorize" label="Leave them uncategorized" />
       </v-radio-group>
+      <p class="text-body-small text-medium-emphasis mt-3 mb-0" data-test="delete-category-follows">
+        Subscriptions, bills and automations that use it follow: they move with them, or are left
+        uncategorized too.
+      </p>
     </template>
-    <p v-else class="text-body-medium ma-0">No transactions use it. This can't be undone.</p>
+    <p v-else class="text-body-medium ma-0" data-test="delete-category-unused">
+      No transactions use it. Any subscriptions, bills or automations that do are left
+      uncategorized. This can't be undone.
+    </p>
 
     <v-alert
       v-if="deleting.error.value"

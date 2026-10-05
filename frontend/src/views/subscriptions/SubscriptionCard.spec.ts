@@ -1,7 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 
 import { checking, seedFinance } from '@/test/finance'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import { mountWithPlugins } from '@/test/mount'
 import { page } from '@/test/dom'
 import SubscriptionCard from '@/views/subscriptions/SubscriptionCard.vue'
@@ -165,7 +165,8 @@ describe('SubscriptionCard', () => {
     expect(wrapper.find('[data-test="subscription-paused-chip"]').text()).toBe('Paused')
     expect(wrapper.find('[data-test="subscription-actions"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="subscription-link-payments"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="category-chip"]').exists()).toBe(false)
+    // With none, it says so the way the transactions do.
+    expect(wrapper.find('[data-test="category-chip"]').text()).toBe('Uncategorized')
     expect(wrapper.text()).toContain('Account unavailable')
     expect(wrapper.find('[data-test="subscription-payment-count"]').text()).toContain(
       '0 payments tracked',
@@ -233,5 +234,81 @@ describe('SubscriptionCard', () => {
     })
     await flushPromises()
     expect(wrapper.find('[data-test="subscription-amount"]').text()).toContain('CA$14.99')
+  })
+
+  describe('for a bill', () => {
+    async function renderBill(changes: Parameters<typeof makeBill>[0] = {}, props = {}) {
+      const { wrapper } = await mountWithPlugins(SubscriptionCard, {
+        props: {
+          subscription: makeBill(changes),
+          daysUntilDue: 8,
+          alertDays: 5,
+          dueAlertsEnabled: true,
+          ...props,
+        },
+        beforeMount: () => seedFinance(),
+      })
+      await flushPromises()
+      return wrapper
+    }
+
+    it('has a bill’s icon and its own test IDs, and none of a subscription’s', async () => {
+      const wrapper = await renderBill()
+
+      expect(wrapper.find('[data-test="bill-card"]').exists()).toBe(true)
+      expect(wrapper.find('[data-test="subscription-card"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="bill-title"]').text()).toBe('City Power')
+      expect(wrapper.find('.v-avatar svg').classes()).toContain('lucide-receipt-text')
+      // A bill that changes every month is an estimate, and its category is shown.
+      expect(wrapper.find('[data-test="bill-varies"]').text()).toBe('Amount varies')
+      expect(wrapper.find('[data-test="bill-amount"]').text()).toBe('~ $96.40')
+      expect(wrapper.find('[data-test="category-chip"]').text()).toContain('Groceries')
+      expect(wrapper.find('[data-test="bill-payment-count"]').text()).toContain(
+        '2 payments tracked',
+      )
+      expect(wrapper.find('[data-test="bill-view-payments"]').attributes('href')).toContain(
+        '/transactions?subscription=bill-power',
+      )
+    })
+
+    it('says when a bill has no category, the way transactions do', async () => {
+      const wrapper = await renderBill({ category_id: null })
+
+      expect(wrapper.find('[data-test="category-chip"]').text()).toBe('Uncategorized')
+    })
+
+    it('is overdue in the error color, and warns within the reminder window', async () => {
+      const overdue = await renderBill({}, { daysUntilDue: -4 })
+      expect(overdue.find('[data-test="bill-due"]').text()).toContain('Overdue by 4 days')
+      expect(overdue.find('[data-test="bill-due"]').classes()).toContain('text-error')
+
+      const soon = await renderBill({}, { daysUntilDue: 4 })
+      expect(soon.find('[data-test="bill-due-alert"]').text()).toContain('5-day reminder window')
+    })
+
+    it('emits its actions with the bill', async () => {
+      const wrapper = await renderBill()
+      const bill = makeBill()
+
+      await wrapper.find('[data-test="bill-link-payments"]').trigger('click')
+      expect(wrapper.emitted('link')?.[0]).toEqual([bill])
+
+      await wrapper.find('[data-test="bill-actions"]').trigger('click')
+      await flushPromises()
+      await page().find('[data-test="bill-edit"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.emitted('edit')?.[0]).toEqual([bill])
+    })
+
+    it('offers a menu icon matching what it is when paused or resumed', async () => {
+      const wrapper = await renderBill({ active: false })
+      await wrapper.find('[data-test="bill-actions"]').trigger('click')
+      await flushPromises()
+
+      expect(page().find('[data-test="bill-toggle"]').text()).toContain('Resume matching')
+      expect(page().find('[data-test="bill-toggle"] svg').classes()).toContain(
+        'lucide-receipt-text',
+      )
+    })
   })
 })

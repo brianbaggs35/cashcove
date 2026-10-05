@@ -10,7 +10,7 @@ import { click } from '@/test/dom'
 import { checking, seedFinance } from '@/test/finance'
 import { makeSessionState, makeUser } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeBill, makeSubscription } from '@/test/subscriptions'
 import AutomationCard from '@/views/automations/AutomationCard.vue'
 
 async function render(automation: Automation, props: Record<string, unknown> = {}) {
@@ -25,6 +25,7 @@ async function render(automation: Automation, props: Record<string, unknown> = {
         makeSubscription(),
         makeSubscription({ id: 'subscription-gym', name: 'Gym', active: false }),
       ]
+      store.bills = [makeBill(), makeBill({ id: 'bill-water', name: 'Water', active: false })]
       store.loaded = true
       const budgets = useBudgetsStore()
       budgets.budgets = [makeBudget()]
@@ -107,7 +108,26 @@ describe('AutomationCard', () => {
     expect(paused.find('automation-subscription').text()).toBe('Gym (paused)')
 
     const unknown = await render(makeAutomation({ subscription_id: 'subscription-gone' }))
-    expect(unknown.find('automation-subscription').text()).toBe('Subscription')
+    expect(unknown.find('automation-subscription').text()).toBe('Subscription or bill')
+  })
+
+  it('names the bill it links payments to, with a bill’s icon, and when that one is paused', async () => {
+    const linked = await render(
+      makeAutomation({ category_id: null, subscription_id: 'bill-power' }),
+    )
+    expect(linked.find('automation-subscription').text()).toBe('City Power')
+    expect(linked.wrapper.find('[data-test="automation-subscription"] svg').classes()).toContain(
+      'lucide-receipt-text',
+    )
+    const subscription = await render(
+      makeAutomation({ category_id: null, subscription_id: 'subscription-streamflix' }),
+    )
+    expect(
+      subscription.wrapper.find('[data-test="automation-subscription"] svg').classes(),
+    ).toContain('lucide-repeat')
+
+    const paused = await render(makeAutomation({ subscription_id: 'bill-water' }))
+    expect(paused.find('automation-subscription').text()).toBe('Water (paused)')
   })
 
   it('names the budgets it counts what it sorts toward', async () => {

@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { Landmark, Plus, Repeat, Tags, WandSparkles, X, type LucideIcon } from '@lucide/vue'
+import {
+  Landmark,
+  Plus,
+  ReceiptText,
+  Repeat,
+  Tags,
+  WandSparkles,
+  X,
+  type LucideIcon,
+} from '@lucide/vue'
 import { computed } from 'vue'
 
 import type { BudgetKind, BudgetSource, SourceType } from '@/api/budget'
@@ -8,7 +17,8 @@ import { useCategoriesStore } from '@/stores/categories'
 
 /**
  * What counts toward the budget besides single transactions, as income and as spending: whole
- * accounts and categories, subscriptions and automations, with what each counted in the period.
+ * accounts and categories, subscriptions, bills and automations, with what each counted in the
+ * period.
  */
 const props = defineProps<{
   sources: BudgetSource[]
@@ -26,12 +36,14 @@ const icons: Record<SourceType, LucideIcon> = {
   account: Landmark,
   category: Tags,
   subscription: Repeat,
+  bill: ReceiptText,
   automation: WandSparkles,
 }
 const typeNames: Record<SourceType, string> = {
   account: 'Account',
   category: 'Category',
   subscription: 'Subscription',
+  bill: 'Bill',
   automation: 'Rule',
 }
 

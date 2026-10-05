@@ -31,6 +31,8 @@ const shop = makeBudgetTransaction()
 const sources = [
   makeSource(),
   makeSource({ id: 'source-rule', type: 'automation', name: 'Paycheck rule' }),
+  makeSource({ id: 'source-power', type: 'bill', name: 'City Power' }),
+  makeSource({ id: 'source-gym', type: 'subscription', name: 'Gym' }),
 ]
 
 function page(items: BudgetTransaction[], total = items.length): BudgetTransactionPage {
@@ -96,6 +98,19 @@ describe('BudgetTransactions', () => {
       'An account',
     ])
     expect(text(rows()[3]!)).toContain('Deleted account')
+  })
+
+  it('says whether a payment counts because of a subscription or a bill', async () => {
+    const { rows } = await render({}, [
+      // A bill's payments come via the subscription link, and its source says what it is.
+      makeBudgetTransaction({ id: 'bill', via: 'subscription', source_id: 'source-power' }),
+      makeBudgetTransaction({ id: 'gym', via: 'subscription', source_id: 'source-gym' }),
+    ])
+
+    expect(rows().map((row) => text(row.find('[data-test="transaction-reason"]')))).toEqual([
+      'Bill: City Power',
+      'Subscription: Gym',
+    ])
   })
 
   it('narrows to income, spending, or what was taken off', async () => {

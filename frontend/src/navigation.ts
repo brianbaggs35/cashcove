@@ -4,6 +4,7 @@ import {
   Landmark,
   PiggyBank,
   Plug,
+  ReceiptText,
   Repeat,
   Settings,
   Tags,
@@ -15,6 +16,7 @@ export type NavName =
   | 'accounts'
   | 'budget'
   | 'subscriptions'
+  | 'bills'
   | 'transactions'
   | 'categories'
   | 'automations'
@@ -54,6 +56,13 @@ export const navItems: NavItem[] = [
     summary: 'Keep track of every recurring charge before it surprises you.',
   },
   {
+    name: 'bills',
+    title: 'Bills',
+    path: '/bills',
+    icon: ReceiptText,
+    summary: 'Electricity, phone and the rest: see what is due and link each payment.',
+  },
+  {
     name: 'transactions',
     title: 'Transactions',
     path: '/transactions',
@@ -72,7 +81,7 @@ export const navItems: NavItem[] = [
     title: 'Automations',
     path: '/automations',
     icon: WandSparkles,
-    summary: 'Sort matching transactions into categories and subscriptions for you.',
+    summary: 'Sort matching transactions into categories, subscriptions and bills for you.',
   },
   {
     name: 'import',

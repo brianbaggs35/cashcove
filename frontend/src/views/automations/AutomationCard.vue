@@ -9,7 +9,6 @@ import {
   Pencil,
   PiggyBank,
   Play,
-  Repeat,
   Trash2,
   TriangleAlert,
   WandSparkles,
@@ -23,6 +22,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useBudgetsStore } from '@/stores/budgets'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { amountPhrase, matchPhrases } from '@/views/automations/looks'
+import { kinds } from '@/views/subscriptions/kinds'
 
 /** One automation: who it sorts, where, and what it does with them. Admins can change it. */
 const props = withDefaults(defineProps<{ automation: Automation; readonly?: boolean }>(), {
@@ -51,8 +51,10 @@ const accountName = computed(() => {
   return accounts.find(props.automation.account_id)?.name ?? 'Account unavailable'
 })
 const subscription = computed(() => subscriptions.find(props.automation.subscription_id))
+/** The subscription or bill it links payments to: which it is, and its name. */
+const subscriptionKind = computed(() => kinds[subscription.value?.kind ?? 'subscription'])
 const subscriptionLabel = computed(() => {
-  if (!subscription.value) return 'Subscription'
+  if (!subscription.value) return 'Subscription or bill'
   return subscription.value.active ? subscription.value.name : `${subscription.value.name} (paused)`
 })
 /** The budgets it counts what it sorts toward. */
@@ -169,7 +171,7 @@ const matches = computed(() => {
             v-if="automation.subscription_id"
             size="small"
             variant="tonal"
-            :prepend-icon="Repeat"
+            :prepend-icon="subscriptionKind.icon"
             data-test="automation-subscription"
           >
             {{ subscriptionLabel }}
@@ -208,7 +210,7 @@ const matches = computed(() => {
         class="mt-4"
         data-test="automation-idle"
       >
-        The category or subscription it gave was deleted. Edit it to choose what it does now.
+        The category, subscription or bill it gave was deleted. Edit it to choose what it does now.
       </v-alert>
     </v-card-text>
   </v-card>

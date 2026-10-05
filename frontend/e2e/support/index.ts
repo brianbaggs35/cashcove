@@ -39,6 +39,7 @@ export {
   type AutomationFields,
 } from './pages/automations-page'
 export { AppShell, TABS, type Tab } from './pages/app-shell'
+export { BillsPage, type BillAction, type BillFields } from './pages/bills-page'
 export {
   BudgetPage,
   type BudgetFields,

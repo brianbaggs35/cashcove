@@ -14,6 +14,8 @@ export interface GeneralPreferences {
 export interface AlertPreferences {
   subscription_due_enabled: boolean
   subscription_due_days_before: number
+  bill_due_enabled: boolean
+  bill_due_days_before: number
   low_balance_enabled: boolean
   /** Decimal amounts travel as strings to avoid float rounding. */
   low_balance_threshold: string
