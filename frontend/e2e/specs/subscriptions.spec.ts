@@ -280,6 +280,7 @@ test.describe('Subscriptions', () => {
     apiAs,
     transactionsPage,
   }) => {
+    // The list only offers ticking several transactions on a computer, so phones skip this one.
     test.skip(test.info().project.name === 'mobile', 'Only computers select several at once')
     const api = await apiAs('admin')
     const { venmo, groceries, paycheck } = baseline.transactions

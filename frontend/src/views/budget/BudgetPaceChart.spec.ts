@@ -76,12 +76,15 @@ describe('BudgetPaceChart', () => {
     expect(text(find('pace-tip'))).toBe(
       'Friday, September 11$1,084.12spent so far$0.00 that day · $915.88 left',
     )
-    expect(find('pace-readout').text()).toBe(
+    expect(find('pace-scrub').attributes('aria-valuetext')).toBe(
       'Friday, September 11: $1,084.12 spent so far, $0.00 that day, $915.88 left.',
     )
     await svg().trigger('pointerleave')
     expect(find('pace-tip').exists()).toBe(false)
-    expect(find('pace-readout').text()).toBe('')
+    // With nothing pointed at, the scrubber still says where it is: on the latest day.
+    expect(find('pace-scrub').attributes('aria-valuetext')).toBe(
+      'Sunday, September 20: $1,250.00 spent so far, $0.00 that day, $750.00 left.',
+    )
   })
 
   it('reads the latest day for a pointer past what has been spent so far', async () => {
@@ -123,33 +126,34 @@ describe('BudgetPaceChart', () => {
     expect(text(find('pace-tip'))).toContain('Over by $250.00')
   })
 
-  it('reads each day with the arrow keys', async () => {
+  it('reads each day as the keyboard moves the scrubber', async () => {
     const { find, wrapper } = await render()
-    const chart = find('pace-chart')
+    const scrub = find('pace-scrub')
+    const value = () => (scrub.element as HTMLInputElement).value
 
-    await chart.trigger('focus')
-    expect(find('pace-readout').text()).toContain('Sunday, September 20')
+    // It covers the days there is spending to read, and starts on the latest.
+    expect(scrub.attributes('type')).toBe('range')
+    expect(scrub.attributes('min')).toBe('0')
+    expect(scrub.attributes('max')).toBe('19')
+    expect(value()).toBe('19')
+    expect(find('pace-tip').exists()).toBe(false)
 
-    await chart.trigger('keydown', { key: 'ArrowLeft' })
-    expect(find('pace-readout').text()).toContain('Saturday, September 19')
-    await chart.trigger('keydown', { key: 'Home' })
-    expect(find('pace-readout').text()).toContain('Tuesday, September 1')
-    await chart.trigger('keydown', { key: 'ArrowLeft' })
-    expect(find('pace-readout').text()).toContain('Tuesday, September 1')
-    await chart.trigger('keydown', { key: 'ArrowRight' })
-    expect(find('pace-readout').text()).toContain('Wednesday, September 2')
-    await chart.trigger('keydown', { key: 'End' })
-    await chart.trigger('keydown', { key: 'ArrowRight' })
-    expect(find('pace-readout').text()).toContain('Sunday, September 20')
+    await scrub.trigger('focus')
+    expect(find('pace-tip').text()).toContain('Sunday, September 20')
 
-    // Other keys are left to the browser, and Escape and leaving stop the reading.
-    await chart.trigger('keydown', { key: 'Tab' })
-    expect(find('pace-readout').text()).toContain('Sunday, September 20')
-    await chart.trigger('keydown', { key: 'Escape' })
-    expect(find('pace-readout').text()).toBe('')
-    await chart.trigger('keydown', { key: 'ArrowLeft' })
-    expect(find('pace-readout').text()).toContain('Saturday, September 19')
-    await chart.trigger('blur')
+    await scrub.setValue(18)
+    expect(find('pace-tip').text()).toContain('Saturday, September 19')
+    expect(scrub.attributes('aria-valuetext')).toContain('Saturday, September 19')
+    await scrub.setValue(0)
+    expect(find('pace-tip').text()).toContain('Tuesday, September 1')
+    expect(value()).toBe('0')
+
+    // Escape and leaving stop the reading, and moving again starts it.
+    await scrub.trigger('keydown', { key: 'Escape' })
+    expect(find('pace-tip').exists()).toBe(false)
+    await scrub.setValue(5)
+    expect(find('pace-tip').text()).toContain('Sunday, September 6')
+    await scrub.trigger('blur')
     expect(wrapper.find('[data-test="pace-tip"]').exists()).toBe(false)
   })
 
@@ -221,13 +225,11 @@ describe('BudgetPaceChart', () => {
     )
 
     await pointAt(5)
-    await find('pace-chart').trigger('focus')
-    await find('pace-chart').trigger('keydown', { key: 'ArrowRight' })
 
+    expect(find('pace-scrub').exists()).toBe(false)
     expect(find('pace-end-label').exists()).toBe(false)
     expect(svg().find('.pace__line').exists()).toBe(false)
     expect(find('pace-tip').exists()).toBe(false)
-    expect(find('pace-readout').text()).toBe('')
   })
 
   it('draws a single day of spending as a dot', async () => {
@@ -258,6 +260,23 @@ describe('BudgetPaceChart', () => {
       ['Sep 3, 2026', '$84.12', '$1,084.12'],
       ['Sep 18, 2026', '$165.88', '$1,250.00'],
     ])
+  })
+
+  it('shows the first days of a long table, and the rest when asked for', async () => {
+    const days = Array.from({ length: 20 }, (_, index) => ({
+      day: `2026-09-${String(index + 1).padStart(2, '0')}`,
+      income: '0.00',
+      spent: '10.00',
+    }))
+    const { find, wrapper } = await render(makePeriod({ days_gone: 20, daily: days }))
+
+    await find('chart-view-table').trigger('click')
+    expect(wrapper.findAll('[data-test="pace-row"]')).toHaveLength(12)
+    expect(find('chart-table-more').text()).toBe('Show all 20 rows')
+
+    await find('chart-table-more').trigger('click')
+    expect(wrapper.findAll('[data-test="pace-row"]')).toHaveLength(20)
+    expect(find('chart-table-more').exists()).toBe(false)
   })
 
   it('says so in the table when nothing has been spent', async () => {

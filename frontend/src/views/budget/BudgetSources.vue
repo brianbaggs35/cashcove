@@ -53,6 +53,11 @@ const columns = computed(() => [
   },
 ])
 
+/** The emoji of the category a source counts, which a category is shown by. */
+function emojiOf(source: BudgetSource): string | undefined {
+  return source.type === 'category' ? categories.find(source.target_id)?.emoji : undefined
+}
+
 function detail(source: BudgetSource): string {
   const count = source.count === 1 ? '1 transaction' : `${source.count} transactions`
   return `${typeNames[source.type]} · ${money(source.amount)} from ${count}`
@@ -91,12 +96,7 @@ function detail(source: BudgetSource): string {
               data-test="budget-source"
             >
               <v-avatar color="primary" variant="tonal" rounded="lg" size="36">
-                <span
-                  v-if="source.type === 'category' && categories.find(source.target_id)"
-                  aria-hidden="true"
-                >
-                  {{ categories.find(source.target_id)?.emoji }}
-                </span>
+                <span v-if="emojiOf(source)" aria-hidden="true">{{ emojiOf(source) }}</span>
                 <v-icon v-else :icon="icons[source.type]" size="18" />
               </v-avatar>
               <div class="flex-grow-1 sources__text">

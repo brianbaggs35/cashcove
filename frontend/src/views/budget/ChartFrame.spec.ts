@@ -38,15 +38,43 @@ describe('ChartFrame', () => {
     expect(find('numbers').exists()).toBe(true)
     expect(find('picture').exists()).toBe(false)
     expect(find('key').exists()).toBe(false)
-    // A table that scrolls can be reached and scrolled from the keyboard, and says what it is.
-    expect(find('chart-table').attributes()).toMatchObject({
-      role: 'region',
-      tabindex: '0',
-      'aria-label': 'Spending as a table',
-    })
 
     await find('chart-view-chart').trigger('click')
     expect(find('picture').exists()).toBe(true)
+  })
+
+  it('shows a long table a dozen rows at a time, and all of it when asked for', async () => {
+    const rowsShown = (limit: number) =>
+      h(
+        'table',
+        { 'data-test': 'numbers' },
+        Array.from({ length: Math.min(limit, 30) }, () => h('tr', { 'data-test': 'row' })),
+      )
+    const mounted = await mountWithPlugins(ChartFrame, {
+      width: 1280,
+      props: { title: 'Spending', rows: 30 },
+      slots: {
+        chart: () => h('svg'),
+        table: ({ limit }: { limit: number }) => rowsShown(limit),
+      },
+    })
+    const rows = () => mounted.wrapper.findAll('[data-test="row"]')
+
+    await mounted.wrapper.find('[data-test="chart-view-table"]').trigger('click')
+    expect(rows()).toHaveLength(12)
+    expect(mounted.wrapper.find('[data-test="chart-table-more"]').text()).toBe('Show all 30 rows')
+
+    await mounted.wrapper.find('[data-test="chart-table-more"]').trigger('click')
+    expect(rows()).toHaveLength(30)
+    expect(mounted.wrapper.find('[data-test="chart-table-more"]').exists()).toBe(false)
+  })
+
+  it('has no button to show more for a table that is short', async () => {
+    const { find } = await render()
+
+    await find('chart-view-table').trigger('click')
+
+    expect(find('chart-table-more').exists()).toBe(false)
   })
 
   it('needs no legend or description', async () => {

@@ -25,6 +25,7 @@ BUDGET_AMOUNTS = "budget_amounts"
 BUDGET_LINKS = "budget_links"
 BUDGET_EXCLUSIONS = "budget_exclusions"
 BUDGETS_ID = "budgets.id"
+TRANSACTIONS_ID = "transactions.id"
 # Amounts of money are whole numbers of cents.
 MONEY = sa.BigInteger()
 
@@ -136,7 +137,7 @@ def _create_old_budgets() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["transaction_id"],
-            ["transactions.id"],
+            [TRANSACTIONS_ID],
             name=op.f("fk_budget_transactions_transaction_id_transactions"),
             ondelete="CASCADE",
         ),
@@ -242,7 +243,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["transaction_id"],
-            ["transactions.id"],
+            [TRANSACTIONS_ID],
             name=op.f("fk_budget_links_transaction_id_transactions"),
             ondelete="CASCADE",
         ),
@@ -308,7 +309,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["transaction_id"],
-            ["transactions.id"],
+            [TRANSACTIONS_ID],
             name=op.f("fk_budget_exclusions_transaction_id_transactions"),
             ondelete="CASCADE",
         ),

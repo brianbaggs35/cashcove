@@ -206,29 +206,30 @@ def _counted(
                 literal(AUTOMATION),
             ).where(*where)
         )
-    hits.append(
-        select(Transaction.id, kind, BudgetLink.id, literal(SUBSCRIPTION))
-        .join(BudgetLink, BudgetLink.subscription_id == Transaction.subscription_id)
-        .where(mine, Transaction.amount < 0, *limits)
-    )
-    hits.append(
-        select(Transaction.id, kind, BudgetLink.id, literal(CATEGORY))
-        .join(BudgetLink, BudgetLink.category_id == Transaction.category_id)
-        .where(mine, *limits)
-    )
-    hits.append(
-        select(Transaction.id, kind, BudgetLink.id, literal(ACCOUNT))
-        .join(BudgetLink, BudgetLink.account_id == Transaction.account_id)
-        .where(
-            mine,
-            or_(
-                and_(kind == BudgetKind.SPENDING, Transaction.amount < 0),
-                and_(kind == BudgetKind.INCOME, Transaction.amount > 0),
+    hits.extend(
+        [
+            select(Transaction.id, kind, BudgetLink.id, literal(SUBSCRIPTION))
+            .join(BudgetLink, BudgetLink.subscription_id == Transaction.subscription_id)
+            .where(mine, Transaction.amount < 0, *limits),
+            select(Transaction.id, kind, BudgetLink.id, literal(CATEGORY))
+            .join(BudgetLink, BudgetLink.category_id == Transaction.category_id)
+            .where(mine, *limits),
+            select(Transaction.id, kind, BudgetLink.id, literal(ACCOUNT))
+            .join(BudgetLink, BudgetLink.account_id == Transaction.account_id)
+            .where(
+                mine,
+                or_(
+                    and_(kind == BudgetKind.SPENDING, Transaction.amount < 0),
+                    and_(kind == BudgetKind.INCOME, Transaction.amount > 0),
+                ),
+                # Moving money between accounts isn't income or spending.
+                or_(
+                    Transaction.category_id.is_(None),
+                    Transaction.category_id.not_in(_transfers()),
+                ),
+                *limits,
             ),
-            # Moving money between accounts isn't income or spending.
-            or_(Transaction.category_id.is_(None), Transaction.category_id.not_in(_transfers())),
-            *limits,
-        )
+        ]
     )
     union = union_all(*hits).subquery("hits")
     taken_off = exists().where(
@@ -277,12 +278,12 @@ class Flow:
 class Flows:
     """What counted over some days, and which currencies were converted to get it."""
 
-    flows: list[Flow] = field(default_factory=list[Flow])
+    entries: list[Flow] = field(default_factory=list[Flow])
     converted: list[str] = field(default_factory=list[str])
     unavailable: list[str] = field(default_factory=list[str])
 
     def total(self, kind: BudgetKind) -> Decimal:
-        return sum((flow.value for flow in self.flows if flow.kind == kind), ZERO)
+        return sum((flow.value for flow in self.entries if flow.kind == kind), ZERO)
 
 
 def _flows(
@@ -337,7 +338,7 @@ def _flows(
             if converted is None:
                 continue
             value = converted
-        result.flows.append(
+        result.entries.append(
             Flow(row.day, row.kind, row.category_id, row.link_id, value, row.transactions)
         )
     result.unavailable = sorted(rates.unavailable)
@@ -537,14 +538,13 @@ def _upcoming(
         )
     )
     stats = payment_stats(db, [item.id for item in subscriptions]) if subscriptions else {}
-    currencies = {
-        account_id: currency
-        for account_id, currency in db.execute(
+    currencies: dict[uuid.UUID, str] = dict(
+        db.execute(
             select(Account.id, Account.currency).where(
                 Account.id.in_([item.account_id for item in subscriptions])
             )
-        )
-    }
+        ).all()
+    )
     rates = RateBook(db, client, household.currency)
     rates.prepare(
         {
@@ -577,7 +577,7 @@ def _upcoming(
 def _days(flows: Flows) -> list[DayTotal]:
     income: defaultdict[dt.date, Decimal] = defaultdict(lambda: ZERO)
     spent: defaultdict[dt.date, Decimal] = defaultdict(lambda: ZERO)
-    for flow in flows.flows:
+    for flow in flows.entries:
         (income if flow.kind == BudgetKind.INCOME else spent)[flow.day] += flow.value
     return [
         DayTotal(day=day, income=income[day], spent=spent[day]) for day in sorted({*income, *spent})
@@ -587,7 +587,7 @@ def _days(flows: Flows) -> list[DayTotal]:
 def _categories(flows: Flows) -> list[CategoryTotal]:
     amounts: defaultdict[uuid.UUID | None, Decimal] = defaultdict(lambda: ZERO)
     counts: defaultdict[uuid.UUID | None, int] = defaultdict(int)
-    for flow in flows.flows:
+    for flow in flows.entries:
         if flow.kind == BudgetKind.SPENDING:
             amounts[flow.category_id] += flow.value
             counts[flow.category_id] += flow.count
@@ -603,7 +603,7 @@ def _categories(flows: Flows) -> list[CategoryTotal]:
 
 def _per_link(flows: Flows) -> dict[uuid.UUID, tuple[Decimal, int]]:
     totals: dict[uuid.UUID, tuple[Decimal, int]] = {}
-    for flow in flows.flows:
+    for flow in flows.entries:
         amount, count = totals.get(flow.link_id, (ZERO, 0))
         totals[flow.link_id] = (amount + flow.value, count + flow.count)
     return totals
@@ -639,7 +639,8 @@ def period_view(
     now = period_start(period, anchor, today)
     current = start == now
     length = (end - start).days + 1
-    gone = 0 if today < start else length if today > end else (today - start).days + 1
+    # None before the period starts, all of it once it's over.
+    gone = max(0, min((today - start).days + 1, length))
     pace = current and gone > 0
     removed = db.scalar(
         select(func.count()).select_from(_counted(db, budget, first=start, last=end, removed=True))
@@ -660,7 +661,7 @@ def period_view(
         saved=income - spent,
         expected=_rounded(amount * gone / length) if pace else None,
         projected=_rounded(max(spent, ZERO) * length / gone) if pace else None,
-        transactions=sum(flow.count for flow in flows.flows),
+        transactions=sum(flow.count for flow in flows.entries),
         removed=removed or 0,
         daily=_days(flows),
         categories=_categories(flows),
@@ -686,7 +687,7 @@ def history(
     last = period_end(period, anchor, starts[-1])
     flows = _flows(db, household, client, budget, starts[0], last)
     totals = {start: [ZERO, ZERO] for start in starts}
-    for flow in flows.flows:
+    for flow in flows.entries:
         # Each day is in the latest period that started on or before it.
         start = starts[bisect_right(starts, flow.day) - 1]
         totals[start][0 if flow.kind == BudgetKind.INCOME else 1] += flow.value

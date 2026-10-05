@@ -5,7 +5,7 @@ import { computed } from 'vue'
 import type { Budget } from '@/api/budget'
 import { useHousehold } from '@/composables/useHousehold'
 import { toCents } from '@/utils/money'
-import { budgetStatus, percentSpent, periodTitles } from '@/views/budget/periods'
+import { budgetStatus, percentSpent, periodTitles, statusColors } from '@/views/budget/periods'
 import { useBudgetThreshold } from '@/views/budget/status'
 
 /**
@@ -17,7 +17,6 @@ const emit = defineEmits<{ select: [id: string]; add: [] }>()
 
 const { money } = useHousehold()
 const threshold = useBudgetThreshold()
-const colors = { over: 'error', near: 'warning', ok: 'primary' } as const
 
 const cards = computed(() =>
   props.budgets.map((budget) => {
@@ -69,7 +68,7 @@ const cards = computed(() =>
         </span>
         <v-progress-linear
           :model-value="card.percent"
-          :color="colors[card.status]"
+          :color="statusColors[card.status]"
           height="6"
           rounded
           class="my-2"

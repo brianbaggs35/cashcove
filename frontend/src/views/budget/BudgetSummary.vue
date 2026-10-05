@@ -12,7 +12,7 @@ import { computed } from 'vue'
 import type { BudgetPeriodView } from '@/api/budget'
 import { useHousehold } from '@/composables/useHousehold'
 import { toCents } from '@/utils/money'
-import { budgetStatus, percentSpent } from '@/views/budget/periods'
+import { budgetStatus, percentSpent, statusColors } from '@/views/budget/periods'
 import { useBudgetThreshold } from '@/views/budget/status'
 
 /** How a period is going at a glance: what's left to spend, how far through the amount spending is, and what came in and went out. */
@@ -167,19 +167,16 @@ const tiles = computed(() => [
         </v-menu>
       </div>
 
-      <div
-        class="summary__meter mt-5"
-        role="progressbar"
-        :aria-valuenow="Math.min(100, percent)"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        :aria-label="`${percent}% of the budget spent`"
-        data-test="summary-meter"
-      >
-        <div
-          class="summary__fill"
-          :class="`summary__fill--${status}`"
-          :style="{ width: `${Math.min(100, Math.max(0, percent))}%` }"
+      <div class="summary__meter mt-5">
+        <v-progress-linear
+          :model-value="Math.min(100, Math.max(0, percent))"
+          :color="statusColors[status]"
+          bg-color="on-surface"
+          bg-opacity="0.1"
+          height="12"
+          rounded
+          :aria-label="`${percent}% of the budget spent`"
+          data-test="summary-meter"
         />
         <div
           v-if="pace"
@@ -238,23 +235,6 @@ const tiles = computed(() => [
 
 .summary__meter {
   position: relative;
-  height: 12px;
-  border-radius: 6px;
-  background: rgba(var(--v-theme-on-surface), 0.1);
-}
-
-.summary__fill {
-  height: 100%;
-  border-radius: 6px;
-  background: rgb(var(--v-theme-primary));
-}
-
-.summary__fill--near {
-  background: rgb(var(--v-theme-warning));
-}
-
-.summary__fill--over {
-  background: rgb(var(--v-theme-error));
 }
 
 /* Where an even pace would have the spending by now. */

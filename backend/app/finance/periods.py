@@ -15,6 +15,8 @@ from app.models.budget import BudgetPeriod
 
 MONTHS_IN_YEAR = 12
 ONE_DAY = dt.timedelta(days=1)
+# The most periods one look back covers.
+MAX_PERIODS = 60
 
 _DAYS = {BudgetPeriod.WEEKLY: 7, BudgetPeriod.BIWEEKLY: 14}
 _MONTHS = {BudgetPeriod.MONTHLY: 1, BudgetPeriod.YEARLY: MONTHS_IN_YEAR}
@@ -64,10 +66,13 @@ def period_end(period: BudgetPeriod, anchor: dt.date, start: dt.date) -> dt.date
 
 
 def starts_back(period: BudgetPeriod, anchor: dt.date, start: dt.date, count: int) -> list[dt.date]:
-    """The first days of `count` periods ending with the one that starts on `start`, the
-    earliest first."""
+    """The first days of `count` periods (at most MAX_PERIODS) ending with the one that starts
+    on `start`, the earliest first."""
     starts = [start]
-    while len(starts) < count:
+    # The loop is bounded by MAX_PERIODS whatever is asked for: `count` only says when to stop.
+    for _ in range(MAX_PERIODS - 1):
+        if len(starts) >= count:
+            break
         starts.append(previous_start(period, anchor, starts[-1]))
     return starts[::-1]
 

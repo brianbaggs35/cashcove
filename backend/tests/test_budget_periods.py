@@ -3,6 +3,7 @@ import datetime as dt
 import pytest
 
 from app.finance.periods import (
+    MAX_PERIODS,
     default_start,
     next_start,
     period_end,
@@ -112,6 +113,15 @@ def test_looking_back_gives_each_period_the_earliest_first() -> None:
         day("2026-09-01"),
     ]
     assert starts_back(WEEKLY, day("2026-09-14"), day("2026-09-21"), 1) == [day("2026-09-21")]
+    assert starts_back(WEEKLY, day("2026-09-14"), day("2026-09-21"), 0) == [day("2026-09-21")]
+
+
+def test_looking_back_stops_at_the_most_periods_whatever_is_asked() -> None:
+    starts = starts_back(WEEKLY, day("2026-09-14"), day("2026-09-21"), 10**9)
+
+    assert len(starts) == MAX_PERIODS
+    assert starts[-1] == day("2026-09-21")
+    assert starts[0] == day("2026-09-21") - dt.timedelta(weeks=MAX_PERIODS - 1)
 
 
 @pytest.mark.parametrize(
