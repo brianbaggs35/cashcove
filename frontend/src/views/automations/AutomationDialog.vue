@@ -246,7 +246,7 @@ const rule = computed(() => {
   const forAmounts = amounts ? `, for ${amounts}` : ''
   return {
     when: `${matchPhrases[form.match]} ${texts}, in ${where}${forAmounts}`,
-    then: does.length ? does.join(' and ') : 'nothing yet',
+    effect: does.length ? does.join(' and ') : 'nothing yet',
   }
 })
 
@@ -581,7 +581,7 @@ function submit() {
             <dt>When</dt>
             <dd data-test="automation-when">{{ rule.when }}</dd>
             <dt>Then</dt>
-            <dd data-test="automation-then">{{ rule.then }}</dd>
+            <dd data-test="automation-then">{{ rule.effect }}</dd>
           </dl>
         </v-card>
 

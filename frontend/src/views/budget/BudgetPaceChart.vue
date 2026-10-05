@@ -121,10 +121,9 @@ const end = computed(() => {
 
 // Reading a day.
 const focus = ref<number | null>(null)
-const reading = computed(() => {
-  const index = focus.value
-  if (index === null) return null
-  // Only a day with spending to show can be read.
+
+/** What to read for a day with spending to show: where it is on the chart, and what it says. */
+function read(index: number) {
   const point = points.value[index] as Point
   const before = index > 0 ? (points.value[index - 1] as Point).value : 0
   const left = amount.value - point.value
@@ -142,12 +141,13 @@ const reading = computed(() => {
       transform: `translateX(${tipShift(point.x, width.value)})`,
     },
   }
+}
+const reading = computed(() => (focus.value === null ? null : read(focus.value)))
+/** What the scrubber says of the day it is on, which is the latest one until another is read. */
+const valueText = computed(() => {
+  const day = read(focus.value ?? through.value)
+  return `${day.date}: ${day.total} spent so far, ${day.day} that day, ${day.left}.`
 })
-const readout = computed(() =>
-  reading.value
-    ? `${reading.value.date}: ${reading.value.total} spent so far, ${reading.value.day} that day, ${reading.value.left}.`
-    : '',
-)
 
 function point(event: PointerEvent) {
   if (through.value < 0) return
@@ -158,18 +158,14 @@ function point(event: PointerEvent) {
   focus.value = Math.min(through.value, nearestIndex(position, props.period.days))
 }
 
+/** The scrubber has the keyboard: start reading from the latest day. */
 function arrive() {
-  focus.value ??= through.value < 0 ? null : through.value
+  focus.value ??= through.value
 }
 
-function key(event: KeyboardEvent) {
-  const last = through.value
-  const at = focus.value ?? last
-  const next = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: last }[event.key]
-  if (event.key === 'Escape') focus.value = null
-  if (next === undefined || last < 0) return
-  event.preventDefault()
-  focus.value = Math.min(last, Math.max(0, next))
+/** The scrubber moved to another day: the arrow keys, Home and End are the browser's to handle. */
+function scrub(event: Event) {
+  focus.value = Number((event.target as HTMLInputElement).value)
 }
 
 /** What was spent on each day it happened, and the total so far, for reading without the picture. */
@@ -195,6 +191,7 @@ const rows = computed(() => {
   <ChartFrame
     title="Spending through the period"
     description="Against the budget, and the even pace that would use it up exactly as the period ends."
+    :rows="rows.length"
   >
     <template #legend>
       <span class="d-flex align-center ga-2 text-body-small">
@@ -209,16 +206,24 @@ const rows = computed(() => {
     </template>
 
     <template #chart>
-      <div
-        class="pace"
-        tabindex="0"
-        role="group"
-        aria-label="Spending through the period. Use the left and right arrow keys to read each day."
-        data-test="pace-chart"
-        @focus="arrive"
-        @blur="focus = null"
-        @keydown="key"
-      >
+      <div class="pace" data-test="pace-chart">
+        <!-- Out of sight, and the keyboard's way to read the days one by one. -->
+        <input
+          v-if="through >= 0"
+          type="range"
+          class="pace__scrub"
+          min="0"
+          :max="through"
+          step="1"
+          :value="focus ?? through"
+          aria-label="Spending through the period, day by day"
+          :aria-valuetext="valueText"
+          data-test="pace-scrub"
+          @focus="arrive"
+          @blur="focus = null"
+          @input="scrub"
+          @keydown.esc="focus = null"
+        />
         <svg
           :viewBox="`0 0 ${width} ${HEIGHT}`"
           class="pace__svg"
@@ -302,11 +307,10 @@ const rows = computed(() => {
             {{ reading.day }} that day · {{ reading.left }}
           </p>
         </div>
-        <p class="pace__sr" aria-live="polite" data-test="pace-readout">{{ readout }}</p>
       </div>
     </template>
 
-    <template #table>
+    <template #table="{ limit }">
       <table data-test="pace-table">
         <caption>
           Spending on the days it happened
@@ -319,7 +323,7 @@ const rows = computed(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in rows" :key="row.day" data-test="pace-row">
+          <tr v-for="row in rows.slice(0, limit)" :key="row.day" data-test="pace-row">
             <th scope="row">{{ row.label }}</th>
             <td>{{ row.spent }}</td>
             <td>{{ row.total }}</td>
@@ -336,11 +340,11 @@ const rows = computed(() => {
 <style scoped>
 .pace {
   position: relative;
-  outline: none;
   border-radius: 12px;
 }
 
-.pace:focus-visible {
+/* The scrubber is out of sight, so the chart itself shows when the keyboard is on it. */
+.pace:has(.pace__scrub:focus-visible) {
   box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.55);
 }
 
@@ -444,10 +448,13 @@ const rows = computed(() => {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
 }
 
-.pace__sr {
+.pace__scrub {
   position: absolute;
   width: 1px;
   height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;

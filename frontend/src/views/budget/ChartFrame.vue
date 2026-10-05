@@ -1,15 +1,27 @@
 <script setup lang="ts">
 import { ChartColumn, Table2 } from '@lucide/vue'
-import { ref, useId } from 'vue'
+import { computed, ref, useId } from 'vue'
 
 /**
  * A chart's frame: its title, a way to read the same numbers as a table (which is how anyone
- * not reading the picture gets every value), and a legend over the chart.
+ * not reading the picture gets every value), and a legend over the chart. A table with more
+ * `rows` than fit shows the first ones, and the rest when asked for: a table that scrolls inside
+ * the page can't be reached from a keyboard, and is awkward on a phone.
  */
-defineProps<{ title: string; description?: string }>()
+const props = withDefaults(defineProps<{ title: string; description?: string; rows?: number }>(), {
+  description: undefined,
+  rows: 0,
+})
+
+/** How many rows of a long table show before the rest is asked for. */
+const ROW_LIMIT = 12
 
 const id = useId()
 const view = ref<'chart' | 'table'>('chart')
+const showAll = ref(false)
+/** How many rows the table slot shows. */
+const limit = computed(() => (showAll.value ? props.rows : ROW_LIMIT))
+const more = computed(() => !showAll.value && props.rows > ROW_LIMIT)
 </script>
 
 <template>
@@ -49,29 +61,26 @@ const view = ref<'chart' | 'table'>('chart')
       </div>
       <slot name="chart" />
     </template>
-    <!-- It scrolls when long, so it takes focus: a keyboard can't reach a scroll area otherwise. -->
-    <div
-      v-else
-      class="chart-frame__table"
-      role="region"
-      tabindex="0"
-      :aria-label="`${title} as a table`"
-      data-test="chart-table"
-    >
-      <slot name="table" />
+    <div v-else class="chart-frame__table" data-test="chart-table">
+      <slot name="table" :limit="limit" />
+      <v-btn
+        v-if="more"
+        variant="text"
+        size="small"
+        class="mt-2"
+        data-test="chart-table-more"
+        @click="showAll = true"
+      >
+        Show all {{ rows }} rows
+      </v-btn>
     </div>
   </section>
 </template>
 
 <style scoped>
+/* The tables fit, so this only keeps an unusually wide one from widening the page. */
 .chart-frame__table {
-  max-height: 340px;
-  overflow: auto;
-}
-
-.chart-frame__table:focus-visible {
-  outline: 3px solid rgba(var(--v-theme-primary), 0.55);
-  outline-offset: 2px;
+  overflow-x: auto;
 }
 
 .chart-frame__table :deep(table) {
@@ -84,8 +93,12 @@ const view = ref<'chart' | 'table'>('chart')
 .chart-frame__table :deep(td) {
   padding: 8px 12px 8px 0;
   text-align: end;
-  white-space: nowrap;
   border-bottom: 1px solid var(--chart-grid);
+}
+
+/* Numbers stay whole; the headings give way, so a table fits a phone. */
+.chart-frame__table :deep(td) {
+  white-space: nowrap;
 }
 
 .chart-frame__table :deep(th:first-child),
@@ -94,10 +107,6 @@ const view = ref<'chart' | 'table'>('chart')
 }
 
 .chart-frame__table :deep(thead th) {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--chart-surface);
   font-weight: 600;
 }
 

@@ -80,6 +80,7 @@ const groups = computed(() =>
       ),
       spent: columnPath(center + 1, y(dollars(item.spent)), barWidth.value, baseline),
       budget: { x1: center - reach, x2: center + reach, y: y(dollars(item.amount)) },
+      remaining: money(left_ / 100, undefined, 'exceptZero'),
       result:
         left_ < 0
           ? `Over budget by ${money(-left_ / 100)}`
@@ -128,69 +129,66 @@ function choose(start: string) {
 
     <template #chart>
       <div class="hist" data-test="history-chart">
-        <svg
-          :viewBox="`0 0 ${width} ${HEIGHT}`"
-          class="hist__svg"
-          role="group"
-          aria-label="Periods"
-        >
-          <g class="hist__grid" aria-hidden="true">
-            <g v-for="tick in yTicks" :key="tick.value">
-              <line :x1="margin.left" :x2="margin.left + plot.width" :y1="tick.y" :y2="tick.y" />
-              <text :x="margin.left - 8" :y="tick.y + 4" text-anchor="end">{{ tick.label }}</text>
+        <fieldset class="hist__group" aria-label="Periods">
+          <svg :viewBox="`0 0 ${width} ${HEIGHT}`" class="hist__svg">
+            <g class="hist__grid" aria-hidden="true">
+              <g v-for="tick in yTicks" :key="tick.value">
+                <line :x1="margin.left" :x2="margin.left + plot.width" :y1="tick.y" :y2="tick.y" />
+                <text :x="margin.left - 8" :y="tick.y + 4" text-anchor="end">{{ tick.label }}</text>
+              </g>
             </g>
-          </g>
-          <g v-for="group in groups" :key="group.item.start" data-test="history-group">
-            <rect
-              v-if="group.selected"
-              :x="group.left + 2"
-              :y="margin.top"
-              :width="groupWidth - 4"
-              :height="plot.height"
-              rx="8"
-              class="hist__selected"
-            />
-            <path v-if="group.income" :d="group.income" class="hist__bar hist__bar--income" />
-            <path v-if="group.spent" :d="group.spent" class="hist__bar hist__bar--spent" />
-            <line
-              :x1="group.budget.x1"
-              :x2="group.budget.x2"
-              :y1="group.budget.y"
-              :y2="group.budget.y"
-              class="hist__budget"
-            />
-            <text
-              v-if="!crowded || group.index % 2 === 0"
-              :x="group.center"
-              :y="HEIGHT - 8"
-              text-anchor="middle"
-              class="hist__label"
-              :class="{ 'hist__label--selected': group.selected }"
-              aria-hidden="true"
-            >
-              {{ group.label }}
-            </text>
-            <rect
-              :x="group.left"
-              :y="margin.top"
-              :width="groupWidth"
-              :height="plot.height + margin.bottom"
-              class="hist__hit"
-              tabindex="0"
-              role="button"
-              :aria-label="group.summary"
-              :aria-current="group.selected ? 'true' : undefined"
-              data-test="history-period"
-              @click="choose(group.item.start)"
-              @keydown.enter.prevent="choose(group.item.start)"
-              @keydown.space.prevent="choose(group.item.start)"
-              @pointerenter="active = group.index"
-              @pointerleave="active = null"
-              @focus="active = group.index"
-              @blur="active = null"
-            />
-          </g>
-        </svg>
+            <g v-for="group in groups" :key="group.item.start" data-test="history-group">
+              <rect
+                v-if="group.selected"
+                :x="group.left + 2"
+                :y="margin.top"
+                :width="groupWidth - 4"
+                :height="plot.height"
+                rx="8"
+                class="hist__selected"
+              />
+              <path v-if="group.income" :d="group.income" class="hist__bar hist__bar--income" />
+              <path v-if="group.spent" :d="group.spent" class="hist__bar hist__bar--spent" />
+              <line
+                :x1="group.budget.x1"
+                :x2="group.budget.x2"
+                :y1="group.budget.y"
+                :y2="group.budget.y"
+                class="hist__budget"
+              />
+              <text
+                v-if="!crowded || group.index % 2 === 0"
+                :x="group.center"
+                :y="HEIGHT - 8"
+                text-anchor="middle"
+                class="hist__label"
+                :class="{ 'hist__label--selected': group.selected }"
+                aria-hidden="true"
+              >
+                {{ group.label }}
+              </text>
+              <rect
+                :x="group.left"
+                :y="margin.top"
+                :width="groupWidth"
+                :height="plot.height + margin.bottom"
+                class="hist__hit"
+                tabindex="0"
+                role="button"
+                :aria-label="group.summary"
+                :aria-current="group.selected ? 'true' : undefined"
+                data-test="history-period"
+                @click="choose(group.item.start)"
+                @keydown.enter.prevent="choose(group.item.start)"
+                @keydown.space.prevent="choose(group.item.start)"
+                @pointerenter="active = group.index"
+                @pointerleave="active = null"
+                @focus="active = group.index"
+                @blur="active = null"
+              />
+            </g>
+          </svg>
+        </fieldset>
         <div
           v-if="tip"
           class="hist__tip"
@@ -224,27 +222,25 @@ function choose(start: string) {
         <thead>
           <tr>
             <th scope="col">Period</th>
-            <th scope="col">Income</th>
+            <th v-if="!xs" scope="col">Income</th>
             <th scope="col">Spent</th>
-            <th scope="col">Budget</th>
+            <th v-if="!xs" scope="col">Budget</th>
             <th scope="col">Left</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="group in groups" :key="group.item.start" data-test="history-row">
-            <th scope="row">{{ group.full }}</th>
-            <td>{{ money(group.item.income) }}</td>
+            <th scope="row">
+              {{ group.full }}
+              <!-- A phone has no room for every column, so the period carries the rest. -->
+              <span v-if="xs" class="hist__more" data-test="history-more">
+                Income {{ money(group.item.income) }} · Budget {{ money(group.item.amount) }}
+              </span>
+            </th>
+            <td v-if="!xs">{{ money(group.item.income) }}</td>
             <td>{{ money(group.item.spent) }}</td>
-            <td>{{ money(group.item.amount) }}</td>
-            <td>
-              {{
-                money(
-                  (toCents(group.item.amount) - toCents(group.item.spent)) / 100,
-                  undefined,
-                  'exceptZero',
-                )
-              }}
-            </td>
+            <td v-if="!xs">{{ money(group.item.amount) }}</td>
+            <td>{{ group.remaining }}</td>
           </tr>
         </tbody>
       </table>
@@ -255,6 +251,20 @@ function choose(start: string) {
 <style scoped>
 .hist {
   position: relative;
+}
+
+.hist__group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.hist__more {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--chart-muted);
 }
 
 .hist__svg {
