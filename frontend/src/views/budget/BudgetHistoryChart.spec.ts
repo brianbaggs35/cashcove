@@ -68,6 +68,14 @@ describe('BudgetHistoryChart', () => {
     expect(wrapper.find('.hist__svg').attributes('viewBox')).toBe('0 0 340 240')
   })
 
+  it('names the periods as a group', async () => {
+    const { wrapper } = await render()
+
+    const group = wrapper.find('fieldset')
+    expect(group.attributes('aria-label')).toBe('Periods')
+    expect(group.findAll('[data-test="history-period"]')).toHaveLength(3)
+  })
+
   it('chooses a period by clicking it or with the keyboard', async () => {
     const { wrapper, periodsShown } = await render()
 
@@ -135,6 +143,29 @@ describe('BudgetHistoryChart', () => {
       ['July 2026', '$2,400.00', '$1,800.00', '$2,000.00', '+$200.00'],
       ['August 2026', '$2,400.00', '$2,150.00', '$2,000.00', '-$150.00'],
       ['September 2026', '$2,400.00', '$1,250.00', '$2,000.00', '+$750.00'],
+    ])
+    expect(wrapper.findAll('thead th').map(text)).toEqual([
+      'Period',
+      'Income',
+      'Spent',
+      'Budget',
+      'Left',
+    ])
+    expect(find('history-more').exists()).toBe(false)
+  })
+
+  it('fits its table on a phone by putting income and budget under the period', async () => {
+    const { find, wrapper } = await render(makeHistory(), 400)
+
+    await find('chart-view-table').trigger('click')
+
+    expect(wrapper.findAll('thead th').map(text)).toEqual(['Period', 'Spent', 'Left'])
+    expect(
+      wrapper.findAll('[data-test="history-row"]').map((row) => row.findAll('th, td').map(text)),
+    ).toEqual([
+      ['July 2026 Income $2,400.00 · Budget $2,000.00', '$1,800.00', '+$200.00'],
+      ['August 2026 Income $2,400.00 · Budget $2,000.00', '$2,150.00', '-$150.00'],
+      ['September 2026 Income $2,400.00 · Budget $2,000.00', '$1,250.00', '+$750.00'],
     ])
   })
 })

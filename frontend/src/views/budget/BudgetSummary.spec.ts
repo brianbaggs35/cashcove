@@ -29,6 +29,9 @@ describe('BudgetSummary', () => {
     expect(find('summary-time').text()).toBe('10 days left')
     expect(find('summary-meter').attributes('aria-label')).toBe('63% of the budget spent')
     expect(find('summary-meter').attributes('aria-valuenow')).toBe('63')
+    expect(find('summary-meter').find('.v-progress-linear__determinate').classes()).toContain(
+      'bg-primary',
+    )
     expect(find('summary-pace').attributes('title')).toBe(
       'An even pace would have spent $1,333.33 by now',
     )
@@ -53,6 +56,9 @@ describe('BudgetSummary', () => {
     expect(find('summary-status').text()).toBe('Over budget')
     expect(find('summary-percent').text()).toBe('125% spent')
     expect(find('summary-meter').attributes('aria-valuenow')).toBe('100')
+    expect(find('summary-meter').find('.v-progress-linear__determinate').classes()).toContain(
+      'bg-error',
+    )
     expect(find('summary-meter').attributes('aria-label')).toBe('125% of the budget spent')
     expect(find('summary-pace-note').text()).toContain('$1,750.00 over budget')
     expect(find('tile-net').find('[data-test="tile-value"]').text()).toBe('-$100.00')
@@ -61,6 +67,9 @@ describe('BudgetSummary', () => {
   it('says when it is close to the limit, or on pace to go over it', async () => {
     const close = await render(makePeriod({ spent: '1900.00', left: '100.00' }))
     expect(close.find('summary-status').text()).toBe('Close to the limit')
+    expect(close.find('summary-meter').find('.v-progress-linear__determinate').classes()).toContain(
+      'bg-warning',
+    )
 
     const fast = await render(makePeriod({ projected: '2600.00' }))
     expect(fast.find('summary-status').text()).toBe('On pace to go over')

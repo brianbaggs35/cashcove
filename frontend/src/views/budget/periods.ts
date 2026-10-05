@@ -95,6 +95,13 @@ export function shortPeriodLabel(
 /** How a budget is doing: over what it has, close to it, or fine. */
 export type BudgetStatus = 'over' | 'near' | 'ok'
 
+/** The theme colour a status is shown in. */
+export const statusColors: Record<BudgetStatus, string> = {
+  over: 'error',
+  near: 'warning',
+  ok: 'primary',
+}
+
 /**
  * Whether spending is over the amount, or at least `threshold` percent of it (from the household's
  * alert settings, which can turn that off with null).

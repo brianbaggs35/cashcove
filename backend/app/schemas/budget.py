@@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 from pydantic_core import PydanticCustomError
 
+from app.finance.periods import MAX_PERIODS
 from app.models import BudgetKind, BudgetPeriod
 from app.schemas.fields import MAX_AMOUNT, STRICT, AmountOut
 
@@ -20,7 +21,7 @@ BudgetName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=
 # What a budget has for each period, which has to be something.
 BudgetAmountIn = Annotated[Decimal, Field(gt=0, le=MAX_AMOUNT, max_digits=14, decimal_places=2)]
 # The most periods one look back covers, and the most transactions linked at once.
-MAX_HISTORY = 60
+MAX_HISTORY = MAX_PERIODS
 MAX_LINKED = 500
 
 # What a source of a budget is: everything in an account or category, the payments of a

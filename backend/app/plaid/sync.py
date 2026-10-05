@@ -173,6 +173,31 @@ def _description(transaction: PlaidTransaction) -> str | None:
     return description[:255] or None
 
 
+def _new_from_bank(
+    account: Account,
+    transaction: PlaidTransaction,
+    rows: dict[str, Transaction],
+    chooser: CategoryChooser,
+    rules: RuleBook,
+) -> Transaction:
+    """A transaction the bank has just sent, sorted by the household's rules. One that was
+    pending and has posted keeps what the household changed about the pending one."""
+    payee = _payee(transaction)
+    before = rows.get(transaction.pending_transaction_id or "")
+    row = Transaction(
+        account_id=account.id,
+        payee=before.payee if before else payee,
+        category_id=before.category_id if before else chooser.choose(transaction, payee),
+        notes=before.notes if before else None,
+        source=TransactionSource.PLAID,
+        external_id=transaction.transaction_id,
+    )
+    _update_from_bank(row, transaction)
+    # What the household chose for the pending transaction it replaces stays.
+    rules.sort(row, keep_category=before is not None and before.category_id is not None)
+    return row
+
+
 def _apply_account(
     db: Session,
     account: Account,
@@ -189,20 +214,7 @@ def _apply_account(
         if row is not None:
             counts.updated += _update_from_bank(row, transaction)
             continue
-        payee = _payee(transaction)
-        # A pending transaction that posted: keep what the household changed about it.
-        before = rows.get(transaction.pending_transaction_id or "")
-        row = Transaction(
-            account_id=account.id,
-            payee=before.payee if before else payee,
-            category_id=before.category_id if before else chooser.choose(transaction, payee),
-            notes=before.notes if before else None,
-            source=TransactionSource.PLAID,
-            external_id=transaction.transaction_id,
-        )
-        _update_from_bank(row, transaction)
-        # What the household chose for the pending transaction it replaces stays.
-        rules.sort(row, keep_category=before is not None and before.category_id is not None)
+        row = _new_from_bank(account, transaction, rows, chooser, rules)
         db.add(row)
         rows[transaction.transaction_id] = row
         counts.added += 1
