@@ -8,6 +8,8 @@ and give it a version and a date when you cut a release (see Releases in the
 
 ## Unreleased
 
+## 0.2.3 - 2026-10-05
+
 ### Upgrading
 
 - Migration `0013` adds `automations.direction` (every existing automation keeps sorting money
