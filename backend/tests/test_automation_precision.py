@@ -295,7 +295,8 @@ def test_a_category_chosen_by_hand_is_not_changed_when_an_automation_is_edited(
     created, account, streaming = sorted_automation(admin_client, session)
     mine = post_payment(admin_client, account, "Streamflix", "-9.99")
     other = post_payment(admin_client, account, "Streamflix", "-14.99")
-    assert (mine["category_id"], other["category_id"]) == (str(streaming.id),) * 2
+    sorted_by_it = str(streaming.id)
+    assert (mine["category_id"], other["category_id"]) == (sorted_by_it, sorted_by_it)
     hobbies = category(session, "Hobbies", "Fun")
     admin_client.patch(f"/api/transactions/{mine['id']}", json={"category_id": str(hobbies.id)})
     # Not by hand: the bank's, a file's or an automation's, which are always the automation's to
