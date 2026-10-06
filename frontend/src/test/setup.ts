@@ -1,4 +1,5 @@
 import type { EventEmitter } from 'node:events'
+import { performance } from 'node:perf_hooks'
 import { format } from 'node:util'
 
 import { resetApiHooks } from '@/api/client'
@@ -6,6 +7,12 @@ import { confirmRequest } from '@/composables/confirm'
 import { notices } from '@/composables/notify'
 import { verificationRequest } from '@/composables/verification'
 import { unmountAll } from '@/test/cleanup'
+
+// Time in tests comes from the monotonic clock. Vue ignores an event dated no later than the moment
+// its handler was attached, so a wall clock that steps back drops a click or an input that lands
+// just after the step, and a test fails at random. WSL2's does that about every half minute.
+const clockOrigin = Date.now() - performance.now()
+Date.now = () => Math.floor(clockOrigin + performance.now())
 
 // jsdom lacks the layout APIs Vuetify relies on.
 class ResizeObserverStub {
