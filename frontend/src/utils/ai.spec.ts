@@ -8,6 +8,7 @@ import {
   priceLine,
   PRICING_PAGES,
   reviewActive,
+  agreementWith,
   reviewStatusLabels,
   suggestionsOf,
 } from '@/utils/ai'
@@ -97,6 +98,11 @@ describe('labels', () => {
   it('counts what a review suggested, whatever has become of it', () => {
     expect(suggestionsOf(makeReview({ open: 2, applied: 3, dismissed: 1 }))).toBe(6)
     expect(suggestionsOf(makeReview({ open: 0, applied: 0, dismissed: 0 }))).toBe(0)
+  })
+
+  it('says the AI agrees with how a transaction, or all of several, were sorted', () => {
+    expect(agreementWith(1)).toBe('The AI agrees with how that transaction was sorted.')
+    expect(agreementWith(3)).toBe('The AI agrees with how all 3 transactions were sorted.')
   })
 
   it('knows which reviews are still going', () => {

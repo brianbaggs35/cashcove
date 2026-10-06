@@ -1,4 +1,5 @@
 import type { AiModel, AiProviderKey, AiReview, Confidence, ReviewStatus } from '@/api/ai'
+import { formatCount } from '@/utils/format'
 
 const MILLION = 1_000_000
 
@@ -76,3 +77,9 @@ export const reviewActive = (status: ReviewStatus): boolean =>
 /** How many suggestions a review made, whatever has become of them since. */
 export const suggestionsOf = (review: AiReview): number =>
   review.open + review.applied + review.dismissed
+
+/** What the AI says when it would change nothing about the transactions it looked at. */
+export const agreementWith = (transactions: number): string =>
+  transactions === 1
+    ? 'The AI agrees with how that transaction was sorted.'
+    : `The AI agrees with how all ${formatCount(transactions, 'transaction')} were sorted.`

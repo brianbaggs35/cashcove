@@ -90,7 +90,7 @@ describe('ChatPanel', () => {
     expect(wrapper.findAll('[data-test="chat-message"]')).toHaveLength(2)
   })
 
-  it('asks when the form is sent, and a new line is Shift and Enter', async () => {
+  it('asks when Send is clicked, and a new line is Shift and Enter', async () => {
     const ask = vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Fine.' })
     const { find, input } = await render()
     await input().setValue('Line one')
@@ -99,6 +99,18 @@ describe('ChatPanel', () => {
     expect(ask).not.toHaveBeenCalled()
 
     expect(find('chat-send').attributes('disabled')).toBeUndefined()
+    await find('chat-send').trigger('click')
+    await flushPromises()
+
+    expect(ask).toHaveBeenCalledTimes(1)
+    expect(input().element.value).toBe('')
+  })
+
+  it('asks when the form is sent some other way, such as by assistive technology', async () => {
+    const ask = vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Fine.' })
+    const { find, input } = await render()
+    await input().setValue('Is this sent?')
+
     await find('chat-form').trigger('submit')
     await flushPromises()
 
