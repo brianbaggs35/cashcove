@@ -299,6 +299,82 @@ Imported transactions are ordinary transactions: they show on the Transactions t
 wherever the others do. Viewers see the imports and saved formats but can't import or change
 them.
 
+### AI (optional)
+
+AI is **off until an admin turns it on**, and Cashcove works exactly the same without it. With
+it, the **AI** tab answers questions about your money, gives a second opinion on how your
+transactions are sorted, and shows what it all cost, and an import can end with that second
+opinion. Until AI is set up, each of its pages says what to do first, and nothing else in
+Cashcove depends on it.
+
+**Settings > AI** (admins only) chooses where the AI runs:
+
+| Provider                    | What you give it                                         | Models                                                                          |
+| --------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Ollama on your computer** | Its address, such as `http://host.docker.internal:11434` | Any that can chat: **Fetch models** lists what the server has, and you pick one |
+| **Ollama Cloud**            | An API key from ollama.com                               | **Fetch models** lists its catalog, each with its price                         |
+| **Anthropic**               | An API key from the Claude Console                       | **Claude Haiku 4.5** (the default) and Claude Sonnet 5.5                        |
+| **OpenAI**                  | An API key from the OpenAI platform                      | **GPT-6 Luna** (the default), GPT-5.6 Luna, GPT-5.4 mini and other small ones   |
+
+Only small, inexpensive models are offered, because the work is short: no Opus, Fable or large
+GPT. Every provider has a **Test connection** button that tries what is in the form before it is
+saved, so a wrong key or address shows up there. A key is encrypted with the app secret before it
+is saved and is never sent back to the browser. A model its provider is shutting down is marked
+with the date and what to use instead.
+
+**Ollama on the same computer** needs an address the container can reach: inside the container,
+`localhost` is the container itself. Use `http://host.docker.internal:11434` (`docker-compose.yml`
+makes that name work on Linux too) and let Ollama listen beyond loopback with
+`OLLAMA_HOST=0.0.0.0`. The browser never talks to an AI provider, only Cashcove's server does, so
+the Content Security Policy is unchanged, and the API waits up to five minutes for a slow model.
+
+What the **AI** tab does:
+
+- **Ask**: a chat about your finances. It answers from a fresh summary of your records (spending
+  by month and category, the payees you spent most with, budgets, subscriptions and bills, and the
+  latest transactions) and explains what the numbers show. It isn't financial advice.
+- **Recommendations**: the AI looks over transactions nobody chose a category for, such as ones an
+  automation left alone, and suggests a category for each, with how confident it is and why. Ask
+  for a review of recent or uncategorized transactions, then **Apply** or **Dismiss** each
+  suggestion, or tick several. **Nothing changes until an admin applies one.** A category you
+  chose yourself is never reviewed, a transaction that changed since is left alone, and one you
+  dismissed isn't suggested again. Waiting suggestions show on the Dashboard.
+- **Importing a file** ends with an **AI second opinion** step: your automations sort the rows as
+  they come in, then the AI looks over how they were sorted and suggests changes, which you can
+  apply right there or leave for the AI tab. Turn it off in Settings > AI, and without AI the
+  import has the steps it always had.
+- **Usage**: tokens and an estimated cost by day, model and purpose, at each provider's published
+  list price (Anthropic, OpenAI and Ollama Cloud; Ollama on your computer costs nothing). It's an
+  estimate: your provider's bill is what counts.
+
+#### What never reaches an AI
+
+**Account numbers and bank names never leave Cashcove.** Everything above works without telling an
+AI which account or bank anything came from, and four guardrails keep it that way:
+
+1. **It only reads what it needs.** What an AI is sent is built from a short list of fields:
+   dates, amounts, payees, the names of categories, budgets, subscriptions and bills, and what you
+   type. It's never built from an account, a bank connection, a balance or a transaction's raw bank
+   description or notes.
+2. **Scrubbing.** Free text that came from a bank, a file or a person (a payee, your question)
+   loses anything that looks like an account or card number, the last digits of one (`•••• 4410`,
+   `x4410`, `ending in 4410`), an email address or a key, and **the name of every account and bank
+   you've set up in Cashcove**. A payee called after your credit union becomes `[account]`.
+3. **A last check.** Just before a request leaves, everything in it that came from your records is
+   checked again. If an account number, its last digits or an account or bank name is still in it,
+   the request is **refused and nothing is sent**, and you're told. This is what catches a mistake
+   made anywhere else.
+4. **It only suggests.** An AI never changes anything itself. Suggestions wait in the database for
+   an admin to apply or dismiss, and a key never goes anywhere but the provider it belongs to, in
+   a header, never in what is asked.
+
+Cashcove can only recognize the accounts and banks you've set up, so a payee that names some other
+bank is treated as the payee it is, and the dates, amounts and payees an AI is sent are real. To
+keep those at home too, use Ollama on your own computer. Settings > AI shows what is and isn't
+shared, and the tests prove it: every request that Cashcove's stand-in for Anthropic, OpenAI and
+Ollama receives is kept, and the tests fail if any account number, account name or bank name is in
+one.
+
 ## Security
 
 Cashcove holds financial data and bank connections, so it's locked down even on a home
@@ -318,6 +394,9 @@ network.
 - **Guessing** is slowed per email address and per client address: after a few free
   attempts, each failure locks sign-in for twice as long as the last, up to 15 minutes, and
   nginx caps how often one address can try at all.
+- **AI** is optional and server-side only: a provider's key is encrypted before it's saved and
+  never shown again, and no account number, account name or bank name is ever sent to a provider
+  (see [AI](#ai-optional)). Only admins set it up, review transactions or apply what it suggests.
 - **Roles** are checked by the API on every request, and Cashcove always keeps at least one
   active admin. **Settings > Security** shows your devices and recent activity, and admins
   see the household's in **Settings > Users**.
@@ -377,7 +456,8 @@ activity, plus six accounts, the suggested categories and a year of transactions
 before block resets. Saved sign-in files start a spec signed in as the admin or the viewer
 with `test.use`, fixtures sign the browser in as anyone and call the API as anyone, and
 coverage of both the web app and the API is collected; every page is also checked for
-accessibility problems.
+accessibility problems. Plaid and the AI providers are stand-ins that answer from memory, so
+nothing reaches either.
 [frontend/e2e/README.md](frontend/e2e/README.md) covers running them, the baseline and
 writing specs.
 
