@@ -152,9 +152,10 @@ def test_the_providers_come_with_their_models_and_what_each_needs(
     assert providers["ollama_cloud"]["needs_key"]
     assert not providers["ollama_cloud"]["needs_url"]
     assert [model["id"] for model in providers["anthropic"]["models"]] == [
-        "claude-sonnet-5-5",
         "claude-haiku-4-5-20251001",
+        "claude-sonnet-5-5",
     ]
+    assert providers["anthropic"]["default_model"] == "claude-haiku-4-5-20251001"
     assert providers["openai"]["default_model"] == "gpt-6-luna"
     assert providers["openai"]["models"][0] == {
         "id": "gpt-6-luna",
@@ -165,7 +166,7 @@ def test_the_providers_come_with_their_models_and_what_each_needs(
         "input_price": "0.1",
         "output_price": "0.5",
     }
-    sonnet = providers["anthropic"]["models"][0]
+    sonnet = providers["anthropic"]["models"][1]
     assert (sonnet["input_price"], sonnet["output_price"]) == ("2", "10")
     assert providers["openai"]["key_url"].startswith("https://")
 
