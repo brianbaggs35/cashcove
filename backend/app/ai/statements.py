@@ -138,12 +138,12 @@ _SUMMARY_WORDS = frozenset({
 
 _WORD = re.compile(r"[A-Za-z]+")
 _MONEY = re.compile(
-    r"(?<![\d.,])[-+(]?\$?\d[\d,]*\.\d{2}\)?-?(?: ?(?:CR|DR)(?![A-Za-z]))?", re.IGNORECASE
+    r"(?<![\d.,])[-+(]?\$?\d[\d,]*\.\d{2}\)?-?(?: ?(?:CR|DR)(?![a-z]))?", re.IGNORECASE
 )
 _MONTHS = "jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec"
 _DATE = re.compile(
     r"(?<![\w/.-])(?:\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(?:/\d{2}(?:\d{2})?)?)(?![\w/-])"
-    rf"|(?<![A-Za-z])(?:{_MONTHS})[a-z]{{0,6}}\.? \d{{1,2}}(?:, ?\d{{4}})?(?!\w)"
+    rf"|(?<![a-z])(?:{_MONTHS})[a-z]{{0,6}}\.? \d{{1,2}}(?:, ?\d{{4}})?(?!\w)"
     rf"|(?<!\w)\d{{1,2}} (?:{_MONTHS})[a-z]{{0,6}}\.?(?: \d{{4}})?(?!\w)",
     re.IGNORECASE,
 )
@@ -174,6 +174,14 @@ class Amount:
     tag: Tag
 
 
+def _shown(amount: Amount) -> str:
+    """An amount as the AI sees it: with which way it went where that's known, and the balance
+    hidden."""
+    if amount.tag == "balance":
+        return "[balance]"
+    return f"{amount.text} ({amount.tag})" if amount.tag else amount.text
+
+
 @dataclass(frozen=True)
 class Line:
     """A line that looks like a transaction."""
@@ -188,14 +196,7 @@ class Line:
     columns: str | None
 
     def shown(self) -> str:
-        amounts = " ".join(
-            "[balance]"
-            if amount.tag == "balance"
-            else f"{amount.text} ({amount.tag})"
-            if amount.tag
-            else amount.text
-            for amount in self.amounts
-        )
+        amounts = " ".join(_shown(amount) for amount in self.amounts)
         return f"{self.number} | {self.date} | {self.text or '(no description)'} | {amounts}"
 
 
@@ -298,23 +299,27 @@ def _is_section(raw: str, words: list[str]) -> bool:
     )
 
 
+def _kind(word: str) -> Tag:
+    """What a heading word says its column holds: money out, money in or the balance."""
+    if word in _OUT_WORDS:
+        return "out"
+    if word in _IN_WORDS:
+        return "in"
+    return "balance" if word == "balance" else ""
+
+
 def _header(raw: str) -> Header:
     """Where the columns that say which way money went, and the balance, are on the line."""
     columns: list[tuple[int, Tag]] = []
     for match in _WORD.finditer(raw):
-        word = match.group().lower()
-        tag: Tag = (
-            "out"
-            if word in _OUT_WORDS
-            else "in"
-            if word in _IN_WORDS
-            else "balance"
-            if word == "balance"
-            else ""
-        )
+        tag = _kind(match.group().lower())
         if tag:
             columns.append(((match.start() + match.end()) // 2, tag))
     return Header(" ".join(raw.split()), tuple(columns))
+
+
+# What DR and CR after an amount say about which way it went.
+_MARKERS: dict[str, Tag] = {"DR": "out", "CR": "in"}
 
 
 def _money(token: str) -> tuple[Decimal, Tag]:
@@ -327,7 +332,13 @@ def _money(token: str) -> tuple[Decimal, Tag]:
         text = text[:-2]
     # The pattern only finds a number, so this always is one.
     value = Decimal(text.strip().replace("$", "").replace(",", "").strip("()+-"))
-    return value, "out" if suffix == "DR" else "in" if suffix == "CR" else ""
+    return value, _MARKERS.get(suffix, "")
+
+
+def _column(header: Header, centre: int) -> Tag | None:
+    """Which kind of column a position is in, if it's near enough the heading of one."""
+    at, kind = min(header.columns, key=lambda column: abs(centre - column[0]))
+    return kind if abs(centre - at) <= COLUMN_REACH else None
 
 
 def _amounts(raw: str, header: Header | None) -> tuple[Amount, ...]:
@@ -337,10 +348,7 @@ def _amounts(raw: str, header: Header | None) -> tuple[Amount, ...]:
     for match in _MONEY.finditer(raw):
         value, tag = _money(match.group())
         if header is not None and header.columns:
-            centre = (match.start() + match.end()) // 2
-            at, kind = min(header.columns, key=lambda column: abs(centre - column[0]))
-            if abs(centre - at) <= COLUMN_REACH:
-                tag = kind
+            tag = _column(header, (match.start() + match.end()) // 2) or tag
         found.append(Amount(match.group().strip(), value, tag))
     return tuple(found)
 
