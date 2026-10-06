@@ -16,6 +16,7 @@ and give it a version and a date when you cut a release (see Releases in the
   it, it can be run again on a database that already has some or all of it, and changes nothing.
 
 - Updated @lucide/vue to 1.52.0
+- Updated vuetify to 4.2.4
 
 ### Added
 
