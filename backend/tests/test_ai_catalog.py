@@ -29,8 +29,8 @@ def test_every_provider_is_offered_once() -> None:
 
 def test_only_the_small_models_asked_for_are_offered() -> None:
     assert [model.id for model in ANTHROPIC_MODELS] == [
-        "claude-sonnet-5-5",
         "claude-haiku-4-5-20251001",
+        "claude-sonnet-5-5",
     ]
     assert [model.id for model in OPENAI_MODELS] == [
         "gpt-6-luna",
@@ -44,9 +44,9 @@ def test_only_the_small_models_asked_for_are_offered() -> None:
         assert not any(word in model.id for word in LARGE), model.id
 
 
-def test_gpt_6_luna_is_the_default_for_openai() -> None:
+def test_gpt_6_luna_is_the_default_for_openai_and_haiku_4_5_for_anthropic() -> None:
     assert provider_info(AIProvider.OPENAI).default_model == "gpt-6-luna"
-    assert provider_info(AIProvider.ANTHROPIC).default_model == "claude-sonnet-5-5"
+    assert provider_info(AIProvider.ANTHROPIC).default_model == "claude-haiku-4-5-20251001"
 
 
 def test_every_default_is_one_of_the_models() -> None:

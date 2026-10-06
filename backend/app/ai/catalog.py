@@ -95,17 +95,17 @@ def _price(
 
 ANTHROPIC_MODELS = (
     ModelChoice(
+        "claude-haiku-4-5-20251001",
+        "Claude Haiku 4.5",
+        note="The fastest and cheapest. Anthropic won't retire it before October 15, 2026.",
+        price=_price("1", "5"),
+    ),
+    ModelChoice(
         "claude-sonnet-5-5",
         "Claude Sonnet 5.5",
         note="The best mix of speed and intelligence.",
         price=_price("2", "10"),
         effort="medium",
-    ),
-    ModelChoice(
-        "claude-haiku-4-5-20251001",
-        "Claude Haiku 4.5",
-        note="The fastest and cheapest. Anthropic won't retire it before October 15, 2026.",
-        price=_price("1", "5"),
     ),
 )
 
@@ -186,7 +186,7 @@ PROVIDERS = (
         key_url="https://platform.claude.com/settings/keys",
         docs_url="https://platform.claude.com/docs/en/about-claude/models/overview",
         models=ANTHROPIC_MODELS,
-        default_model="claude-sonnet-5-5",
+        default_model="claude-haiku-4-5-20251001",
     ),
     ProviderInfo(
         key=AIProvider.OPENAI,
