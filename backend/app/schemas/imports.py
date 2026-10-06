@@ -292,6 +292,9 @@ class FileImportOut(BaseModel):
     created_by: str | None = None
     # How many of what it added automations sorted, when it was imported (not kept after).
     sorted: int = 0
+    # The AI's second opinion on how they were sorted, when it's set up to give one: it carries
+    # on after the import (not kept after).
+    ai_review_id: uuid.UUID | None = None
 
 
 class ImportProfileOut(BaseModel):

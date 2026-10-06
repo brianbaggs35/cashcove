@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from app.api import (
     account,
     accounts,
+    ai,
     auth,
     automations,
     bills,
@@ -40,5 +41,6 @@ api_router.include_router(connections.router)
 api_router.include_router(imports.router)
 api_router.include_router(budget.router)
 api_router.include_router(dashboard.router)
+api_router.include_router(ai.router)
 
 __all__ = ["api_router"]

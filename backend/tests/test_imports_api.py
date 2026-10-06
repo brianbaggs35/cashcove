@@ -630,6 +630,8 @@ def test_importing_adds_the_transactions_and_takes_the_files_balance(
         "created_at": record["created_at"],
         "created_by": "Alex Rivera",
         "sorted": 0,
+        # AI isn't set up, so nothing gave a second opinion.
+        "ai_review_id": None,
     }
     assert balance_of(session, checking) == Decimal("2685.48")
     first = transactions(session)[0]

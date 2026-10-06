@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
+from app.ai.reviews import open_count
 from app.auth.deps import CurrentAuth, Db
 from app.finance.dashboard import dashboard
 from app.finance.exchange_rates import ExchangeRates
@@ -26,4 +27,5 @@ def read_dashboard(
 ) -> DashboardOut:
     """What came in and what was spent this month and over the months before, where the money
     went this month, and how many transactions still have no category."""
-    return dashboard(db, rates, today or utcnow().date())
+    result = dashboard(db, rates, today or utcnow().date())
+    return result.model_copy(update={"ai_recommendations": open_count(db)})

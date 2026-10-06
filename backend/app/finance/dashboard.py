@@ -38,7 +38,7 @@ def _month_end(start: dt.date) -> dt.date:
     return start.replace(day=calendar.monthrange(start.year, start.month)[1])
 
 
-class _Converter:
+class Converter:
     """Amounts in the household's currency, whatever currency their account is in."""
 
     def __init__(self, db: Session, client: ExchangeRateClient | None, currency: str) -> None:
@@ -70,7 +70,7 @@ class _Converter:
 
 
 def _by_day(
-    db: Session, convert: _Converter, first: dt.date, last: dt.date
+    db: Session, convert: Converter, first: dt.date, last: dt.date
 ) -> dict[dt.date, tuple[Decimal, Decimal]]:
     """What came in and what was spent on each day from `first` to `last`, as (income, spent)."""
     income = func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0))
@@ -124,7 +124,7 @@ class _Total:
 
 
 def _spending(
-    db: Session, convert: _Converter, first: dt.date, last: dt.date
+    db: Session, convert: Converter, first: dt.date, last: dt.date
 ) -> tuple[list[CategoryTotal], list[PayeeTotal]]:
     """What was spent from `first` to `last` by category, and with each payee, the biggest
     first. Payees are the same ignoring letter case and surrounding spaces."""
@@ -165,7 +165,7 @@ def _spending(
 
 def dashboard(db: Session, client: ExchangeRateClient | None, today: dt.date) -> DashboardOut:
     """How the household is doing in the month `today` is in, and over the months before it."""
-    convert = _Converter(db, client, Household.load(db).currency)
+    convert = Converter(db, client, Household.load(db).currency)
     starts = [shift_months(today.replace(day=1), -back) for back in range(MONTHS - 1, -1, -1)]
     days = _by_day(db, convert, starts[0], _month_end(starts[-1]))
     months = [_month(days, start) for start in starts]

@@ -56,6 +56,8 @@ class DashboardOut(BaseModel):
     payees: list[PayeeTotal]
     # How many transactions, ever, have no category yet.
     uncategorized: int
+    # How many categories the AI has suggested that nobody has decided on yet.
+    ai_recommendations: int = 0
     # Currencies other than the household's that were converted, and ones that couldn't be,
     # for lack of an exchange rate, so their transactions aren't in the totals.
     converted: list[str]
