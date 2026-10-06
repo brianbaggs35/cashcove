@@ -95,9 +95,10 @@ def test_a_document_that_isnt_one_is_refused(text: str) -> None:
 
 def test_a_document_has_a_limit_on_its_rows() -> None:
     rows = [{"date": "2026-09-03", "payee": "x", "amount": "-1"}] * 2_001
+    text = document(*rows)
 
     with pytest.raises(FileProblem):
-        read_statement(document(*rows))
+        read_statement(text)
 
 
 def test_the_preview_reads_it_as_a_pdf_and_checks_it_against_the_account(
