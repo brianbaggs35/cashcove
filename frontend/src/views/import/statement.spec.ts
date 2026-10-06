@@ -4,7 +4,9 @@ import { isPdf, readPdf, statementDocument } from '@/views/import/statement'
 
 /** What the document says, read back from the base64 the API takes. */
 const decoded = (content: string) =>
-  JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(content), (c) => c.charCodeAt(0))))
+  JSON.parse(
+    new TextDecoder().decode(Uint8Array.from(atob(content), (c) => c.codePointAt(0) as number)),
+  )
 
 describe('PDF statements', () => {
   it('knows a PDF by its type or its name', () => {
