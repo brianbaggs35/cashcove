@@ -30,6 +30,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated vue-tsc to 3.3.12
 - Updated fastapi to 0.142.2
 - Updated sqlalchemy to 2.1.3
+- Updated mypy to 2.4.0
 
 ### Added
 
