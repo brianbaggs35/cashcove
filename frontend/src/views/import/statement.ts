@@ -24,7 +24,7 @@ export async function readPdf(file: File): Promise<ImportFile> {
 
 function toBase64(text: string): string {
   let binary = ''
-  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte)
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCodePoint(byte)
   return btoa(binary)
 }
 
