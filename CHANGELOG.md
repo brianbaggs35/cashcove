@@ -6,6 +6,58 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
+## 0.2.4 - 2026-10-06
+
+### Upgrading
+
+- Migration `0014` adds the AI tables: the household's provider settings, each review the AI made
+  with the suggestions it found, and a count of the tokens each answer used. Like the migrations
+  before it, it can be run again on a database that already has some or all of it, and changes
+  nothing. AI is off until an admin sets it up in **Settings > AI**, so nothing changes for you
+  until then.
+- If you run Cashcove from your own compose file and want Ollama on the same computer for AI, add
+  `extra_hosts: ["host.docker.internal:host-gateway"]` to the service, as `docker-compose.yml` now
+  does, and use `http://host.docker.internal:11434` as Ollama's address. `/api/ai/` also waits up to
+  330 seconds on a slow model, where the rest of the API keeps its 60.
+
+### Added
+
+- **AI, optional.** Everything works the same without it, and each AI page says what to do first
+  until it is set up.
+  - **Settings > AI** chooses where it runs: Ollama on your computer (an address, with a button that
+    fetches its models), Ollama Cloud (a key, with its models fetched and priced), Anthropic
+    (Claude Haiku 4.5, the default, and Claude Sonnet 5.5) or OpenAI (GPT-6 Luna, the default,
+    GPT-5.6 Luna, GPT-5.4 mini and the other small GPT-5 models). Every provider has a **Test
+    connection** button that tries what is in the form before it is saved. A key is encrypted,
+    kept on the server and never shown again.
+  - **The AI tab** has three pages. **Ask** is a chat about your finances, answered from a summary of
+    your records. **Recommendations** has the AI look over transactions nobody chose a category for
+    and suggest one for each, which an admin applies or dismisses, one at a time or several; nothing
+    changes until one is applied, and a category chosen by hand is never reviewed. **Usage** shows
+    tokens and an estimated cost by day, model and purpose, at each provider's published list price.
+  - **Importing a file** can end with an **AI second opinion**: the automations sort the rows as
+    they come in, then the AI looks over how they were sorted. Turn it off in Settings > AI.
+  - The Dashboard says when suggestions are waiting.
+  - **No account number, account name or bank name ever reaches an AI.** What an AI is sent is built
+    from dates, amounts, payees and the names of categories, budgets, subscriptions and bills;
+    anything that looks like an account number, its last digits, an email address or a key is taken
+    out of free text, along with the name of every account and bank you have set up; and a last
+    check refuses to send a request that still has any. The tests keep every request a stand-in for
+    the providers receives and fail if one holds an account number, account name or bank name. See
+    [AI](README.md#ai-optional).
+  - `GET /api/ai/providers`, `/settings`, `/usage`, `/reviews` and `/recommendations`, `PUT` and
+    `DELETE /api/ai/settings`, and `POST /api/ai/models`, `/test`, `/chat`, `/reviews`,
+    `/recommendations/apply` and `/recommendations/dismiss`. Reads are open to every signed-in
+    person; changing anything needs an admin.
+
+### Changed
+
+- The end-to-end job's time limit in CI goes from 30 to 60 minutes: the specs run one at a time, on
+  a computer and a phone, and a slow runner took twice as long as a fast one and was cancelled.
+- Frontend tests read time from the monotonic clock. Vue ignores an event dated no later than the
+  moment its handler was attached, so a wall clock that steps back (WSL2's does, every half
+  minute) could drop a click and fail a test at random.
+
 ## 0.2.3 - 2026-10-06
 
 ### Upgrading
