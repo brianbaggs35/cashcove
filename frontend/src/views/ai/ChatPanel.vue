@@ -185,6 +185,7 @@ watch(
     <v-card
       class="chat__card"
       :class="{ 'chat__card--over': over }"
+      data-test="chat-card"
       @dragenter.prevent="enter"
       @dragover.prevent
       @dragleave="leave"
@@ -227,59 +228,74 @@ watch(
             Your spending, income, budgets, subscriptions and bills. The answers come from your own
             records, and they explain what the numbers show. They aren’t financial advice.
           </p>
-          <div class="d-flex flex-wrap ga-2">
-            <v-chip
-              v-for="question in questions"
-              :key="question"
-              variant="outlined"
-              color="primary"
-              size="default"
-              class="chat__question"
-              :disabled="chat.busy"
-              data-test="chat-question"
-              @click="ask(question)"
-            >
-              {{ question }}
-            </v-chip>
-          </div>
-
-          <v-sheet
-            border
-            rounded="lg"
-            class="chat__statement d-flex flex-column flex-sm-row align-sm-center ga-4 pa-4 mt-6"
-            data-test="chat-statement-offer"
-          >
-            <v-avatar color="primary" variant="tonal" rounded="lg" size="44" class="flex-shrink-0">
-              <v-icon :icon="FileText" size="22" />
-            </v-avatar>
-            <div class="flex-grow-1">
-              <p class="text-title-small font-weight-bold mb-1">Read a bank statement</p>
-              <p class="text-body-small text-medium-emphasis mb-0">
-                Choose a PDF, or drop one here. The AI takes the transactions off it, and you check
-                them and choose the account before anything is added. Your account numbers, name and
-                address stay on this computer.
-              </p>
+          <!-- On a narrow screen the offer comes first, where the questions are long enough to
+               push it out of sight; on a wide one it's beside them. -->
+          <div class="d-flex flex-column flex-lg-row ga-6">
+            <div class="flex-lg-grow-1 order-last order-lg-first">
+              <p class="text-label-large text-medium-emphasis mb-2">Try asking</p>
+              <div class="d-flex flex-wrap ga-2">
+                <v-chip
+                  v-for="question in questions"
+                  :key="question"
+                  variant="outlined"
+                  color="primary"
+                  size="default"
+                  class="chat__question"
+                  :disabled="chat.busy"
+                  data-test="chat-question"
+                  @click="ask(question)"
+                >
+                  {{ question }}
+                </v-chip>
+              </div>
             </div>
-            <v-btn
-              v-if="auth.isAdmin"
-              color="primary"
-              variant="flat"
-              :prepend-icon="Upload"
-              :disabled="chat.busy"
-              class="flex-shrink-0"
-              data-test="chat-statement-choose"
-              @click="choose"
+
+            <v-sheet
+              border
+              rounded="lg"
+              class="chat__statement d-flex flex-column flex-sm-row flex-lg-column align-sm-center align-lg-stretch ga-4 pa-4 order-first order-lg-last"
+              data-test="chat-statement-offer"
             >
-              Choose a PDF
-            </v-btn>
-            <p
-              v-else
-              class="text-body-small text-medium-emphasis mb-0"
-              data-test="chat-statement-viewer"
-            >
-              Only an admin can import a statement.
-            </p>
-          </v-sheet>
+              <div class="d-flex align-start ga-3 flex-grow-1">
+                <v-avatar
+                  color="primary"
+                  variant="tonal"
+                  rounded="lg"
+                  size="44"
+                  class="flex-shrink-0"
+                >
+                  <v-icon :icon="FileText" size="22" />
+                </v-avatar>
+                <div>
+                  <p class="text-title-small font-weight-bold mb-1">Read a bank statement</p>
+                  <p class="text-body-small text-medium-emphasis mb-0">
+                    Choose a PDF, or drop one here. The AI takes the transactions off it, and you
+                    check them and choose the account before anything is added. Your account
+                    numbers, name and address stay on this computer.
+                  </p>
+                </div>
+              </div>
+              <v-btn
+                v-if="auth.isAdmin"
+                color="primary"
+                variant="flat"
+                :prepend-icon="Upload"
+                :disabled="chat.busy"
+                class="flex-shrink-0"
+                data-test="chat-statement-choose"
+                @click="choose"
+              >
+                Choose a PDF
+              </v-btn>
+              <p
+                v-else
+                class="text-body-small text-medium-emphasis mb-0"
+                data-test="chat-statement-viewer"
+              >
+                Only an admin can import a statement.
+              </p>
+            </v-sheet>
+          </div>
         </div>
 
         <div
@@ -303,7 +319,7 @@ watch(
             <v-chip
               v-else-if="message.kind === 'file'"
               :prepend-icon="FileText"
-              variant="tonal"
+              variant="text"
               color="primary"
               class="chat__file"
               data-test="chat-file-chip"
@@ -328,7 +344,13 @@ watch(
         >
           <v-avatar size="32" class="chat__avatar"><v-icon :icon="Sparkles" size="18" /></v-avatar>
           <div class="chat__bubble d-flex align-center ga-3">
-            <v-progress-circular indeterminate size="18" width="2" color="primary" />
+            <v-progress-circular
+              indeterminate
+              size="18"
+              width="2"
+              color="primary"
+              aria-hidden="true"
+            />
             <output class="text-body-medium text-medium-emphasis">Looking at your records…</output>
           </div>
         </div>
@@ -442,6 +464,13 @@ watch(
   background: rgba(var(--v-theme-primary), 0.04);
 }
 
+/* Beside the questions on a wide screen, as a card of its own. */
+@media (min-width: 1280px) {
+  .chat__statement {
+    flex: 0 0 320px;
+  }
+}
+
 .chat__file {
   max-width: 100%;
 }
@@ -461,6 +490,13 @@ watch(
   color: rgb(var(--v-theme-primary));
   background: rgba(var(--v-theme-primary), 0.1);
   border: 1px solid rgba(var(--v-theme-primary), 0.2);
+}
+
+/* A phone has no room for it: the offer to read a statement is worth more of the first screen. */
+@media (max-width: 599.98px) {
+  .chat__mark {
+    display: none;
+  }
 }
 
 .chat__question {

@@ -128,7 +128,8 @@ const heading = computed((): { title: string; subtitle?: string; icon: LucideIco
 })
 
 const tone = computed(() => {
-  if (wizard.step === 'failed') return 'error'
+  // A PDF that needs AI isn't an error: it says how to go on.
+  if (wizard.step === 'failed') return wizard.needsAi ? 'primary' : 'error'
   return wizard.step === 'done' ? 'success' : 'primary'
 })
 
@@ -267,7 +268,7 @@ watch(open, (value) => {
         :model="aiModel"
       />
       <div v-else class="text-center">
-        <v-progress-circular indeterminate color="primary" size="48" width="4" />
+        <v-progress-circular indeterminate color="primary" size="48" width="4" aria-hidden="true" />
         <output class="d-block text-body-large mt-5">{{ progress }}</output>
       </div>
     </div>

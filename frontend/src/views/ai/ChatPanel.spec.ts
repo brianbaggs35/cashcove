@@ -40,6 +40,7 @@ describe('ChatPanel', () => {
       'Account numbers, account names and bank names are never sent to the AI.',
     )
     expect(find('chat-welcome').text()).toContain('Ask about your money')
+    expect(find('chat-welcome').text()).toContain('Try asking')
     expect(wrapper.findAll('[data-test="chat-question"]').map((chip) => chip.text())).toEqual([
       'How much did I spend on groceries last month?',
       'What were my biggest expenses this month?',
