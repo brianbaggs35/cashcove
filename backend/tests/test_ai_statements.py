@@ -112,10 +112,10 @@ def test_a_pdf_that_cant_be_read_says_why(data: bytes, message: str) -> None:
 @pytest.mark.parametrize("limit", ["MAX_PAGES", "MAX_CHARS", "MAX_STATEMENT_BYTES"])
 def test_a_pdf_has_limits(monkeypatch: pytest.MonkeyPatch, limit: str) -> None:
     monkeypatch.setattr(statements, limit, 2 if limit == "MAX_PAGES" else 10)
-    pages = [["one"], ["two"], ["three"]]
+    data = make_pdf(["one"], ["two"], ["three"])
 
     with pytest.raises(StatementProblem) as caught:
-        pdf_text(make_pdf(*pages))
+        pdf_text(data)
 
     assert caught.value.message == statements.TOO_BIG
 
@@ -617,9 +617,10 @@ def test_an_answer_with_no_transactions_is_an_error(
     session: Session, settings: Settings, fake_ai: FakeAI
 ) -> None:
     fake_ai.say = '{"transactions": []}'
+    data = make_pdf(CHECKING)
 
     with pytest.raises(AIError) as caught:
-        run(session, settings, fake_ai, make_pdf(CHECKING))
+        run(session, settings, fake_ai, data)
 
     assert (caught.value.code, caught.value.message) == (EMPTY, statements.NOTHING_READ)
 
@@ -628,9 +629,10 @@ def test_an_answer_that_isnt_json_is_an_error(
     session: Session, settings: Settings, fake_ai: FakeAI
 ) -> None:
     fake_ai.say = "Sorry, I can't."
+    data = make_pdf(CHECKING)
 
     with pytest.raises(AIError) as caught:
-        run(session, settings, fake_ai, make_pdf(CHECKING))
+        run(session, settings, fake_ai, data)
 
     assert caught.value.code == UNREADABLE
 
@@ -638,8 +640,10 @@ def test_an_answer_that_isnt_json_is_an_error(
 def test_a_pdf_with_no_transactions_says_so_without_asking_the_ai(
     session: Session, settings: Settings, fake_ai: FakeAI
 ) -> None:
+    data = make_pdf(["Just a letter from the bank.", "Thank you."])
+
     with pytest.raises(StatementProblem) as caught:
-        run(session, settings, fake_ai, make_pdf(["Just a letter from the bank.", "Thank you."]))
+        run(session, settings, fake_ai, data)
 
     assert caught.value.message == statements.NOTHING_FOUND
     assert fake_ai.requests == []
@@ -648,8 +652,10 @@ def test_a_pdf_with_no_transactions_says_so_without_asking_the_ai(
 def test_an_amount_too_like_an_account_number_stops_the_request(
     session: Session, settings: Settings, fake_ai: FakeAI
 ) -> None:
+    data = make_pdf(["09/03  A SHOP  12345678.90"])
+
     with pytest.raises(AIError) as caught:
-        run(session, settings, fake_ai, make_pdf(["09/03  A SHOP  12345678.90"]))
+        run(session, settings, fake_ai, data)
 
     assert caught.value.code == BLOCKED
     assert fake_ai.requests == []
