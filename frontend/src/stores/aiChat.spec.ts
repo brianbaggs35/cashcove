@@ -2,11 +2,32 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import * as api from '@/api/ai'
 import { ApiError } from '@/api/client'
-import { MAX_LENGTH, MAX_TURNS, recentTurns, useAiChat, type ChatMessage } from '@/stores/aiChat'
+import {
+  MAX_LENGTH,
+  MAX_TURNS,
+  recentTurns,
+  useAiChat,
+  type ChatMessage,
+  type StatementMessage,
+} from '@/stores/aiChat'
+import { makeStatementReading } from '@/test/ai'
+import { later, makeImport } from '@/test/imports'
 import * as dates from '@/utils/dates'
 
 function conversation(...roles: ('user' | 'assistant')[]): ChatMessage[] {
-  return roles.map((role, index) => ({ id: index, role, content: `${role} ${index}` }))
+  return roles.map((role, index) => ({
+    kind: 'text',
+    id: index,
+    role,
+    content: `${role} ${index}`,
+  }))
+}
+
+/** What was said in words, by who. */
+function said(chat: ReturnType<typeof useAiChat>) {
+  return chat.messages.flatMap((message) =>
+    message.kind === 'text' ? [[message.role, message.content]] : [],
+  )
 }
 
 describe('recentTurns', () => {
@@ -47,6 +68,24 @@ describe('recentTurns', () => {
     expect(recentTurns(conversation('assistant', 'assistant'))).toEqual([])
     expect(recentTurns([])).toEqual([])
   })
+
+  it('leaves a statement out: what the AI read of it is sent apart, with names taken out', () => {
+    const file: ChatMessage = { kind: 'file', id: 5, role: 'user', name: 'september.pdf', size: 12 }
+    const read: StatementMessage = {
+      kind: 'statement',
+      id: 6,
+      role: 'assistant',
+      file: new File(['%PDF'], 'september.pdf'),
+      status: 'done',
+      reading: makeStatementReading(),
+      error: null,
+      imported: null,
+    }
+
+    expect(recentTurns([...conversation('user'), file, read])).toEqual([
+      { role: 'user', content: 'user 0' },
+    ])
+  })
 })
 
 describe('ai chat store', () => {
@@ -66,7 +105,7 @@ describe('ai chat store', () => {
       [{ role: 'user', content: 'How much on groceries?' }],
       '2026-09-20',
     )
-    expect(chat.messages.map((message) => [message.role, message.content])).toEqual([
+    expect(said(chat)).toEqual([
       ['user', 'How much on groceries?'],
       ['assistant', 'About 84.12.'],
     ])
@@ -92,15 +131,17 @@ describe('ai chat store', () => {
   })
 
   it('is busy while it waits, and won’t ask two things at once', async () => {
-    let answer: (value: { reply: string }) => void = () => undefined
-    const ask = vi.spyOn(api, 'askAi').mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    const answer = later<{ reply: string }>()
+    const ask = vi.spyOn(api, 'askAi').mockReturnValue(answer.promise)
     const chat = useAiChat()
 
     const first = chat.send('One')
     expect(chat.busy).toBe(true)
+    // A question is answered with the dots; only a statement being read has its own say.
+    expect(chat.reading).toBe(false)
     expect(await chat.send('Two')).toBe(false)
     expect(await chat.retry()).toBe(false)
-    answer({ reply: 'Fine.' })
+    answer.resolve({ reply: 'Fine.' })
     await first
 
     expect(ask).toHaveBeenCalledTimes(1)
@@ -130,7 +171,7 @@ describe('ai chat store', () => {
 
     expect(chat.error).toBe('The AI didn’t answer in time.')
     expect(chat.code).toBe('ai_unreachable')
-    expect(chat.messages.map((message) => message.role)).toEqual(['user'])
+    expect(said(chat).map(([role]) => role)).toEqual(['user'])
     expect(chat.busy).toBe(false)
 
     expect(await chat.retry()).toBe(true)
@@ -138,7 +179,7 @@ describe('ai chat store', () => {
     expect(ask).toHaveBeenCalledTimes(2)
     expect(chat.error).toBeNull()
     expect(chat.code).toBeNull()
-    expect(chat.messages.map((message) => message.role)).toEqual(['user', 'assistant'])
+    expect(said(chat).map(([role]) => role)).toEqual(['user', 'assistant'])
   })
 
   it('has no code for an error that didn’t come from the API', async () => {
@@ -161,5 +202,165 @@ describe('ai chat store', () => {
     expect(chat.messages).toEqual([])
     expect(chat.error).toBeNull()
     expect(chat.code).toBeNull()
+  })
+})
+
+describe('ai chat store, with a statement', () => {
+  const pdf = () => new File(['%PDF-1.7'], 'september.pdf', { type: 'application/pdf' })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('adds the file to the conversation, and has the AI read it', async () => {
+    const reading = vi.spyOn(api, 'readStatementWithAi').mockResolvedValue(makeStatementReading())
+    const chat = useAiChat()
+
+    const message = await chat.attach(pdf())
+
+    expect(reading).toHaveBeenCalledWith({ file_name: 'september.pdf', content: btoa('%PDF-1.7') })
+    expect(chat.messages.map((item) => item.kind)).toEqual(['file', 'statement'])
+    expect(chat.messages[0]).toMatchObject({ role: 'user', name: 'september.pdf', size: 8 })
+    expect(message).toBe(chat.messages[1])
+    expect(message).toMatchObject({ status: 'done', reading: makeStatementReading(), error: null })
+    expect(chat.busy).toBe(false)
+  })
+
+  it('is busy while the AI reads, and is asked nothing else', async () => {
+    const slow = new Promise<api.StatementReading>(() => undefined)
+    vi.spyOn(api, 'readStatementWithAi').mockReturnValue(slow)
+    const ask = vi.spyOn(api, 'askAi')
+    const chat = useAiChat()
+
+    void chat.attach(pdf())
+
+    await vi.waitFor(() => {
+      expect(chat.busy).toBe(true)
+    })
+    expect(chat.messages[1]).toMatchObject({ status: 'reading' })
+    expect(chat.reading).toBe(true)
+    expect(await chat.attach(pdf())).toBeNull()
+    expect(await chat.send('Hello?')).toBe(false)
+    expect(chat.messages).toHaveLength(2)
+    expect(ask).not.toHaveBeenCalled()
+  })
+
+  it('says why a statement couldn’t be read, and reads it again when asked', async () => {
+    const reading = vi.spyOn(api, 'readStatementWithAi')
+    reading
+      .mockRejectedValueOnce(
+        new ApiError(422, 'There’s no text in this PDF.', { code: 'unreadable_statement' }),
+      )
+      .mockResolvedValueOnce(makeStatementReading())
+    const chat = useAiChat()
+
+    expect(await chat.attach(pdf())).toBeNull()
+
+    const message = chat.messages[1] as StatementMessage
+    expect(message).toMatchObject({ status: 'failed', error: 'There’s no text in this PDF.' })
+    expect(chat.busy).toBe(false)
+
+    expect(await chat.reread(message)).toBe(message)
+
+    expect(message).toMatchObject({ status: 'done', error: null })
+    expect(reading).toHaveBeenCalledTimes(2)
+  })
+
+  it('says why a PDF that can’t be sent can’t be read', async () => {
+    const reading = vi.spyOn(api, 'readStatementWithAi')
+    const chat = useAiChat()
+
+    await chat.attach(new File([], 'empty.pdf'))
+
+    expect(reading).not.toHaveBeenCalled()
+    expect(chat.messages[1]).toMatchObject({
+      status: 'failed',
+      error: 'empty.pdf is empty. Download it from your bank again.',
+    })
+  })
+
+  it('can be told to stop waiting, and then ignores the answer that comes', async () => {
+    const answer = later<api.StatementReading>()
+    vi.spyOn(api, 'readStatementWithAi').mockReturnValue(answer.promise)
+    vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Fine.' })
+    const chat = useAiChat()
+    const reading = chat.attach(pdf())
+    await vi.waitFor(() => {
+      expect(chat.busy).toBe(true)
+    })
+
+    chat.cancel()
+
+    expect(chat.messages[1]).toMatchObject({ status: 'cancelled' })
+    expect(chat.busy).toBe(false)
+    expect(chat.reading).toBe(false)
+    // It's free for a question, which a late answer doesn't interrupt.
+    const asking = chat.send('Another?')
+    answer.resolve(makeStatementReading())
+    expect(await reading).toBeNull()
+    await asking
+    expect(chat.messages[1]).toMatchObject({ status: 'cancelled', reading: null })
+    expect(chat.busy).toBe(false)
+  })
+
+  it('ignores a failure that comes after it was stopped', async () => {
+    const failure = later<api.StatementReading>()
+    const read = vi.spyOn(api, 'readStatementWithAi').mockReturnValue(failure.promise)
+    const chat = useAiChat()
+    const reading = chat.attach(pdf())
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalledTimes(1)
+    })
+
+    chat.cancel()
+    failure.reject(new Error('Offline'))
+
+    expect(await reading).toBeNull()
+    expect(chat.messages[1]).toMatchObject({ status: 'cancelled', error: null })
+  })
+
+  it('has nothing to stop when nothing is being read', () => {
+    const chat = useAiChat()
+
+    chat.cancel()
+
+    expect(chat.busy).toBe(false)
+  })
+
+  it('won’t read a statement again while something else is going on', async () => {
+    vi.spyOn(api, 'readStatementWithAi').mockRejectedValue(new Error('Offline'))
+    const answer = later<{ reply: string }>()
+    const chat = useAiChat()
+    await chat.attach(pdf())
+    vi.spyOn(api, 'askAi').mockReturnValue(answer.promise)
+    void chat.send('Hello?')
+
+    expect(await chat.reread(chat.messages[1] as StatementMessage)).toBeNull()
+
+    answer.resolve({ reply: 'Hi.' })
+  })
+
+  it('remembers what importing a statement’s transactions added', async () => {
+    vi.spyOn(api, 'readStatementWithAi').mockResolvedValue(makeStatementReading())
+    const chat = useAiChat()
+    await chat.attach(pdf())
+    const record = makeImport({ format: 'pdf', file_name: 'september.pdf' })
+
+    chat.imported(chat.messages[0]?.id as number, record)
+    expect(chat.messages[1]).toMatchObject({ imported: null })
+    chat.imported(chat.messages[1]?.id as number, record)
+    chat.imported(9999, record)
+
+    expect(chat.messages[1]).toMatchObject({ imported: record })
+  })
+
+  it('starts again when cleared, statements and all', async () => {
+    vi.spyOn(api, 'readStatementWithAi').mockResolvedValue(makeStatementReading())
+    const chat = useAiChat()
+    await chat.attach(pdf())
+
+    chat.clear()
+
+    expect(chat.messages).toEqual([])
   })
 })
