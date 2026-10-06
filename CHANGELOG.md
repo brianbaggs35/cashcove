@@ -15,6 +15,9 @@ and give it a version and a date when you cut a release (see Releases in the
   before it, it can be run again on a database that already has some or all of it, and changes
   nothing. AI is off until an admin sets it up in **Settings > AI**, so nothing changes for you
   until then.
+- Migration `0015` lets an import be of a PDF statement and a usage row be for reading one, by
+  adding `pdf` and `statement` to the two lists of values the database allows. It can be run again
+  too, and nothing is changed for what is already there.
 - If you run Cashcove from your own compose file and want Ollama on the same computer for AI, add
   `extra_hosts: ["host.docker.internal:host-gateway"]` to the service, as `docker-compose.yml` now
   does, and use `http://host.docker.internal:11434` as Ollama's address. `/api/ai/` also waits up to
@@ -38,6 +41,24 @@ and give it a version and a date when you cut a release (see Releases in the
   - **Importing a file** can end with an **AI second opinion**: the automations sort the rows as
     they come in, then the AI looks over how they were sorted. Turn it off in Settings > AI.
   - The Dashboard says when suggestions are waiting.
+  - **Reading a PDF statement.** An admin can give the AI a bank's PDF on the AI tab (the paperclip,
+    **Choose a PDF**, or dropping it on the conversation) or on the Import tab, and it takes the
+    transactions off it. The chat shows a card that says it is reading, for how long and what
+    stays on this computer, with a button to stop; then what it found, how much came in and went
+    out, which account it looks like and how many rows need a look. **Review and import** opens the
+    import's own review, where a pencil on each row corrects its date, payee, amount or which way
+    the money went, **Flip money in and out** mends a statement read the wrong way round, and
+    nothing is added until you tick it, so duplicates, automations, balances and undo work as for
+    a CSV file. Without AI, a PDF says it can only be read with AI, and the AI tab says so too.
+  - **The PDF never leaves the server, and neither does anything that names you.** Cashcove takes
+    the text out of the PDF itself and sends the AI only the transaction lines: no header, bank,
+    holder, address, account number, summary or balance, and each line has account and card
+    numbers, phone and ID numbers, addresses, the names of everyone in your household and the name
+    after `Zelle to`, `Venmo`, `PayPal`, `Cash App` or a wire taken out. The account is matched
+    here, from the last digits and the bank's name, and the direction of each amount is read from
+    the statement's columns. A scan or a photo is refused, since sending a picture would send it
+    all. What the AI says is checked against the line it was given, and anything doubtful is
+    flagged for you.
   - **No account number, account name or bank name ever reaches an AI.** What an AI is sent is built
     from dates, amounts, payees and the names of categories, budgets, subscriptions and bills;
     anything that looks like an account number, its last digits, an email address or a key is taken
@@ -48,10 +69,13 @@ and give it a version and a date when you cut a release (see Releases in the
   - `GET /api/ai/providers`, `/settings`, `/usage`, `/reviews` and `/recommendations`, `PUT` and
     `DELETE /api/ai/settings`, and `POST /api/ai/models`, `/test`, `/chat`, `/reviews`,
     `/recommendations/apply` and `/recommendations/dismiss`. Reads are open to every signed-in
-    person; changing anything needs an admin.
+    person; changing anything needs an admin. `POST /api/ai/statements` reads a PDF and is an
+    admin's, like importing.
 
 ### Changed
 
+- The Import tab takes a PDF, which it said it couldn't read, and its file picker offers `.pdf`.
+  `pypdf` is a new dependency, which reads the PDF's text on the server.
 - The end-to-end job's time limit in CI goes from 30 to 60 minutes: the specs run one at a time, on
   a computer and a phone, and a slow runner took twice as long as a fast one and was cancelled.
 - Frontend tests read time from the monotonic clock. Vue ignores an event dated no later than the

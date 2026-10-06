@@ -2,9 +2,11 @@ import type { Page } from '@playwright/test'
 
 import {
   bankDate,
+  bankStatementPdf,
   csvFile,
   expect,
   expectAccessible,
+  holdAi,
   setUpAi,
   simpleCsv,
   TABS,
@@ -52,6 +54,21 @@ const LOADED: Record<string, string> = {
 
 /** Pages where a viewer can do all an admin can, so there is nothing read-only to tell them. */
 const OPEN_TO_VIEWERS = new Set(['/ai', '/ai/usage'])
+
+/**
+ * A bank's PDF statement for the checking account, with a payment dated a year before the days
+ * it says it covers, which the AI's reading says to take another look at.
+ */
+const pdfStatement = () =>
+  bankStatementPdf(
+    'harbor-statement.pdf',
+    [
+      { days_ago: 10, description: 'WHOLEFDS MKT #10234 AUSTIN TX', amount: '-84.12' },
+      { days_ago: 400, description: 'DELTA AIR LINES', amount: '-486.20' },
+      { days_ago: 3, description: 'ACME CORP PAYROLL PPD', amount: '2400.00' },
+    ],
+    { period: { from: 14, to: 1 } },
+  )
 
 /** An open dialog or menu. */
 const OVERLAY = '.v-overlay--active'
@@ -501,6 +518,87 @@ test.describe('Accessibility', () => {
             await importPage.importRowsForAi()
           },
         })
+      })
+
+      test('a statement given to the AI chat, while it is read and once it has been', async ({
+        page,
+        signInAs,
+        apiAs,
+        aiPage,
+        importPage,
+      }) => {
+        test.slow()
+        await setUpAi(await apiAs('admin'), 'openai', { reviewImports: false })
+        await signInAs('admin')
+        await aiPage.goto('ask')
+        // Before anything is said, the welcome offers to read one.
+        await expect(aiPage.statementOffer).toBeVisible()
+        await expectAccessible(page)
+
+        // While the AI works on a question, which says so.
+        const answer = await holdAi(page, 'chat')
+        await aiPage.input.fill('How am I doing against my budgets?')
+        await aiPage.send.click()
+        await expect(aiPage.busy).toBeVisible()
+        await expectAccessible(page)
+        answer.release()
+        await expect(aiPage.busy).toHaveCount(0)
+
+        // While the AI reads a statement, and once it has, with a row that needs another look.
+        const reading = await holdAi(page, 'statements')
+        await page.getByTestId('chat-file').setInputFiles(pdfStatement())
+        await expect(aiPage.statement).toHaveAttribute('data-status', 'reading')
+        await expectAccessible(page)
+        reading.release()
+        await expect(aiPage.statement).toHaveAttribute('data-status', 'done')
+        await expectAccessible(page)
+
+        // Its review, and the dialog for correcting a row, over it.
+        await aiPage.reviewStatement()
+        await expect(importPage.row('Delta Air Lines').getByTestId('review-row-flag')).toBeVisible()
+        await expectAccessible(page, { include: OVERLAY })
+        await importPage.row('Delta Air Lines').getByTestId('review-row-edit').click()
+        await expect(importPage.rowDialog).toBeVisible()
+        await expectAccessible(page, { include: OVERLAY })
+      })
+
+      test('the import dialog while the AI reads a PDF, and once it has', async ({
+        page,
+        signInAs,
+        apiAs,
+        importPage,
+      }) => {
+        await setUpAi(await apiAs('admin'), 'openai', { reviewImports: false })
+        await signInAs('admin')
+        await importPage.goto()
+        const reading = await holdAi(page, 'statements')
+
+        await page.getByTestId('file-input').setInputFiles(pdfStatement())
+        await expect(importPage.dialog.getByTestId('statement-progress')).toBeVisible()
+        await expectAccessible(page, { include: OVERLAY })
+        reading.release()
+        await expect(importPage.dialog.getByTestId('import-review')).toBeVisible()
+        await expectAccessible(page, { include: OVERLAY })
+      })
+
+      test('a PDF that needs AI, and the AI chat for someone who can’t import one', async ({
+        page,
+        signInAs,
+        apiAs,
+        aiPage,
+        importPage,
+      }) => {
+        await signInAs('admin')
+        await importPage.goto()
+        await expectAccessibleOverlays(page, {
+          'a PDF chosen with AI off': () => importPage.chooseFile(pdfStatement()),
+        })
+
+        await setUpAi(await apiAs('admin'))
+        await signInAs('viewer')
+        await aiPage.goto('ask')
+        await expect(aiPage.statementViewer).toBeVisible()
+        await expectAccessible(page)
       })
 
       test('the category dialogs', async ({ page, signInAs, categoriesPage }) => {
