@@ -6,9 +6,7 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
-## Unreleased
-
-## 0.2.3 - 2026-10-05
+## 0.2.3 - 2026-10-06
 
 ### Upgrading
 
@@ -16,6 +14,8 @@ and give it a version and a date when you cut a release (see Releases in the
   both ways) and `transactions.category_chosen` (every existing transaction starts as not
   chosen, so what is there stays open to automations, as before). Like the migrations before
   it, it can be run again on a database that already has some or all of it, and changes nothing.
+
+- Updated @lucide/vue to 1.52.0
 
 ### Added
 
