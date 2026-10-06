@@ -85,6 +85,16 @@ describe('AiSection', () => {
       expect(find('ai-off').exists()).toBe(false)
     })
 
+    it('has each provider’s card labelled for its own radio button', async () => {
+      const { wrapper, find } = await render()
+
+      for (const key of ['ollama_local', 'ollama_cloud', 'anthropic', 'openai'] as const) {
+        const input = find(`provider-${key}`).find('input')
+        expect(input.attributes('id')).toBe(`ai-provider-${key}`)
+        expect(wrapper.find(`label[for="ai-provider-${key}"]`).exists()).toBe(true)
+      }
+    })
+
     it('explains what the AI can and can’t see', async () => {
       const { wrapper } = await render()
 

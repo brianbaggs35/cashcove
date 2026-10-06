@@ -217,7 +217,8 @@ export function fetchRecommendations(query: RecommendationQuery = {}) {
   const params = new URLSearchParams()
   for (const [name, value] of Object.entries(query)) params.set(name, String(value))
   const text = params.toString()
-  return apiGet<RecommendationPage>(`/ai/recommendations${text ? `?${text}` : ''}`)
+  const search = text ? `?${text}` : ''
+  return apiGet<RecommendationPage>(`/ai/recommendations${search}`)
 }
 export const applyRecommendations = (ids: string[]) =>
   apiPost<RecommendationResult>('/ai/recommendations/apply', { ids })
