@@ -43,17 +43,42 @@ const ticks = computed(() =>
 /** Every few bars is labelled, so the labels never run into each other. */
 const every = computed(() => Math.max(1, Math.ceil(buckets.value.length / (xs.value ? 5 : 10))))
 
-const active = shallowRef<(typeof buckets.value)[number] | null>(null)
+type Bucket = (typeof buckets.value)[number]
+
+const latest = computed(() => buckets.value.length - 1)
+/** The bar being read, with a pointer over it or the keyboard on the scrubber. */
+const active = shallowRef<Bucket | null>(null)
+const position = computed(() => (active.value ? buckets.value.indexOf(active.value) : -1))
 const tip = computed(() => {
   if (!active.value) return null
-  const centre = (buckets.value.indexOf(active.value) + 0.5) / buckets.value.length
+  const centre = (position.value + 0.5) / buckets.value.length
   return {
     bucket: active.value,
     style: { left: `${centre * 100}%`, transform: `translateX(${tipShift(centre, 1)})` },
   }
 })
+/** What the scrubber says of the bar it is on, which is the latest until another is read. */
+const reading = computed(() => describe(active.value ?? (buckets.value[latest.value] as Bucket)))
 
-function describe(bucket: (typeof buckets.value)[number]): string {
+/** The bar under a pointer, by how far along the plot it is. */
+function point(event: PointerEvent) {
+  const rect = (event.currentTarget as Element).getBoundingClientRect()
+  const along = (event.clientX - rect.left) / Math.max(rect.width, 1)
+  const index = Math.min(latest.value, Math.max(0, Math.floor(along * buckets.value.length)))
+  active.value = buckets.value[index] as Bucket
+}
+
+/** The scrubber has the keyboard: start reading from the latest bar. */
+function arrive() {
+  active.value ??= buckets.value[latest.value] as Bucket
+}
+
+/** The scrubber moved to another bar: the arrow keys, Home and End are the browser's to handle. */
+function scrub(event: Event) {
+  active.value = buckets.value[Number((event.target as HTMLInputElement).value)] as Bucket
+}
+
+function describe(bucket: Bucket): string {
   return `${bucket.full}: ${bucket.calls} calls, ${formatTokens(bucket.tokens, locale.value)} tokens, ${formatCost(bucket.cost_micros, locale.value)}`
 }
 </script>
@@ -88,7 +113,28 @@ function describe(bucket: (typeof buckets.value)[number]): string {
                 {{ tick.label }}
               </span>
             </div>
-            <div class="usage__plot">
+            <div
+              class="usage__plot"
+              @pointermove="point"
+              @pointerdown="point"
+              @pointerleave="active = null"
+            >
+              <!-- Out of sight, and the keyboard's way to read the bars one by one. -->
+              <input
+                type="range"
+                class="usage__scrub"
+                min="0"
+                :max="latest"
+                step="1"
+                :value="position < 0 ? latest : position"
+                aria-label="What it cost, one period at a time"
+                :aria-valuetext="reading"
+                data-test="usage-scrub"
+                @focus="arrive"
+                @blur="active = null"
+                @input="scrub"
+                @keydown.esc="active = null"
+              />
               <div class="usage__grid" aria-hidden="true">
                 <span v-for="tick in ticks" :key="tick.value" :style="{ bottom: tick.height }" />
               </div>
@@ -106,20 +152,16 @@ function describe(bucket: (typeof buckets.value)[number]): string {
                   color="var(--chart-income)"
                 />
               </div>
-              <div class="usage__hits">
-                <button
-                  v-for="bucket in buckets"
-                  :key="bucket.key"
-                  type="button"
-                  class="usage__hit"
-                  :aria-label="describe(bucket)"
-                  data-test="usage-bar"
-                  @pointerenter="active = bucket"
-                  @pointerleave="active = null"
-                  @focus="active = bucket"
-                  @blur="active = null"
-                />
-              </div>
+              <div
+                v-if="active"
+                class="usage__cursor"
+                :style="{
+                  left: `${(position / buckets.length) * 100}%`,
+                  width: `${100 / buckets.length}%`,
+                }"
+                aria-hidden="true"
+                data-test="usage-cursor"
+              />
               <div
                 v-if="tip"
                 class="usage__tip"
@@ -207,6 +249,25 @@ function describe(bucket: (typeof buckets.value)[number]): string {
 
 .usage__plot {
   position: relative;
+  border-radius: 12px;
+  touch-action: pan-y;
+}
+
+/* The scrubber is out of sight, so the chart itself shows when the keyboard is on it. */
+.usage__plot:has(.usage__scrub:focus-visible) {
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.55);
+}
+
+.usage__scrub {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .usage__grid span {
@@ -223,30 +284,14 @@ function describe(bucket: (typeof buckets.value)[number]): string {
   height: auto;
 }
 
-.usage__hits {
+/* The bar being read is picked out behind its tip. */
+.usage__cursor {
   position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-columns: repeat(var(--bars), 1fr);
-}
-
-.usage__hit {
-  padding: 0;
-  border: 0;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
   border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  cursor: default;
-}
-
-.usage__hit:hover,
-.usage__hit:focus-visible {
   background: var(--chart-grid);
-  outline: none;
-}
-
-.usage__hit:focus-visible {
-  box-shadow: inset 0 0 0 2px rgb(var(--v-theme-primary));
 }
 
 .usage__tip {

@@ -8,7 +8,7 @@ import { useRecommendationActions } from '@/composables/useRecommendationActions
 import { useReviewProgress } from '@/composables/useReviewProgress'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
-import { suggestionsOf } from '@/utils/ai'
+import { agreementWith, suggestionsOf } from '@/utils/ai'
 import { formatCount } from '@/utils/format'
 import RecommendationList from '@/views/ai/RecommendationList.vue'
 import ReviewProgress from '@/views/ai/ReviewProgress.vue'
@@ -98,7 +98,7 @@ onMounted(() => void categories.ensureLoaded())
         :icon="CircleCheck"
         data-test="import-ai-agrees"
       >
-        The AI agrees with how all {{ formatCount(review.total, 'transaction') }} were sorted.
+        {{ agreementWith(review.total) }}
       </v-alert>
 
       <v-alert

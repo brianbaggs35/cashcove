@@ -202,8 +202,8 @@ onMounted(async () => {
           </v-chip>
         </template>
 
-        <dl v-if="!auth.isAdmin" class="ai-summary" data-test="ai-summary">
-          <template v-if="ai.configured">
+        <div v-if="!auth.isAdmin" data-test="ai-summary">
+          <dl v-if="ai.configured" class="ai-summary mb-0">
             <dt class="text-label-large">Provider</dt>
             <dd class="text-body-medium mb-3">{{ ai.provider?.name }}</dd>
             <dt class="text-label-large">Model</dt>
@@ -216,9 +216,9 @@ onMounted(async () => {
                   : 'Aren’t reviewed'
               }}
             </dd>
-          </template>
-          <dd v-else class="text-body-medium mb-0">An admin can turn it on here.</dd>
-        </dl>
+          </dl>
+          <p v-else class="text-body-medium mb-0">An admin can turn it on here.</p>
+        </div>
 
         <v-form v-else data-test="ai-form" @submit.prevent="save.run()">
           <v-radio-group
@@ -306,7 +306,11 @@ onMounted(async () => {
                   @update:model-value="edited"
                 >
                   <template #item="{ props: itemProps, item }">
-                    <v-list-item v-bind="itemProps" :subtitle="modelDetail(item.model, locale)">
+                    <v-list-item
+                      v-bind="itemProps"
+                      :subtitle="modelDetail(item.model, locale)"
+                      class="ai-model"
+                    >
                       <template v-if="item.model?.deprecated" #append>
                         <v-chip size="x-small" color="warning" variant="tonal"
                           >Shutting down</v-chip
@@ -458,6 +462,12 @@ onMounted(async () => {
 .ai-provider:focus-within {
   outline: 2px solid rgb(var(--v-theme-primary));
   outline-offset: 2px;
+}
+
+/* The model chosen is tinted, and a subtitle faded by its opacity is too faint to read on it. */
+.ai-model :deep(.v-list-item-subtitle) {
+  opacity: 1;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
 }
 
 .ai-summary dt {
