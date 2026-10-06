@@ -1,3 +1,5 @@
+import type { Page } from '@playwright/test'
+
 import type { ApiClient } from './api'
 import { dateOf, type BaselineData } from './harness'
 
@@ -54,6 +56,26 @@ export async function setUpAi(
   { reviewImports = true }: { reviewImports?: boolean } = {},
 ): Promise<void> {
   await api.put('/ai/settings', { provider, ...SETTINGS[provider], review_imports: reviewImports })
+}
+
+/**
+ * Holds the AI's answer to a question (`chat`), or its reading of a PDF statement (`statements`),
+ * until `release()` is called, so a test can look at what the page says while the AI works,
+ * which is over in a moment otherwise.
+ */
+export async function holdAi(
+  page: Page,
+  what: 'chat' | 'statements',
+): Promise<{ release: () => void }> {
+  let release = () => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(`**/api/ai/${what}`, async (route) => {
+    await held
+    await route.continue()
+  })
+  return { release }
 }
 
 /** A payment someone enters by hand, with no category, which the AI may have a view on. */
