@@ -664,6 +664,13 @@ const aiEndpoints: typeof endpoints = [
     { messages: [{ role: 'user', content: 'How much on coffee?' }], today: '2026-09-20' },
   ],
   [
+    'readStatementWithAi',
+    () => ai.readStatementWithAi({ file_name: 'september.pdf', content: 'JVBERi0xLjc=' }),
+    'POST',
+    '/ai/statements',
+    { file_name: 'september.pdf', content: 'JVBERi0xLjc=' },
+  ],
+  [
     'startAiReview',
     () => ai.startAiReview({ scope: 'recent', days: 30, limit: 50, today: '2026-09-20' }),
     'POST',
