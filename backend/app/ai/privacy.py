@@ -6,8 +6,9 @@ or a transaction's raw bank description. Two guardrails sit on top of that:
 
 1. **Scrubbing.** Free text that comes from a bank, a file or a person (a payee, a question)
    loses anything that looks like an account number, a card number, a mask such as ``•••• 4410``,
-   an email address or a key, and the name of every account and bank the household has set up
-   in Cashcove.
+   an email address, a phone number, an ID number, a street address or a key, and the name of
+   every account and bank the household has set up in Cashcove, and of every person in it,
+   with whoever a Zelle, Venmo or PayPal payment went to or came from.
 2. **The check.** Just before a request leaves, everything in it that came from the household's
    data is checked again, and if any of that is still there the request is refused and nothing
    is sent. This is what catches a mistake made anywhere else.
@@ -37,11 +38,14 @@ from app.models import (
     CategoryGroup,
     Connection,
     Subscription,
+    User,
 )
 
 ACCOUNT = "[account]"
 NUMBER = "#"
 HIDDEN = "[hidden]"
+PERSON = "[person]"
+ADDRESS = "[address]"
 # Shorter than this and a name would match inside ordinary words.
 MIN_NAME = 3
 # A mask has to be this long to be told from a number in ordinary text, and one that looks like a
@@ -59,6 +63,22 @@ _TOKEN = re.compile(r"\b[A-Za-z0-9_-]{24,}\b")
 _MASK = re.compile(
     r"(?:\b(?:x{2,16}|ending(?:\s{1,3}in)?|acct|account|card|a/c|no\.?|number)\s{0,3}"
     r"|[*•]{1,16}\s{0,3}|\.{3}\s{0,3})\d{2,}\b|#\s{0,3}\d{4,}\b",
+    re.IGNORECASE,
+)
+# A phone number as North Americans write one, and a Social Security number.
+_PHONE = re.compile(r"(?<!\d)(?:\+?1[ .-]?)?(?:\(\d{3}\)|\d{3})[ .-]?\d{3}[ .-]?\d{4}(?!\d)")
+_SSN = re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
+# A street address: a number, up to four words and a word like "St". Every part is bounded.
+_STREET = re.compile(
+    r"(?<!\d)\d{1,5} {1,3}(?:[A-Za-z0-9.'-]{1,20} {1,3}){1,4}?"
+    r"(?:st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|"
+    r"pkwy|parkway|hwy|highway)\b\.?",
+    re.IGNORECASE,
+)
+# Who a payment between people went to or came from: the words after "to" or "from".
+_PEER = re.compile(
+    r"\b(?:zelle|venmo|paypal|cash ?app|apple cash|wire)\b[^|\d]{0,30}?\b(?:to|from) {1,3}"
+    r"([A-Za-z][A-Za-z'.-]{0,25}(?: {1,3}[A-Za-z][A-Za-z'.-]{0,25}){0,4})",
     re.IGNORECASE,
 )
 # Digits, with the spaces and dashes numbers are written with, and any of those left at the end.
@@ -133,14 +153,21 @@ class Protected:
     """What the household's accounts and banks are called, which no AI is ever told."""
 
     names: re.Pattern[str] | None
+    # The people in the household, who a payee may name.
+    people: re.Pattern[str] | None = None
 
     @classmethod
-    def of(cls, names: Iterable[str], labels: Iterable[str] = ()) -> "Protected":
-        """Protects the names, except any that is also one of the labels."""
+    def of(
+        cls, names: Iterable[str], labels: Iterable[str] = (), people: Iterable[str] = ()
+    ) -> "Protected":
+        """Protects the names, except any that is also one of the labels, and the people's."""
         label_keys = {text_key(label) for label in labels}
         keys = {text_key(name) for name in names}
         return cls(
-            _name_pattern(key for key in keys if len(key) >= MIN_NAME and key not in label_keys)
+            _name_pattern(key for key in keys if len(key) >= MIN_NAME and key not in label_keys),
+            _name_pattern(
+                text_key(person) for person in people if len(text_key(person)) >= MIN_NAME
+            ),
         )
 
     @classmethod
@@ -168,6 +195,7 @@ class Protected:
         return cls.of(
             [*names, *(short for name in institutions for short in _institution_names(name))],
             labels,
+            _column(db, User.name),
         )
 
     def scrub(self, text: str, kind: Text = Text.BANK) -> str:
@@ -176,6 +204,13 @@ class Protected:
         text = _TOKEN.sub(_hide_secret, text)
         if kind != Text.LABEL and self.names is not None:
             text = self.names.sub(ACCOUNT, text)
+        if kind != Text.LABEL:
+            if self.people is not None:
+                text = self.people.sub(PERSON, text)
+            text = _PEER.sub(_hide_peer, text)
+            text = _SSN.sub(HIDDEN, text)
+            text = _PHONE.sub(HIDDEN, text)
+            text = _STREET.sub(ADDRESS, text)
         text = _MASK.sub(ACCOUNT, text)
         text = _DIGITS.sub(_hide_digits(4 if kind == Text.BANK else 8), text)
         return _SPACES.sub(" ", text).strip()
@@ -189,6 +224,12 @@ class Protected:
             found.append("an account number")
         if _EMAIL.search(text):
             found.append("an email address")
+        if self.people is not None and self.people.search(text):
+            found.append("a person's name")
+        if _SSN.search(text) or _PHONE.search(text):
+            found.append("a phone number or an ID number")
+        if _STREET.search(text):
+            found.append("a street address")
         if any(_is_secret(token.group()) for token in _TOKEN.finditer(text)):
             found.append("something that looks like a key")
         return found
@@ -198,6 +239,11 @@ class Protected:
         kinds = [kind for text in texts for kind in self.leaks(text)]
         if kinds:
             raise PrivacyError(kinds)
+
+
+def _hide_peer(match: re.Match[str]) -> str:
+    """The payment's words, without the person's name at the end of them."""
+    return match.group()[: match.start(1) - match.start()] + PERSON
 
 
 def _is_secret(token: str) -> bool:
