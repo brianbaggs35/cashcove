@@ -21,6 +21,7 @@ import StepList from '@/components/ui/StepList.vue'
 import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAiStore } from '@/stores/ai'
+import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { useImportWizard } from '@/stores/importWizard'
@@ -31,6 +32,7 @@ import ColumnsStep from '@/views/import/ColumnsStep.vue'
 import { balanceShown, transactionCount } from '@/views/import/file'
 import ImportAiStep from '@/views/import/ImportAiStep.vue'
 import ReviewStep from '@/views/import/ReviewStep.vue'
+import StatementProgress from '@/views/import/StatementProgress.vue'
 
 /**
  * Importing a statement file, one step at a time: matching a CSV file's columns, choosing the
@@ -43,6 +45,7 @@ const emit = defineEmits<{ 'choose-file': [] }>()
 const router = useRouter()
 const wizard = useImportWizard()
 const ai = useAiStore()
+const auth = useAuthStore()
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const subscriptions = useSubscriptionsStore()
@@ -54,21 +57,27 @@ const accountOpen = ref(false)
 const aiFinished = ref(false)
 
 const csv = computed(() => wizard.format === 'csv')
-// Automations sort the rows as they're imported; with AI set up, a last step has it check them.
+/** The AI is reading, or has read, a PDF statement. */
+const statement = computed(() => wizard.source === 'statement')
+// A PDF is read by the AI first, and a CSV file's columns are matched first. Automations sort the
+// rows as they're imported; with AI set up, a last step has it check them.
 const steps = computed(() => [
   ...(csv.value ? ['Match columns'] : []),
+  ...(statement.value ? ['Read by AI'] : []),
   'Review',
   'Import',
   ...(ai.reviewsImports ? ['AI second opinion'] : []),
 ])
 const stepIndex = computed(() => {
-  if (wizard.step === 'columns') return 0
-  const review = csv.value ? 1 : 0
+  if (wizard.step === 'columns' || wizard.step === 'reading') return 0
+  const review = csv.value || statement.value ? 1 : 0
   if (wizard.step === 'ai') return review + 2
   return wizard.step === 'done' ? review + 1 : review
 })
-const showSteps = computed(() =>
-  ['columns', 'review', 'importing', 'done', 'ai'].includes(wizard.step),
+const showSteps = computed(
+  () =>
+    ['columns', 'review', 'importing', 'done', 'ai'].includes(wizard.step) ||
+    (statement.value && wizard.step === 'reading'),
 )
 const stepsDone = computed(
   () => wizard.step === 'done' || (wizard.step === 'ai' && aiFinished.value),
@@ -77,6 +86,15 @@ const busy = computed(() => wizard.step === 'importing')
 
 const heading = computed((): { title: string; subtitle?: string; icon: LucideIcon } => {
   const file = wizard.fileName
+  if (statement.value && wizard.step === 'reading') {
+    return {
+      title: 'Reading your statement',
+      subtitle:
+        'The AI takes the transactions off the PDF. Nothing is added until you’ve checked them.',
+      icon: Sparkles,
+    }
+  }
+  if (wizard.needsAi) return { title: 'Reading a PDF needs AI', icon: Sparkles }
   switch (wizard.step) {
     case 'failed':
       return { title: `Couldn’t import ${file}`, icon: FileX }
@@ -90,7 +108,9 @@ const heading = computed((): { title: string; subtitle?: string; icon: LucideIco
     case 'importing':
       return {
         title: 'Review and import',
-        subtitle: 'Tick the transactions to import. Nothing is saved until you do.',
+        subtitle: statement.value
+          ? 'The AI read these off your PDF. Choose the account, check each row and tick what to import. Nothing is saved until you do.'
+          : 'Tick the transactions to import. Nothing is saved until you do.',
         icon: ListChecks,
       }
     case 'done':
@@ -117,6 +137,8 @@ const readable = computed(() => {
   const { csv, summary } = wizard.preview as ImportPreview
   return !(csv as CsvPreview).missing.length && summary.rows > summary.invalid
 })
+
+const aiModel = computed(() => ai.modelName)
 
 const progress = computed(() =>
   wizard.step === 'reading'
@@ -226,7 +248,7 @@ watch(open, (value) => {
 
     <v-alert
       v-if="wizard.notice"
-      type="error"
+      :type="wizard.needsAi ? 'info' : 'error'"
       variant="tonal"
       density="compact"
       class="mb-5"
@@ -236,15 +258,32 @@ watch(open, (value) => {
 
     <div
       v-if="wizard.step === 'reading' || wizard.step === 'importing'"
-      class="text-center py-10"
+      class="py-10"
       data-test="import-progress"
     >
-      <v-progress-circular indeterminate color="primary" size="48" width="4" />
-      <output class="d-block text-body-large mt-5">{{ progress }}</output>
+      <StatementProgress
+        v-if="statement && wizard.step === 'reading'"
+        :file-name="wizard.fileName"
+        :model="aiModel"
+      />
+      <div v-else class="text-center">
+        <v-progress-circular indeterminate color="primary" size="48" width="4" />
+        <output class="d-block text-body-large mt-5">{{ progress }}</output>
+      </div>
     </div>
 
     <p v-else-if="wizard.step === 'failed'" class="text-body-medium mb-0" data-test="import-failed">
-      Check it’s a CSV, OFX, QFX, QBO or QIF file downloaded from your bank, then choose it again.
+      <template v-if="wizard.needsAi">
+        AI is optional, and Cashcove works the same without it. With it set up, Cashcove can read
+        the transactions off a PDF statement for you to check.
+      </template>
+      <template v-else-if="statement">
+        Check it’s a PDF statement downloaded from your bank, with text in it: a scan or a photo
+        can’t be read. Then choose it again.
+      </template>
+      <template v-else>
+        Check it’s a CSV, OFX, QFX, QBO or QIF file downloaded from your bank, then choose it again.
+      </template>
     </p>
 
     <ColumnsStep v-else-if="wizard.step === 'columns'" />
@@ -341,8 +380,19 @@ watch(open, (value) => {
       <template v-else-if="wizard.step === 'failed'">
         <v-btn variant="text" data-test="import-close" @click="open = false">Close</v-btn>
         <v-btn
+          v-if="wizard.needsAi && auth.isAdmin"
+          to="/settings/ai"
           color="primary"
           variant="flat"
+          :prepend-icon="Sparkles"
+          data-test="import-set-up-ai"
+          @click="open = false"
+        >
+          Set up AI
+        </v-btn>
+        <v-btn
+          :color="wizard.needsAi ? undefined : 'primary'"
+          :variant="wizard.needsAi ? 'text' : 'flat'"
           :prepend-icon="FileUp"
           data-test="import-choose-again"
           @click="emit('choose-file')"

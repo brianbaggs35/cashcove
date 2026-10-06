@@ -8,15 +8,19 @@ import * as api from '@/api/imports'
 import type { FileImport, ImportPreview } from '@/api/imports'
 import { polling, POLL_INTERVAL } from '@/composables/useReviewProgress'
 import { useAiStore } from '@/stores/ai'
+import { useAuthStore } from '@/stores/auth'
 import { useImportWizard } from '@/stores/importWizard'
 import {
+  aiOff,
   makeAiSettings,
   makeProviders,
   makeRecommendation,
   makeRecommendationPage,
   makeReview,
+  makeStatementReading,
 } from '@/test/ai'
 import { page } from '@/test/dom'
+import { makeSessionState, makeUser } from '@/test/fixtures'
 import { checking, makeAccount, savings, seedFinance, visa } from '@/test/finance'
 import {
   harborFormat,
@@ -395,15 +399,15 @@ describe('ImportDialog', () => {
   })
 })
 
+/** AI is on, as it is once someone has set it up in Settings. */
+function aiOn(settings: aiApi.AiSettings = makeAiSettings()) {
+  const ai = useAiStore()
+  ai.providers = makeProviders()
+  ai.settings = settings
+}
+
 describe('ImportDialog with AI set up', () => {
   const recommendation = makeRecommendation()
-
-  /** AI is on, as it is once someone has set it up in Settings. */
-  function aiOn(settings: aiApi.AiSettings = makeAiSettings()) {
-    const ai = useAiStore()
-    ai.providers = makeProviders()
-    ai.settings = settings
-  }
 
   /** What the AI says about the file's transactions, which it finishes at once. */
   function aiAnswers(review = makeReview({ id: 'review-import', source: 'import', open: 1 })) {
@@ -584,5 +588,167 @@ describe('ImportDialog with AI set up', () => {
     expect(steps()).toHaveLength(3)
     await press('import-continue')
     expect(find('import-ai-note').exists()).toBe(false)
+  })
+})
+
+describe('ImportDialog with a PDF statement', () => {
+  const pdf = () => new File(['%PDF-1.7'], 'september.pdf', { type: 'application/pdf' })
+  /** AI is set up, but doesn't go on to give a second opinion on the import. */
+  const noOpinion = makeAiSettings({ review_imports: false })
+  /** What the API makes of the rows the AI read: a purchase and a paycheck to import. */
+  const statementPreview = makePreview({
+    format: 'pdf',
+    file_name: 'september.pdf',
+    options: makeOptions({ csv: null }),
+    csv: null,
+    balance: null,
+  })
+
+  /** What the Import tab does when a PDF is chosen, with the AI taking as long as a test says. */
+  async function choosePdf(
+    reading: Promise<aiApi.StatementReading> | Error,
+    wizard: ReturnType<typeof useImportWizard>,
+    open: { value: boolean },
+  ) {
+    const read = vi.spyOn(aiApi, 'readStatementWithAi')
+    if (reading instanceof Error) read.mockRejectedValue(reading)
+    else read.mockReturnValue(reading)
+    vi.spyOn(api, 'previewImport').mockResolvedValue(statementPreview)
+    void wizard.start(pdf())
+    open.value = true
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalled()
+    })
+    await flushPromises()
+    return read
+  }
+
+  it('has the AI read it, shows what it found, and imports what’s ticked', async () => {
+    const { wizard, open } = await render()
+    aiOn(noOpinion)
+    const reading = later<aiApi.StatementReading>()
+    const read = await choosePdf(reading.promise, wizard, open)
+
+    // The AI is working: the dialog says so, with the steps it's going through.
+    expect(read).toHaveBeenCalledWith({ file_name: 'september.pdf', content: btoa('%PDF-1.7') })
+    expect(title()).toBe('Reading your statement')
+    expect(dialog().text()).toContain('The AI takes the transactions off the PDF.')
+    expect(steps()).toEqual(['1Read by AI', '2Review', '3Import'])
+    expect(find('statement-progress').text()).toContain('september.pdf')
+    expect(find('import-progress').text()).toContain('Only its transaction lines go to GPT-6 Luna')
+    expect(buttons()).toEqual(['Cancel'])
+
+    reading.resolve(makeStatementReading())
+    await flushPromises()
+    expect(title()).toBe('Review and import')
+    expect(dialog().text()).toContain('The AI read these off your PDF.')
+    expect(find('review-statement-note').exists()).toBe(true)
+    expect(steps()).toEqual(['1Read by AI', '2Review', '3Import'])
+    expect(buttons()).toEqual(['Cancel', 'Import 1 transaction'])
+
+    const create = answerImport()
+    await press('import-submit')
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ account_id: checking.id, lines: [2], save_profile: null }),
+    )
+    expect(title()).toBe('Imported september.pdf')
+  })
+
+  it('goes on to the AI’s second opinion after importing, when it gives one', async () => {
+    const { wizard, open } = await render()
+    aiOn()
+    await choosePdf(Promise.resolve(makeStatementReading()), wizard, open)
+
+    expect(steps()).toEqual(['1Read by AI', '2Review', '3Import', '4AI second opinion'])
+  })
+
+  it('stops reading when the dialog is cancelled', async () => {
+    const { wizard, open } = await render()
+    aiOn(noOpinion)
+    await choosePdf(later<aiApi.StatementReading>().promise, wizard, open)
+    const cancel = vi.spyOn(wizard, 'cancel')
+
+    await press('import-close')
+
+    expect(open.value).toBe(false)
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  /** What the Import tab does when a PDF is chosen and AI isn't set up: nothing is sent. */
+  async function choosePdfWithoutAi(
+    wizard: ReturnType<typeof useImportWizard>,
+    open: { value: boolean },
+  ) {
+    useAiStore().settings = aiOff
+    const read = vi.spyOn(aiApi, 'readStatementWithAi')
+    void wizard.start(pdf())
+    open.value = true
+    await vi.waitFor(() => {
+      expect(wizard.step).toBe('failed')
+    })
+    await flushPromises()
+    expect(read).not.toHaveBeenCalled()
+  }
+
+  it('says a PDF can only be read with AI, and offers to set it up, to an admin', async () => {
+    const { wizard, open, chooseFile } = await render()
+    await choosePdfWithoutAi(wizard, open)
+
+    expect(title()).toBe('Reading a PDF needs AI')
+    expect(find('import-notice').text()).toContain('can only be done with AI')
+    expect(find('import-notice').classes()).toContain('text-info')
+    expect(find('import-failed').text()).toContain('AI is optional')
+    expect(buttons()).toEqual(['Close', 'Set up AI', 'Choose another file'])
+
+    await press('import-choose-again')
+    expect(chooseFile).toHaveBeenCalledOnce()
+  })
+
+  it('takes an admin to Settings > AI from there', async () => {
+    const { wizard, open, router } = await render()
+    await choosePdfWithoutAi(wizard, open)
+
+    await press('import-set-up-ai')
+
+    expect(open.value).toBe(false)
+    // The page is loaded as it's first visited, which takes a while when the tests run together.
+    await vi.waitFor(
+      () => {
+        expect(router.currentRoute.value.path).toBe('/settings/ai')
+      },
+      { timeout: 4000 },
+    )
+  })
+
+  it('leaves setting up AI to an admin, and says so to anyone else', async () => {
+    const { wizard, open } = await render()
+    useAuthStore().apply(makeSessionState({ user: makeUser({ role: 'viewer' }) }))
+    await choosePdfWithoutAi(wizard, open)
+
+    expect(find('import-set-up-ai').exists()).toBe(false)
+    expect(buttons()).toEqual(['Close', 'Choose another file'])
+  })
+
+  it('says what to check when a PDF can’t be read, and offers another', async () => {
+    const { wizard, open, chooseFile } = await render()
+    aiOn(noOpinion)
+    await choosePdf(
+      new ApiError(422, 'This PDF is a scan, so there’s no text to read.', {
+        code: 'unreadable_file',
+      }),
+      wizard,
+      open,
+    )
+
+    expect(title()).toBe('Couldn’t import september.pdf')
+    expect(find('import-notice').text()).toBe('This PDF is a scan, so there’s no text to read.')
+    expect(find('import-notice').classes()).toContain('text-error')
+    expect(find('import-failed').text()).toContain('Check it’s a PDF statement')
+    expect(find('import-failed').text()).toContain('a scan or a photo can’t be read')
+    expect(buttons()).toEqual(['Close', 'Choose another file'])
+    expect(find('import-choose-again').classes()).toContain('bg-primary')
+
+    await press('import-choose-again')
+    expect(chooseFile).toHaveBeenCalledOnce()
   })
 })

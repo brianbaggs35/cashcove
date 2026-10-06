@@ -3,6 +3,8 @@ import { flushPromises } from '@vue/test-utils'
 import type { ImportPreview } from '@/api/imports'
 import { useImportWizard } from '@/stores/importWizard'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
+import { makeStatementRow } from '@/test/ai'
+import { page } from '@/test/dom'
 import { seedFinance } from '@/test/finance'
 import {
   coffeeRow,
@@ -208,5 +210,104 @@ describe('ReviewRows', () => {
     expect(notes[3]!.exists()).toBe(false)
     expect(rows()[3]!.text()).toBe('Sep 1Unknown payee')
     expect(rows()[1]!.text()).toContain('+$1,875.00')
+  })
+})
+
+describe('ReviewRows with a statement the AI read', () => {
+  /** What the AI read: two rows, and a third with no date that it noted. */
+  const read = [
+    makeStatementRow(),
+    makeStatementRow({ line: 2, payee: 'Acme Corp Payroll', amount: '2400.00' }),
+    makeStatementRow({ line: 3, date: null, note: 'The AI didn’t give a date for this one.' }),
+  ]
+  const preview = () =>
+    makePreview({
+      format: 'pdf',
+      rows: [
+        makeRow({ line: 1, payee: 'Wholefds Mkt Austin Tx', amount: '-84.12' }),
+        makeRow({ line: 2, payee: 'Acme Corp Payroll', amount: '2400.00' }),
+        makeRow({
+          line: 3,
+          date: null,
+          payee: null,
+          description: 'Zelle',
+          status: 'invalid',
+          problem: 'It has no date.',
+        }),
+      ],
+    })
+  const statement =
+    (rows = read) =>
+    () => {
+      const wizard = useImportWizard()
+      wizard.source = 'statement'
+      wizard.statementRows = rows
+    }
+
+  it('has a pencil on every row, the ones that can’t be imported too', async () => {
+    const { rows } = await render(preview(), statement())
+
+    expect(rows().map((row) => row.find('[data-test="review-row-edit"]').exists())).toEqual([
+      true,
+      true,
+      true,
+    ])
+    expect(rows()[0]!.find('[data-test="review-row-edit"]').attributes('aria-label')).toBe(
+      'Edit Wholefds Mkt Austin Tx',
+    )
+  })
+
+  it('has no pencil for a file Cashcove read itself', async () => {
+    const { rows } = await render()
+
+    expect(rows().some((row) => row.find('[data-test="review-row-edit"]').exists())).toBe(false)
+  })
+
+  it('says what the AI wasn’t sure of beside the row, and lists those rows to look at', async () => {
+    const { rows, find, click, wizard } = await render(preview(), statement())
+
+    expect(rows()[2]!.find('[data-test="review-row-flag"]').text()).toBe(
+      'The AI didn’t give a date for this one.',
+    )
+    expect(rows()[0]!.find('[data-test="review-row-flag"]').exists()).toBe(false)
+    expect(find('review-filter-check').text()).toContain('Needs a look')
+    expect(find('review-filter-check').text()).toContain('1')
+
+    await click('review-filter-check')
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]!.text()).toContain('Line 3')
+
+    // Once it's corrected there's nothing left to look at, and all the rows show again.
+    wizard.statementRows = read.map((row) => ({ ...row, note: null }))
+    await flushPromises()
+    expect(find('review-filter-check').exists()).toBe(false)
+    expect(rows()).toHaveLength(3)
+  })
+
+  it('opens the row to correct, without ticking or unticking it', async () => {
+    const { rows, wizard } = await render(preview(), statement())
+    const ticked = [...wizard.selected]
+
+    await rows()[0]!.find('[data-test="review-row-edit"]').trigger('click')
+    await flushPromises()
+
+    const payee = page().find('[data-test="statement-row-payee"] input')
+    expect((payee.element as HTMLInputElement).value).toBe('Wholefds Mkt Austin Tx')
+    expect(wizard.selected).toEqual(ticked)
+
+    // Cancelling puts it away again.
+    await page().find('[data-test="statement-row-cancel"]').trigger('click')
+    await flushPromises()
+    expect(page().find('.v-overlay--active [data-test="statement-row-payee"]').exists()).toBe(false)
+  })
+
+  it('opens nothing to correct for a row it has no record of', async () => {
+    const { rows } = await render(preview(), statement([read[0]!]))
+
+    await rows()[1]!.find('[data-test="review-row-edit"]').trigger('click')
+    await flushPromises()
+
+    const payee = page().find('[data-test="statement-row-payee"] input')
+    expect((payee.element as HTMLInputElement).value).toBe('')
   })
 })

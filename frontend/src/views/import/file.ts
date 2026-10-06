@@ -5,8 +5,8 @@ import { MAX_FILE_BYTES, type FileFormat, type ImportFile } from '@/api/imports'
 import { accountType } from '@/components/finance/accountTypes'
 import { negate } from '@/utils/money'
 
-/** What the file picker offers: banks' exports, which some banks save as .txt. */
-export const ACCEPTED_FILES = '.csv,.tsv,.txt,.ofx,.qfx,.qbo,.qif'
+/** What the file picker offers: banks' exports, which some banks save as .txt, and PDFs. */
+export const ACCEPTED_FILES = '.csv,.tsv,.txt,.ofx,.qfx,.qbo,.qif,.pdf'
 /** The formats named where files are chosen. */
 export const FILE_FORMATS = ['CSV', 'OFX', 'QFX', 'QBO', 'QIF'] as const
 
@@ -40,6 +40,12 @@ function dataUrl(file: File): Promise<string> {
   })
 }
 
+/** A file's contents, base64-encoded as the API takes them. */
+export async function base64Of(file: File): Promise<string> {
+  const url = await dataUrl(file)
+  return url.slice(url.indexOf(',') + 1)
+}
+
 /** A chosen file, as the API takes it. Files that are empty, or too big to be a statement, aren't. */
 export async function readStatement(file: File): Promise<ImportFile> {
   if (file.size === 0) throw new Error(`${file.name} is empty. Download it from your bank again.`)
@@ -49,11 +55,7 @@ export async function readStatement(file: File): Promise<ImportFile> {
       `${file.name} is over ${limit} MB, which is too big for a statement. Download fewer months at a time.`,
     )
   }
-  const url = await dataUrl(file)
-  return {
-    file_name: file.name.slice(0, 255) || 'statement',
-    content: url.slice(url.indexOf(',') + 1),
-  }
+  return { file_name: file.name.slice(0, 255) || 'statement', content: await base64Of(file) }
 }
 
 /** "1 transaction", or "1,204 transactions". */

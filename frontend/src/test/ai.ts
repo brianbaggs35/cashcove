@@ -6,6 +6,8 @@ import type {
   AiSettings,
   AiUsage,
   RecommendationPage,
+  StatementReading,
+  StatementRow,
 } from '@/api/ai'
 
 export function makeModel(changes: Partial<AiModel> = {}): AiModel {
@@ -234,6 +236,45 @@ export function makeUsage(changes: Partial<AiUsage> = {}): AiUsage {
       },
     ],
     unpriced_calls: 0,
+    ...changes,
+  }
+}
+
+/** A transaction as the AI read it off a statement. */
+export function makeStatementRow(changes: Partial<StatementRow> = {}): StatementRow {
+  return {
+    line: 1,
+    date: '2026-09-02',
+    payee: 'Wholefds Mkt Austin Tx',
+    amount: '-84.12',
+    note: null,
+    ...changes,
+  }
+}
+
+/** What the AI read off a statement for the checking account: a purchase, a paycheck, and a
+ * payment on a date outside the statement's that needs a look. */
+export function makeStatementReading(changes: Partial<StatementReading> = {}): StatementReading {
+  return {
+    file_name: 'september.pdf',
+    rows: [
+      makeStatementRow(),
+      makeStatementRow({
+        line: 2,
+        date: '2026-09-05',
+        payee: 'Acme Corp Payroll',
+        amount: '2400.00',
+      }),
+      makeStatementRow({
+        line: 3,
+        date: '2026-12-30',
+        payee: 'Zelle Payment To',
+        amount: '-50.00',
+        note: 'The date is outside the statement’s dates.',
+      }),
+    ],
+    account_id: 'account-checking',
+    skipped: 1,
     ...changes,
   }
 }

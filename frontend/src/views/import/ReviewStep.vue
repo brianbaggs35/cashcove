@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookmarkCheck, Link, Plus, WandSparkles } from '@lucide/vue'
+import { BookmarkCheck, Link, Plus, Sparkles, WandSparkles } from '@lucide/vue'
 import { computed, nextTick, useTemplateRef, watch } from 'vue'
 
 import type { Account } from '@/api/accounts'
@@ -38,6 +38,24 @@ const about = computed(() =>
     .filter(Boolean)
     .join(' · '),
 )
+
+/** What to say under the account: where it came from when the statement said which it is. */
+const accountHint = computed(() => {
+  if (!wizard.accountId) return 'Choose the account these are from, or add it as a new one.'
+  if (wizard.source === 'statement' && wizard.accountId === wizard.suggestedAccount) {
+    return 'Matched from the last digits on the statement, here on this computer. Change it if it’s wrong.'
+  }
+  return undefined
+})
+
+/** How many lines of the statement the AI said weren't transactions. */
+const leftOut = computed(() => {
+  const count = wizard.skipped
+  if (!count) return null
+  return count === 1
+    ? '1 other line looked like a transaction but wasn’t, and was left out.'
+    : `${count.toLocaleString('en-US')} other lines looked like transactions but weren’t, and were left out.`
+})
 
 function accountDetails(account: Account): string {
   return [
@@ -140,6 +158,33 @@ const saveLabel = computed(() =>
       </div>
     </div>
 
+    <v-alert
+      v-if="wizard.source === 'statement'"
+      :icon="Sparkles"
+      color="primary"
+      variant="tonal"
+      density="compact"
+      class="mb-5"
+      data-test="review-statement-note"
+    >
+      <div>
+        The AI read these off your PDF. It can get a date, an amount or which way the money went
+        wrong, so check each row, and use the pencil to change one.
+      </div>
+      <div v-if="leftOut" class="mt-1" data-test="review-statement-skipped">{{ leftOut }}</div>
+      <template #append>
+        <v-btn
+          variant="text"
+          size="small"
+          :disabled="wizard.refreshing"
+          data-test="review-flip"
+          @click="wizard.flipSigns()"
+        >
+          Flip money in and out
+        </v-btn>
+      </template>
+    </v-alert>
+
     <v-select
       v-if="statements.length > 1"
       :model-value="preview.statement"
@@ -161,11 +206,7 @@ const saveLabel = computed(() =>
         label="Import into"
         placeholder="Choose an account"
         persistent-placeholder
-        :hint="
-          wizard.accountId
-            ? undefined
-            : 'Choose the account these are from, or add it as a new one.'
-        "
+        :hint="accountHint"
         persistent-hint
         class="flex-grow-1"
         data-test="review-account"
