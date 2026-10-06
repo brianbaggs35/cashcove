@@ -136,23 +136,19 @@ export const useAiChat = defineStore('ai-chat', () => {
   /** Attaches a PDF statement to the conversation and has the AI read it. */
   function attach(file: File): Promise<StatementMessage | null> {
     if (busy.value) return Promise.resolve(null)
-    messages.value.push({
-      kind: 'file',
-      id: ++counter,
-      role: 'user',
-      name: file.name,
-      size: file.size,
-    })
-    messages.value.push({
-      kind: 'statement',
-      id: ++counter,
-      role: 'assistant',
-      file: markRaw(file),
-      status: 'reading',
-      reading: null,
-      error: null,
-      imported: null,
-    })
+    messages.value.push(
+      { kind: 'file', id: ++counter, role: 'user', name: file.name, size: file.size },
+      {
+        kind: 'statement',
+        id: ++counter,
+        role: 'assistant',
+        file: markRaw(file),
+        status: 'reading',
+        reading: null,
+        error: null,
+        imported: null,
+      },
+    )
     return read(messages.value.at(-1) as StatementMessage)
   }
 
