@@ -7,6 +7,7 @@ import { notify } from '@/composables/notify'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
 import AccountSection from '@/views/settings/AccountSection.vue'
+import AiSection from '@/views/settings/AiSection.vue'
 import AlertsSection from '@/views/settings/AlertsSection.vue'
 import AppearanceSection from '@/views/settings/AppearanceSection.vue'
 import GeneralSection from '@/views/settings/GeneralSection.vue'
@@ -27,6 +28,7 @@ const components: Record<SettingsSectionKey, Component> = {
   users: UsersSection,
   alerts: AlertsSection,
   sync: SyncSection,
+  ai: AiSection,
   account: AccountSection,
   security: SecuritySection,
   appearance: AppearanceSection,
