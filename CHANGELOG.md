@@ -18,6 +18,8 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated @lucide/vue to 1.52.0
 - Updated vuetify to 4.2.4
 - Updated @types/node to 26.6.4
+- Updated @vitest/coverage-v8 to 5.0.3
+- Updated vitest to 5.0.3
 
 ### Added
 
