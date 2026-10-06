@@ -1,14 +1,23 @@
 <script setup lang="ts">
-import { Plug, Tags, TriangleAlert } from '@lucide/vue'
+import { Plug, Sparkles, Tags, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 
 import { useConnectionAlerts } from '@/composables/useConnectionAlerts'
 import { formatCount } from '@/utils/format'
 
-/** Things that need someone to look at them: banks that need attention, and transactions with no category. */
-const props = defineProps<{ uncategorized: number }>()
+/**
+ * Things that need someone to look at them: banks that need attention, transactions with no
+ * category, and what the AI suggested, which only shows once there's something waiting.
+ */
+const props = defineProps<{ uncategorized: number; aiRecommendations: number }>()
 
 const alerts = useConnectionAlerts()
+
+const aiWaiting = computed(() =>
+  props.aiRecommendations === 1
+    ? 'The AI has 1 suggestion for how your transactions are sorted.'
+    : `The AI has ${formatCount(props.aiRecommendations, 'suggestion')} for how your transactions are sorted.`,
+)
 
 const needsCategory = computed(() =>
   props.uncategorized === 1
@@ -18,7 +27,11 @@ const needsCategory = computed(() =>
 </script>
 
 <template>
-  <div v-if="alerts.count.value || uncategorized" class="d-grid ga-3 mb-6" data-test="attention">
+  <div
+    v-if="alerts.count.value || uncategorized || aiRecommendations"
+    class="d-grid ga-3 mb-6"
+    data-test="attention"
+  >
     <v-alert
       v-if="alerts.count.value"
       type="warning"
@@ -57,6 +70,21 @@ const needsCategory = computed(() =>
           data-test="attention-review"
         >
           Review them
+        </v-btn>
+      </template>
+    </v-alert>
+    <v-alert
+      v-if="aiRecommendations"
+      type="info"
+      variant="tonal"
+      density="compact"
+      :icon="Sparkles"
+      data-test="attention-ai"
+    >
+      {{ aiWaiting }}
+      <template #append>
+        <v-btn to="/ai/recommendations" variant="text" size="small" data-test="attention-ai-review">
+          Look at them
         </v-btn>
       </template>
     </v-alert>
