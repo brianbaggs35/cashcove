@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from contextlib import nullcontext
 
 import pytest
 from fastapi import FastAPI
@@ -7,12 +8,14 @@ from pydantic import SecretStr
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.ai.deps import ai_sessions, ai_transport
 from app.config import Settings
 from app.db import get_session
 from app.finance import exchange_rates
 from app.finance.exchange_rates import exchange_rate_transport
 from app.main import create_app
 from app.models import Base, Role, User
+from e2e.ai import FakeAI
 from tests.helpers import ORIGIN, SERVER_NAME, TEST_DATABASE_URL, add_user, sign_in
 from tests.rates import NOW, FakeRates
 
@@ -67,7 +70,13 @@ def rates(monkeypatch: pytest.MonkeyPatch) -> FakeRates:
 
 
 @pytest.fixture
-def app(settings: Settings, session: Session, rates: FakeRates) -> FastAPI:
+def fake_ai() -> FakeAI:
+    """The AI providers, which answer by rules and remember what they were asked."""
+    return FakeAI()
+
+
+@pytest.fixture
+def app(settings: Settings, session: Session, rates: FakeRates, fake_ai: FakeAI) -> FastAPI:
     def request_session() -> Iterator[Session]:
         # Like a real request's session, anything not committed is rolled back at the end.
         try:
@@ -78,6 +87,10 @@ def app(settings: Settings, session: Session, rates: FakeRates) -> FastAPI:
     app = create_app(settings)
     app.dependency_overrides[get_session] = request_session
     app.dependency_overrides[exchange_rate_transport] = lambda: rates.transport
+    app.dependency_overrides[ai_transport] = lambda: fake_ai.transport
+    # A review that carries on after its response uses the test's own session, which it
+    # leaves open for the test to look at.
+    app.dependency_overrides[ai_sessions] = lambda: lambda: nullcontext(session)
     return app
 
 

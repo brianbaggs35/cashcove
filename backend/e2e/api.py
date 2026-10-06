@@ -24,6 +24,7 @@ from app.models import Account, Connection, User
 from app.models.base import utcnow
 from app.schemas.auth import SessionState
 from e2e import baseline
+from e2e.ai import FakeAI
 from e2e.baseline import Baseline, SavedSignInName
 from e2e.plaid import FakeItem, FakePlaid
 
@@ -39,6 +40,15 @@ def fake_plaid(request: Request) -> FakePlaid:
 Fake = Annotated[FakePlaid, Depends(fake_plaid)]
 
 
+def fake_ai(request: Request) -> FakeAI:
+    """The stand-in for the AI providers that ``e2e.main`` plugs in."""
+    ai: FakeAI = request.app.state.fake_ai
+    return ai
+
+
+FakeProviders = Annotated[FakeAI, Depends(fake_ai)]
+
+
 @router.get("/baseline")
 def describe_baseline(settings: AppSettings) -> Baseline:
     """What the baseline holds, without touching the database."""
@@ -46,10 +56,14 @@ def describe_baseline(settings: AppSettings) -> Baseline:
 
 
 @router.post("/reset")
-def reset_to_baseline(db: Db, settings: AppSettings, fake: Fake) -> Baseline:
+def reset_to_baseline(
+    db: Db, settings: AppSettings, fake: Fake, providers: FakeProviders
+) -> Baseline:
     """Replaces everything in the database with the baseline, and puts the stand-in for
-    Plaid back to the baseline's banks."""
+    Plaid back to the baseline's banks and the stand-in for the AI providers back to having
+    heard nothing."""
     fake.reset()
+    providers.reset()
     baseline.clear(db)
     baseline.seed(db, settings, utcnow())
     db.commit()
@@ -61,9 +75,10 @@ class FreshInstall(BaseModel):
 
 
 @router.post("/fresh-install")
-def reset_to_fresh_install(db: Db, fake: Fake) -> FreshInstall:
+def reset_to_fresh_install(db: Db, fake: Fake, providers: FakeProviders) -> FreshInstall:
     """Empties the database, as on the first start, and returns the setup wizard's code."""
     fake.reset()
+    providers.reset()
     baseline.clear(db)
     code = issue_code(db, utcnow())
     db.commit()
@@ -165,6 +180,35 @@ def set_bank_error(connection_id: uuid.UUID, body: BankError, db: Db, fake: Fake
     """Has a connected bank fail its syncs with an error until it's cleared, as when the bank
     wants someone to sign in again. Reconnecting clears it too."""
     _item(fake, db.get(Connection, connection_id)).error = body.code
+
+
+# ---- The stand-in for the AI providers ------------------------------------------------
+
+
+class AIRequest(BaseModel):
+    provider: str
+    method: str
+    host: str
+    path: str
+    authorized: bool
+    # What was sent, exactly as the provider got it.
+    body: str
+
+
+@router.get("/ai/requests")
+def ai_requests(providers: FakeProviders) -> list[AIRequest]:
+    """Every request an AI provider has received since the last reset, to check what was sent."""
+    return [
+        AIRequest(
+            provider=seen.provider,
+            method=seen.method,
+            host=seen.host,
+            path=seen.path,
+            authorized=seen.authorized,
+            body=seen.body,
+        )
+        for seen in providers.requests
+    ]
 
 
 # ---- Code coverage ----------------------------------------------------------------------

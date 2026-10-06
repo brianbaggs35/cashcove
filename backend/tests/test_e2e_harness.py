@@ -46,6 +46,7 @@ from app.models import (
     User,
     UserSession,
 )
+from e2e.ai import KEYS
 from e2e.api import current_coverage
 from e2e.baseline import SAVED_SIGN_INS
 from e2e.main import create_e2e_app
@@ -972,3 +973,51 @@ def test_resets_put_the_stand_in_back_to_the_baseline_banks(
     e2e.post("/api/e2e/reset")
 
     assert {item.bank.key for item in fake.items.values()} == {"tartan", "fidelity"}
+
+
+# ---- The stand-in for the AI providers --------------------------------------------------------
+
+
+def sign_in_as_admin(e2e: TestClient) -> None:
+    """Resets to the baseline and signs in as its admin, who can set AI up."""
+    e2e.post("/api/e2e/reset")
+    state = e2e.post("/api/e2e/sessions", json={"email": "alex@example.com"}).json()
+    use_session(e2e, state)
+
+
+def test_the_stand_in_for_the_ai_providers_keeps_what_it_was_asked_until_a_reset(
+    e2e: TestClient, harness: FastAPI
+) -> None:
+    sign_in_as_admin(e2e)
+    asked = e2e.post(
+        "/api/ai/test",
+        json={"provider": "openai", "model": "gpt-6-luna", "api_key": KEYS["openai"]},
+    )
+    assert asked.json()["ok"] is True
+
+    kept = e2e.get("/api/e2e/ai/requests").json()
+
+    assert [
+        (item["provider"], item["host"], item["path"], item["authorized"]) for item in kept
+    ] == [("openai", "api.openai.com", "/v1/responses", True)]
+    assert kept[0]["method"] == "POST"
+    assert "gpt-6-luna" in kept[0]["body"]
+    assert e2e.post("/api/e2e/reset").status_code == 200
+    assert e2e.get("/api/e2e/ai/requests").json() == []
+    assert harness.state.fake_ai.requests == []
+
+
+def test_a_fresh_install_forgets_what_the_ai_was_asked(e2e: TestClient) -> None:
+    sign_in_as_admin(e2e)
+    e2e.post("/api/ai/test", json={"provider": "ollama_local", "base_url": "http://ollama.lan"})
+    assert len(e2e.get("/api/e2e/ai/requests").json()) == 1
+
+    assert e2e.post("/api/e2e/fresh-install").status_code == 200
+
+    assert e2e.get("/api/e2e/ai/requests").json() == []
+
+
+def test_the_baseline_has_ai_turned_off(e2e: TestClient) -> None:
+    sign_in_as_admin(e2e)
+
+    assert e2e.get("/api/ai/settings").json()["configured"] is False

@@ -6,9 +6,11 @@ The e2e image serves it with ``uvicorn e2e.main:create_e2e_app --factory``.
 from fastapi import FastAPI
 from pydantic import SecretStr
 
+from app.ai.deps import ai_transport
 from app.config import Settings, get_settings
 from app.main import create_app
 from app.plaid.deps import plaid_transport
+from e2e.ai import FakeAI
 from e2e.api import router
 from e2e.plaid import KEYS, FakePlaid
 
@@ -36,5 +38,10 @@ def create_e2e_app(settings: Settings | None = None) -> FastAPI:
     fake = FakePlaid()
     app.state.fake_plaid = fake
     app.dependency_overrides[plaid_transport] = lambda: fake.transport
+    # The AI providers are the fake in e2e/ai.py, with made-up keys, and it remembers what it
+    # was asked so a spec can check what was sent.
+    ai = FakeAI()
+    app.state.fake_ai = ai
+    app.dependency_overrides[ai_transport] = lambda: ai.transport
     app.include_router(router, prefix="/api/e2e")
     return app
