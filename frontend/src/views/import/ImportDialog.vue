@@ -6,6 +6,7 @@ import {
   FileUp,
   FileX,
   ListChecks,
+  Sparkles,
   type LucideIcon,
 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
@@ -19,6 +20,7 @@ import MoneyAmount from '@/components/ui/MoneyAmount.vue'
 import StepList from '@/components/ui/StepList.vue'
 import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
+import { useAiStore } from '@/stores/ai'
 import { useCategoriesStore } from '@/stores/categories'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { useImportWizard } from '@/stores/importWizard'
@@ -27,6 +29,7 @@ import { sumAmounts } from '@/utils/money'
 import AccountDialog from '@/views/accounts/AccountDialog.vue'
 import ColumnsStep from '@/views/import/ColumnsStep.vue'
 import { balanceShown, transactionCount } from '@/views/import/file'
+import ImportAiStep from '@/views/import/ImportAiStep.vue'
 import ReviewStep from '@/views/import/ReviewStep.vue'
 
 /**
@@ -39,6 +42,7 @@ const emit = defineEmits<{ 'choose-file': [] }>()
 
 const router = useRouter()
 const wizard = useImportWizard()
+const ai = useAiStore()
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const subscriptions = useSubscriptionsStore()
@@ -46,16 +50,29 @@ const { locale, money } = useHousehold()
 
 const accountOpen = ref(false)
 
+/** The AI has finished with the file's transactions, or couldn't. */
+const aiFinished = ref(false)
+
 const csv = computed(() => wizard.format === 'csv')
-const steps = computed(() =>
-  csv.value ? ['Match columns', 'Review', 'Import'] : ['Review', 'Import'],
-)
+// Automations sort the rows as they're imported; with AI set up, a last step has it check them.
+const steps = computed(() => [
+  ...(csv.value ? ['Match columns'] : []),
+  'Review',
+  'Import',
+  ...(ai.reviewsImports ? ['AI second opinion'] : []),
+])
 const stepIndex = computed(() => {
   if (wizard.step === 'columns') return 0
   const review = csv.value ? 1 : 0
+  if (wizard.step === 'ai') return review + 2
   return wizard.step === 'done' ? review + 1 : review
 })
-const showSteps = computed(() => ['columns', 'review', 'importing', 'done'].includes(wizard.step))
+const showSteps = computed(() =>
+  ['columns', 'review', 'importing', 'done', 'ai'].includes(wizard.step),
+)
+const stepsDone = computed(
+  () => wizard.step === 'done' || (wizard.step === 'ai' && aiFinished.value),
+)
 const busy = computed(() => wizard.step === 'importing')
 
 const heading = computed((): { title: string; subtitle?: string; icon: LucideIcon } => {
@@ -78,6 +95,13 @@ const heading = computed((): { title: string; subtitle?: string; icon: LucideIco
       }
     case 'done':
       return { title: `Imported ${file}`, icon: CircleCheck }
+    case 'ai':
+      return {
+        title: 'AI second opinion',
+        subtitle:
+          'Your automations sorted what they could. The AI looks over how, and suggests changes. Nothing changes until you accept.',
+        icon: Sparkles,
+      }
     default:
       return { title: `Reading ${file}`, icon: FileUp }
   }
@@ -134,6 +158,9 @@ const done = computed(() => {
   }
 })
 
+/** What importing did, said at the top of the AI's step. */
+const aiNotes = computed(() => [`Imported ${done.value.summary}.`, ...doneNotes.value])
+
 const doneNotes = computed(() => {
   const record = wizard.record as FileImport
   const notes = []
@@ -162,6 +189,9 @@ function seeTransactions() {
 
 watch(open, (value) => {
   if (value) {
+    aiFinished.value = false
+    // Whether AI is set up says whether the import has a last step.
+    void ai.ensureLoaded()
     void accounts.ensureLoaded()
     void categories.ensureLoaded()
     // Rows an automation links to a subscription or a bill say which.
@@ -183,13 +213,7 @@ watch(open, (value) => {
     max-width="760"
     fullscreen-on-mobile
   >
-    <StepList
-      v-if="showSteps"
-      :steps="steps"
-      :current="stepIndex"
-      :done="wizard.step === 'done'"
-      class="mb-5"
-    />
+    <StepList v-if="showSteps" :steps="steps" :current="stepIndex" :done="stepsDone" class="mb-5" />
 
     <v-progress-linear
       v-if="wizard.refreshing && (wizard.step === 'columns' || wizard.step === 'review')"
@@ -225,7 +249,26 @@ watch(open, (value) => {
 
     <ColumnsStep v-else-if="wizard.step === 'columns'" />
 
-    <ReviewStep v-else-if="wizard.step === 'review'" @add-account="accountOpen = true" />
+    <template v-else-if="wizard.step === 'review'">
+      <ReviewStep @add-account="accountOpen = true" />
+      <v-alert
+        v-if="ai.reviewsImports"
+        :icon="Sparkles"
+        variant="tonal"
+        density="compact"
+        class="mt-4"
+        data-test="import-ai-note"
+      >
+        After the import, the AI gives a second opinion on how these were sorted. It only suggests.
+      </v-alert>
+    </template>
+
+    <ImportAiStep
+      v-else-if="wizard.step === 'ai'"
+      :review-id="(wizard.record as FileImport).ai_review_id as string"
+      :notes="aiNotes"
+      @finished="aiFinished = true"
+    />
 
     <div v-else data-test="import-done">
       <div class="d-flex align-center ga-4 mb-5">
@@ -287,7 +330,7 @@ watch(open, (value) => {
           Import {{ transactionCount(wizard.selected.length) }}
         </v-btn>
       </template>
-      <template v-else-if="wizard.step === 'done'">
+      <template v-else-if="wizard.step === 'done' || wizard.step === 'ai'">
         <v-btn variant="text" data-test="import-transactions" @click="seeTransactions">
           See transactions
         </v-btn>

@@ -2,10 +2,20 @@ import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
 
 import * as accountsApi from '@/api/accounts'
+import * as aiApi from '@/api/ai'
 import { ApiError } from '@/api/client'
 import * as api from '@/api/imports'
 import type { FileImport, ImportPreview } from '@/api/imports'
+import { polling, POLL_INTERVAL } from '@/composables/useReviewProgress'
+import { useAiStore } from '@/stores/ai'
 import { useImportWizard } from '@/stores/importWizard'
+import {
+  makeAiSettings,
+  makeProviders,
+  makeRecommendation,
+  makeRecommendationPage,
+  makeReview,
+} from '@/test/ai'
 import { page } from '@/test/dom'
 import { checking, makeAccount, savings, seedFinance, visa } from '@/test/finance'
 import {
@@ -382,5 +392,197 @@ describe('ImportDialog', () => {
     expect(account.find('[data-test="account-type-checking"]').attributes('aria-checked')).toBe(
       'true',
     )
+  })
+})
+
+describe('ImportDialog with AI set up', () => {
+  const recommendation = makeRecommendation()
+
+  /** AI is on, as it is once someone has set it up in Settings. */
+  function aiOn(settings: aiApi.AiSettings = makeAiSettings()) {
+    const ai = useAiStore()
+    ai.providers = makeProviders()
+    ai.settings = settings
+  }
+
+  /** What the AI says about the file's transactions, which it finishes at once. */
+  function aiAnswers(review = makeReview({ id: 'review-import', source: 'import', open: 1 })) {
+    vi.spyOn(aiApi, 'fetchAiReview').mockResolvedValue(review)
+    return vi
+      .spyOn(aiApi, 'fetchRecommendations')
+      .mockResolvedValue(
+        makeRecommendationPage(review.open ? [recommendation] : [], { total: review.open }),
+      )
+  }
+
+  beforeEach(() => {
+    polling.interval = 10
+  })
+  afterEach(() => {
+    polling.interval = POLL_INTERVAL
+  })
+
+  it('has the AI’s second opinion as a last step, after the automations have sorted the rows', async () => {
+    const { start } = await render()
+    aiOn()
+    await start(makePreview())
+
+    expect(steps()).toHaveLength(4)
+    expect(steps().at(-1)).toBe('4AI second opinion')
+
+    await press('import-continue')
+    expect(find('import-ai-note').text()).toContain(
+      'After the import, the AI gives a second opinion',
+    )
+  })
+
+  it('has the AI as the third step of an OFX file, which has no columns to match', async () => {
+    const { start } = await render()
+    aiOn()
+    await start(qfx, 'harbor.qfx')
+
+    expect(steps()).toHaveLength(3)
+    expect(steps().at(-1)).toBe('3AI second opinion')
+  })
+
+  it('goes on to the AI after importing, and lists what it suggests', async () => {
+    const { start } = await render()
+    aiOn()
+    aiAnswers()
+    await start(makePreview())
+    await press('import-continue')
+    answerImport({ ...imported, ai_review_id: 'review-import', sorted: 1 })
+
+    await press('import-submit')
+
+    expect(title()).toBe('AI second opinion')
+    expect(dialog().text()).toContain('Your automations sorted what they could.')
+    expect(find('import-ai').exists()).toBe(true)
+    await vi.waitFor(() => {
+      expect(dialog().findAll('[data-test="recommendation"]')).toHaveLength(1)
+    })
+    expect(
+      find('import-ai-notes')
+        .findAll('.v-alert__content > div')
+        .map((line) => line.text()),
+    ).toEqual([
+      `Imported 1 transaction · ${formatDateRange({ start: '2026-09-01', end: '2026-09-01' })}.`,
+      'The file’s other 3 rows were left out.',
+      'Your automations sorted 1 of them.',
+      'Saved the Harbor Credit Union checking 2 format for the bank’s next files.',
+    ])
+    expect(dialog().findAll('.step-list__step--done')).toHaveLength(4)
+    expect(buttons()).toEqual(['See transactions', 'Done'])
+  })
+
+  it('shows the AI as the step it is on until it has finished', async () => {
+    const { start } = await render()
+    aiOn()
+    const running = makeReview({
+      id: 'review-import',
+      source: 'import',
+      status: 'running',
+      reviewed: 0,
+      open: 0,
+    })
+    const done = makeReview({
+      id: 'review-import',
+      source: 'import',
+      open: 0,
+      applied: 0,
+      dismissed: 0,
+    })
+    // It stays as it is until the test says it has finished, however slowly the test goes.
+    const fetchReview = vi.spyOn(aiApi, 'fetchAiReview').mockResolvedValue(running)
+    vi.spyOn(aiApi, 'fetchRecommendations').mockResolvedValue(makeRecommendationPage([]))
+    await start(makePreview())
+    await press('import-continue')
+    answerImport({ ...imported, ai_review_id: 'review-import' })
+
+    await press('import-submit')
+
+    expect(find('review-progress').exists()).toBe(true)
+    expect(dialog().find('.step-list__step--current').text()).toBe('4AI second opinion')
+    expect(dialog().findAll('.step-list__step--done')).toHaveLength(3)
+
+    fetchReview.mockResolvedValue(done)
+    await vi.waitFor(() => {
+      expect(find('import-ai-agrees').exists()).toBe(true)
+    })
+    expect(dialog().findAll('.step-list__step--done')).toHaveLength(4)
+    expect(dialog().find('.step-list__step--current').exists()).toBe(false)
+  })
+
+  it('can be closed while the AI is still working', async () => {
+    const { start, open } = await render()
+    aiOn()
+    aiAnswers(
+      makeReview({
+        id: 'review-import',
+        source: 'import',
+        status: 'running',
+        reviewed: 0,
+        open: 0,
+      }),
+    )
+    await start(makePreview())
+    await press('import-continue')
+    answerImport({ ...imported, ai_review_id: 'review-import' })
+    await press('import-submit')
+
+    await press('import-finish')
+
+    expect(open.value).toBe(false)
+  })
+
+  it('says how it went on to the AI’s step when the AI has nothing to suggest', async () => {
+    const { start } = await render()
+    aiOn()
+    aiAnswers(
+      makeReview({ id: 'review-import', source: 'import', open: 0, applied: 0, dismissed: 0 }),
+    )
+    await start(makePreview())
+    await press('import-continue')
+    answerImport({ ...imported, ai_review_id: 'review-import' })
+
+    await press('import-submit')
+
+    await vi.waitFor(() => {
+      expect(find('import-ai-agrees').text()).toContain('The AI agrees')
+    })
+  })
+
+  it('ends at the import when there’s nothing for the AI to look at, though it’s a step', async () => {
+    const { start } = await render()
+    aiOn()
+    await start(makePreview())
+    await press('import-continue')
+    answerImport({ ...imported, ai_review_id: null })
+
+    await press('import-submit')
+
+    expect(title()).toBe('Imported harbor-checking.csv')
+    expect(find('import-done').exists()).toBe(true)
+    expect(find('import-ai').exists()).toBe(false)
+    expect(dialog().findAll('.step-list__step--done')).toHaveLength(4)
+  })
+
+  it('has no last step, and says nothing about the AI, when AI isn’t set up', async () => {
+    const { start } = await render()
+    await start(makePreview())
+
+    expect(steps()).toHaveLength(3)
+    await press('import-continue')
+    expect(find('import-ai-note').exists()).toBe(false)
+  })
+
+  it('has no last step when imports aren’t to be reviewed', async () => {
+    const { start } = await render()
+    aiOn(makeAiSettings({ review_imports: false }))
+    await start(makePreview())
+
+    expect(steps()).toHaveLength(3)
+    await press('import-continue')
+    expect(find('import-ai-note').exists()).toBe(false)
   })
 })
