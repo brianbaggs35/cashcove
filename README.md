@@ -275,15 +275,20 @@ accounts Plaid can't reach, or history from before a bank was connected. Nothing
 setting up.
 
 - **Formats:** CSV (including tab-separated and `.txt` exports), OFX, QFX, QBO and QIF, up to
-  5 MB a file. PDF statements and spreadsheets can't be read, so download CSV or OFX instead,
-  usually from **Download** or **Export** on the account's activity page.
+  5 MB a file. Spreadsheets can't be read, so download CSV or OFX instead, usually from
+  **Download** or **Export** on the account's activity page.
+- **PDF statements** are read by the [AI](#ai-optional), once an admin has set it up (up to 60
+  pages and 10 MB, with the transactions as text, not a scan). It takes the transactions off the
+  PDF, you check every one and choose the account, and nothing is added until you do. Without AI,
+  choosing a PDF says it can only be read with AI, and nothing else changes.
 - **Any bank's CSV:** Cashcove matches the columns by their names and what's in them: dates in
   any order, amounts in one column, in separate money in and money out columns, or beside a
   column saying which way the money went (Debit or Credit, CR or DR), decimal commas, and
   lines to skip above the transactions. You check or change what each column holds, and it's
   saved as a format for that bank, so its next file goes straight to review.
-- **Review:** Choose the account (an OFX file finds it by its last four digits), see which
-  rows are new, which the account already has and which it might, and tick what to import.
+- **Review:** Choose the account (an OFX file or a PDF statement finds it by its last four
+  digits), see which rows are new, which the account already has and which it might, and tick
+  what to import.
   Rows the account already has aren't imported again, so a file imported twice adds nothing
   the second time.
 - **Balances:** For an account kept by hand, take the file's closing balance, add what's
@@ -302,10 +307,11 @@ them.
 ### AI (optional)
 
 AI is **off until an admin turns it on**, and Cashcove works exactly the same without it. With
-it, the **AI** tab answers questions about your money, gives a second opinion on how your
-transactions are sorted, and shows what it all cost, and an import can end with that second
-opinion. Until AI is set up, each of its pages says what to do first, and nothing else in
-Cashcove depends on it.
+it, the **AI** tab answers questions about your money, reads a PDF bank statement into
+transactions for you to check, gives a second opinion on how your transactions are sorted, and
+shows what it all cost, and an import can end with that second opinion. Until AI is set up, each
+of its pages says what to do first (and that a statement can only be read with AI), and nothing
+else in Cashcove depends on it.
 
 **Settings > AI** (admins only) chooses where the AI runs:
 
@@ -333,6 +339,16 @@ What the **AI** tab does:
 - **Ask**: a chat about your finances. It answers from a fresh summary of your records (spending
   by month and category, the payees you spent most with, budgets, subscriptions and bills, and the
   latest transactions) and explains what the numbers show. It isn't financial advice.
+- **Read a PDF statement** (admins): attach a PDF with the paperclip, choose it with **Choose a
+  PDF**, or drop it on the conversation, and the AI takes the transactions off it. The chat says
+  what is happening while it works, for how long, and what stays on this computer, and can stop
+  it. Then it says what it found: how much came in and went out, which account it looks like and
+  how many rows need a look. **Review and import** opens the same review as the Import tab, where
+  you choose the account, correct a row's date, payee, amount or which way the money went (a
+  pencil on each), flip every row's direction if the statement came out the wrong way round, and
+  tick what to add. **Nothing is added until you do**, and duplicates, automations, balances and
+  undo work as they do for any file. A scan or a photo has no text to read, and says so: download
+  the statement as a PDF with text in it, or as CSV, OFX or QFX.
 - **Recommendations**: the AI looks over transactions nobody chose a category for, such as ones an
   automation left alone, and suggests a category for each, with how confident it is and why. Ask
   for a review of recent or uncategorized transactions, then **Apply** or **Dismiss** each
@@ -367,6 +383,32 @@ AI which account or bank anything came from, and four guardrails keep it that wa
 4. **It only suggests.** An AI never changes anything itself. Suggestions wait in the database for
    an admin to apply or dismiss, and a key never goes anywhere but the provider it belongs to, in
    a header, never in what is asked.
+
+#### Reading a PDF statement
+
+A statement says more about you than anything else an AI could be shown: the bank, your name and
+address, the account number, balances. So it is read here, and the AI is only ever sent less than
+a bank statement's transactions:
+
+- **The PDF stays on the server.** Cashcove takes its text out itself, with no AI, and a PDF with
+  no text (a scan or a photo) is refused rather than sent as a picture.
+- **Only the transaction lines go**, each a date, a description and its amounts. The header (the
+  bank, the holder, the address, the account number), summaries, totals and every running balance
+  are left out, and a line's balance is replaced by `[balance]`.
+- **Each line is scrubbed first**: account and card numbers, phone numbers, ID numbers, street
+  addresses, email addresses, the name of every account and bank you've set up, **the name of
+  everyone in your household**, and the name after `Zelle to`, `Venmo`, `PayPal`, `Cash App` or a
+  wire become `[account]`, `[person]`, `[address]` or `[hidden]`. The same last check refuses the
+  request if anything is still in it.
+- **The account is found here**: from the last digits on the statement and the bank's name, matched
+  to the accounts you've set up. It's a suggestion you can change in the review, and it never goes
+  to the AI. If nothing matches, you choose the account.
+- **Which way the money went is read here** too, from the statement's own columns (Withdrawals and
+  Deposits, or CR and DR), and the AI is told `(in)` or `(out)`. A minus sign isn't treated as
+  certain, since banks use it both ways.
+- **What comes back is checked**: an amount must be one that is on the line it names, a date far
+  outside the statement's dates says it needs a look, and anything unsure is flagged in the
+  review. The AI can be wrong, which is why every row is yours to check.
 
 Cashcove can only recognize the accounts and banks you've set up, so a payee that names some other
 bank is treated as the payee it is, and the dates, amounts and payees an AI is sent are real. To

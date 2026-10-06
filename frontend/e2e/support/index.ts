@@ -38,6 +38,7 @@ export {
   OLLAMA_DOWN_ADDRESS,
   OLLAMA_MODELS,
   addPayment,
+  holdAi,
   setUpAi,
   type AiProviderKey,
   type AiRequest,
@@ -65,6 +66,7 @@ export {
   ImportPage,
   type BalanceChoice,
   type ColumnMatch,
+  type RowChanges,
   type RowFilter,
 } from './pages/import-page'
 export {
@@ -82,12 +84,15 @@ export { NEW_BANKS, PlaidStandIn, type BankTransaction, type NewBank } from './p
 export { signInFiles } from './sign-in-files'
 export {
   bankDate,
+  bankStatementPdf,
   csvFile,
   ofxFile,
+  pdfFile,
   qifFile,
   simpleCsv,
   type DateOrder,
   type OfxAccount,
+  type PdfStatementAccount,
   type StatementFile,
   type StatementRow,
 } from './statements'

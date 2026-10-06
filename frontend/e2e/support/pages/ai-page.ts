@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
+import type { StatementFile } from '../statements'
 import { exactly, startingWith } from './fields'
 
 export type AiSection = 'ask' | 'recommendations' | 'usage'
@@ -46,6 +47,20 @@ export class AiPage {
   readonly retry: Locator
   readonly clear: Locator
 
+  /**
+   * Statements: the offer in the welcome, the paperclip, what's said of a file that can't be
+   * read here, a card for each statement in the conversation, and the drop target.
+   */
+  readonly statementOffer: Locator
+  readonly statementChoose: Locator
+  readonly statementViewer: Locator
+  readonly attach: Locator
+  readonly attachProblem: Locator
+  readonly statementCards: Locator
+  /** The conversation's card, which a file can be dropped on, and what shows while one is over it. */
+  readonly conversation: Locator
+  readonly dropTarget: Locator
+
   /** Recommendations: the review dialog, the progress and the suggestions listed. */
   readonly reviewButton: Locator
   readonly reviewDialog: Locator
@@ -80,6 +95,15 @@ export class AiPage {
     this.error = page.getByTestId('chat-error')
     this.retry = page.getByTestId('chat-retry')
     this.clear = page.getByTestId('chat-clear')
+
+    this.statementOffer = page.getByTestId('chat-statement-offer')
+    this.statementChoose = page.getByTestId('chat-statement-choose')
+    this.statementViewer = page.getByTestId('chat-statement-viewer')
+    this.attach = page.getByTestId('chat-attach')
+    this.attachProblem = page.getByTestId('chat-attach-problem')
+    this.statementCards = page.getByTestId('statement-card')
+    this.conversation = page.getByTestId('chat-card')
+    this.dropTarget = page.getByTestId('chat-drop')
 
     this.reviewButton = page.getByTestId('review-open')
     this.reviewDialog = page.getByRole('dialog', { name: 'Review transactions' })
@@ -122,6 +146,55 @@ export class AiPage {
     await this.send.click()
     await expect(this.messages).toHaveCount(before + 2)
     await expect(this.busy).toHaveCount(0)
+  }
+
+  /** The latest statement in the conversation: being read, found or failed. */
+  get statement(): Locator {
+    return this.statementCards.last()
+  }
+
+  /** What the latest statement's card says it found, e.g. `Found 4 transactions in x.pdf`. */
+  get found(): Locator {
+    return this.statement.getByTestId('statement-found')
+  }
+
+  /**
+   * Gives the AI a PDF to read, as the paperclip does, and waits until it has finished: it
+   * has found transactions, or says why it couldn't.
+   */
+  async attachStatement(file: StatementFile): Promise<void> {
+    const before = await this.statementCards.count()
+    await this.page.getByTestId('chat-file').setInputFiles(file)
+    await expect(this.statementCards).toHaveCount(before + 1)
+    await expect(this.statement).toHaveAttribute('data-status', /^(done|failed)$/)
+  }
+
+  /**
+   * Drops a PDF on the conversation, as dragging one in from the desktop does, and waits
+   * until it has been read. Dragging it over shows where to drop it.
+   */
+  async dropStatement(file: StatementFile): Promise<void> {
+    const before = await this.statementCards.count()
+    const transfer = await this.page.evaluateHandle(
+      ({ name, mimeType, bytes }) => {
+        const data = new DataTransfer()
+        data.items.add(new File([new Uint8Array(bytes)], name, { type: mimeType }))
+        return data
+      },
+      { name: file.name, mimeType: file.mimeType, bytes: Array.from(file.buffer) },
+    )
+    await this.conversation.dispatchEvent('dragenter', { dataTransfer: transfer })
+    await expect(this.dropTarget).toBeVisible()
+    await this.conversation.dispatchEvent('drop', { dataTransfer: transfer })
+    await expect(this.dropTarget).toHaveCount(0)
+    await expect(this.statementCards).toHaveCount(before + 1)
+    await expect(this.statement).toHaveAttribute('data-status', /^(done|failed)$/)
+  }
+
+  /** Opens what the AI found for review, in the same dialog as the Import tab's. */
+  async reviewStatement(): Promise<void> {
+    await this.statement.getByTestId('statement-review').click()
+    await expect(this.page.getByTestId('import-review')).toBeVisible()
   }
 
   /** The text of the latest message in the conversation. */

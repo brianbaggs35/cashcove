@@ -19,7 +19,12 @@ Anthropic and OpenAI, each tried before it is saved), ask questions, have the AI
 transactions are sorted (on the AI tab, and as the last step of an import) and apply or dismiss
 what it suggests, and read what it all cost. They also prove what never leaves: every request the
 AI providers received is kept, and the specs check that no account number, account name or bank
-name is in any of them. AI is optional, so there are specs for the app without it, too.
+name is in any of them. AI is optional, so there are specs for the app without it, too. Reading a PDF bank statement is
+specced from the AI tab's chat and the Import tab: the chat says it is reading while the AI works,
+and the reading can be stopped, a row can be corrected, flipped or flagged, and what is imported
+is the person's to tick. The privacy spec reads a statement full of what must stay at home (the
+account number, the holder's name and address, a phone number, a Zelle payment to a person and
+every balance) and checks that none of it is in what the AI received.
 
 ## Running them
 
@@ -308,6 +313,13 @@ use (`null` for none), `simpleCsv(name, rows)` with Date, Description and Amount
 `qifFile(name, rows)`. `bankDate(daysAgo)` writes a day the way US banks do, or day first
 with `'dmy'`.
 
+For a PDF statement there is `bankStatementPdf(name, rows, { bank, holder, number, address, period })`,
+laid out the way a bank's PDF is (the bank, the holder, the address and the account number on
+top, then Withdrawals, Deposits and Balance columns), and `pdfFile(name, pages)` for any lines
+on any pages: `pdfFile('scan.pdf', [[]])` has no text, as a scan has. A PDF is read by the AI, so
+a spec that chooses one sets AI up first, and the test server's stand-in reads the lines it is
+sent.
+
 ```ts
 test('an admin imports a bank export', async ({ importPage }) => {
   await importPage.goto()
@@ -382,6 +394,13 @@ transactions it was given and what was asked.
   Settings, so a spec can start from there.
 - `addPayment(api, baseline, 'Starbucks', { amount, daysAgo })` enters a payment with no category,
   for the AI to have a view on.
+- `holdAi(page, 'chat' | 'statements')` holds the AI's answer to a question, or its reading of a
+  PDF, until `release()` is called, so a spec can look at what the page says while the AI works
+  (the progress, the button that stops it, the accessibility of the busy state), which is over in a
+  moment otherwise.
+- `aiPage.attachStatement(file)`, `aiPage.dropStatement(file)` and `aiPage.reviewStatement()` give
+  the chat a PDF, as the paperclip and a drop do, and open what the AI found in the import's review,
+  where `importPage.editRow(text, changes)` and `importPage.flipMoney()` correct it.
 - `harness.aiRequests()` lists every request the providers received since the last reset, with
   the host, the path, whether it came with the right key and the body exactly as sent, to check
   what was and wasn't shared.

@@ -18,7 +18,18 @@ export type ColumnMatch =
   | 'Not imported'
 
 /** Which of the file's rows the review step shows. */
-export type RowFilter = 'All' | 'New' | 'Maybe there' | 'Already there' | 'Can’t be read'
+export type RowFilter =
+  'All' | 'Needs a look' | 'New' | 'Maybe there' | 'Already there' | 'Can’t be read'
+
+/** What can be changed about a row the AI read off a PDF, in the dialog its pencil opens. */
+export interface RowChanges {
+  who?: string
+  /** A positive amount, as it's typed: `direction` says which way the money went. */
+  amount?: string
+  direction?: 'Money in' | 'Money out'
+  /** As the household's dates are written, e.g. `'09/04/2026'`. */
+  date?: string
+}
 
 /** What importing does to an account kept by hand's balance: take the file's, add what's
  * imported, or leave it as it is. */
@@ -45,6 +56,11 @@ export class ImportPage {
   readonly reviewRows: Locator
   /** The dialog asking to confirm undoing an import, while it's open. */
   readonly undoDialog: Locator
+  /** The note that says the AI read the rows, and what it left out. */
+  readonly statementNote: Locator
+  readonly statementSkipped: Locator
+  /** The dialog the pencil on a row opens, to correct what the AI read. */
+  readonly rowDialog: Locator
   /** The steps the dialog goes through: the last is the AI's, when AI is set up. */
   readonly steps: Locator
   /** The AI's second opinion on the rows that were just imported. */
@@ -69,6 +85,9 @@ export class ImportPage {
     this.columnRows = this.dialog.getByTestId('column-row')
     this.reviewRows = this.dialog.getByTestId('review-row')
     this.undoDialog = page.getByRole('dialog', { name: /^Undo importing/ })
+    this.statementNote = this.dialog.getByTestId('review-statement-note')
+    this.statementSkipped = this.dialog.getByTestId('review-statement-skipped')
+    this.rowDialog = page.getByRole('dialog', { name: 'Check this transaction' })
     this.steps = this.dialog.getByTestId('step-list').getByRole('listitem')
     this.aiStep = this.dialog.getByTestId('import-ai')
     this.aiSuggestions = this.dialog.getByTestId('recommendation')
@@ -136,6 +155,32 @@ export class ImportPage {
       .locator('.v-chip')
       .filter({ hasText: new RegExp(`^\\s*${filter}\\s+[\\d,]+\\s*$`) })
       .click()
+  }
+
+  /** Corrects a row the AI read, and waits for the rows to be read again with the change. */
+  async editRow(text: string, changes: RowChanges): Promise<void> {
+    await this.row(text).getByTestId('review-row-edit').click()
+    await expect(this.rowDialog).toBeVisible()
+    const field = (name: string) => this.rowDialog.getByTestId(`statement-row-${name}`)
+    if (changes.direction) {
+      await field('direction').getByRole('button', { name: changes.direction }).click()
+    }
+    if (changes.amount !== undefined)
+      await field('amount').getByRole('textbox').fill(changes.amount)
+    if (changes.date !== undefined) {
+      // Enter would send the form before the rest is filled in.
+      const date = field('date').getByRole('textbox')
+      await date.fill(changes.date)
+      await date.press('Tab')
+    }
+    if (changes.who !== undefined) await field('payee').getByRole('textbox').fill(changes.who)
+    await this.rereading(() => field('save').click())
+    await expect(this.rowDialog).toBeHidden()
+  }
+
+  /** Turns every row's money in to money out and the other way round, and waits for the rows. */
+  async flipMoney(): Promise<void> {
+    await this.rereading(() => this.dialog.getByTestId('review-flip').click())
   }
 
   /** Chooses what happens to the account's balance. */
