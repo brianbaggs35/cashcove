@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookmarkCheck, Link, Plus, Sparkles, WandSparkles } from '@lucide/vue'
+import { ArrowLeftRight, BookmarkCheck, Link, Plus, Sparkles, WandSparkles } from '@lucide/vue'
 import { computed, nextTick, useTemplateRef, watch } from 'vue'
 
 import type { Account } from '@/api/accounts'
@@ -172,17 +172,18 @@ const saveLabel = computed(() =>
         wrong, so check each row, and use the pencil to change one.
       </div>
       <div v-if="leftOut" class="mt-1" data-test="review-statement-skipped">{{ leftOut }}</div>
-      <template #append>
-        <v-btn
-          variant="text"
-          size="small"
-          :disabled="wizard.refreshing"
-          data-test="review-flip"
-          @click="wizard.flipSigns()"
-        >
-          Flip money in and out
-        </v-btn>
-      </template>
+      <!-- Under the words, not beside them, which leaves them a few words wide on a phone. -->
+      <v-btn
+        variant="text"
+        size="small"
+        :prepend-icon="ArrowLeftRight"
+        :disabled="wizard.refreshing"
+        class="mt-2 ms-n3"
+        data-test="review-flip"
+        @click="wizard.flipSigns()"
+      >
+        Flip money in and out
+      </v-btn>
     </v-alert>
 
     <v-select

@@ -695,6 +695,8 @@ describe('ImportDialog with a PDF statement', () => {
     await choosePdfWithoutAi(wizard, open)
 
     expect(title()).toBe('Reading a PDF needs AI')
+    // Not an error, so it isn't in an error's colour.
+    expect(dialog().find('.v-avatar').classes()).toContain('text-primary')
     expect(find('import-notice').text()).toContain('can only be done with AI')
     expect(find('import-notice').classes()).toContain('text-info')
     expect(find('import-failed').text()).toContain('AI is optional')

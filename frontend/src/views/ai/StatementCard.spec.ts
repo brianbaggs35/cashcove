@@ -64,7 +64,7 @@ describe('StatementCard', () => {
       const days = formatDateRange({ start: '2026-09-02', end: '2026-12-30' })
       expect(find('statement-details').text()).toBe(`${days} · Looks like Everyday checking`)
       expect(find('statement-figures').text()).toContain('Money in $2,400.00')
-      expect(find('statement-figures').text()).toContain('Money out -$134.12')
+      expect(find('statement-figures').text()).toContain('Money out $134.12')
       expect(find('statement-flagged').text()).toBe('1 needs a look')
     })
 
