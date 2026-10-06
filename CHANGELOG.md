@@ -31,6 +31,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated fastapi to 0.142.2
 - Updated sqlalchemy to 2.1.3
 - Updated mypy to 2.4.0
+- Updated ruff to 0.16.10
 
 ### Added
 
