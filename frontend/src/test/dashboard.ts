@@ -35,6 +35,7 @@ export function makeDashboard(changes: Partial<Dashboard> = {}): Dashboard {
       { payee: 'Blue Bottle', amount: '105.50', count: 1 },
     ],
     uncategorized: 3,
+    ai_recommendations: 0,
     converted: [],
     unavailable: [],
     ...changes,

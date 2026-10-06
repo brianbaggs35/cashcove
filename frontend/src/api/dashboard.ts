@@ -38,6 +38,8 @@ export interface Dashboard {
   payees: PayeeTotal[]
   /** How many transactions, ever, have no category yet. */
   uncategorized: number
+  /** How many categories the AI has suggested that nobody has decided on yet. */
+  ai_recommendations: number
   /** Currencies that were converted, and ones that couldn't be and so aren't counted. */
   converted: string[]
   unavailable: string[]

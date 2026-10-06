@@ -144,7 +144,10 @@ function retry() {
     </v-card>
 
     <template v-else>
-      <AttentionStrip :uncategorized="dashboard.uncategorized" />
+      <AttentionStrip
+        :uncategorized="dashboard.uncategorized"
+        :ai-recommendations="dashboard.ai_recommendations"
+      />
 
       <v-alert
         v-if="dashboard.unavailable.length"
