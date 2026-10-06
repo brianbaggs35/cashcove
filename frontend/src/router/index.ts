@@ -20,6 +20,7 @@ const views: Record<NavName, NonNullable<RouteRecordRaw['component']>> = {
   transactions: () => import('@/views/TransactionsView.vue'),
   categories: () => import('@/views/CategoriesView.vue'),
   automations: () => import('@/views/AutomationsView.vue'),
+  ai: () => import('@/views/AiView.vue'),
   import: () => import('@/views/ImportView.vue'),
   connect: () => import('@/views/ConnectView.vue'),
   settings: () => import('@/views/SettingsView.vue'),
@@ -58,8 +59,8 @@ export const routes: RouteRecordRaw[] = [
   // Categories used to be in Settings, so bookmarks and links to them still land on the tab.
   { path: '/settings/categories', redirect: '/categories' },
   ...navItems.map((item): RouteRecordRaw => ({
-    // Settings sections are deep-linkable, e.g. /settings/alerts.
-    path: item.name === 'settings' ? `${item.path}/:section?` : item.path,
+    // Settings sections and the AI tab's pages are deep-linkable, e.g. /settings/alerts.
+    path: item.name === 'settings' || item.name === 'ai' ? `${item.path}/:section?` : item.path,
     // Banks that sign people in on their own site send them back to Connect, to finish in Plaid
     // Link. The same page handles it, so it stays open while it does.
     alias: item.name === 'connect' ? [CONNECT_OAUTH] : [],
