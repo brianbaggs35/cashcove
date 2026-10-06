@@ -6,12 +6,13 @@ import {
   Server,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Users,
   type LucideIcon,
 } from '@lucide/vue'
 
 export type SettingsSectionKey =
-  'general' | 'users' | 'alerts' | 'sync' | 'account' | 'security' | 'appearance' | 'system'
+  'general' | 'users' | 'alerts' | 'sync' | 'ai' | 'account' | 'security' | 'appearance' | 'system'
 
 export interface SettingsSection {
   key: SettingsSectionKey
@@ -46,6 +47,7 @@ export const settingsGroups: SettingsGroup[] = [
         subtitle: 'How often to fetch new transactions',
         icon: RefreshCw,
       },
+      { key: 'ai', title: 'AI', subtitle: 'Provider, key and model', icon: Sparkles },
     ],
   },
   {

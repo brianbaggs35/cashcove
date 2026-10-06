@@ -10,7 +10,7 @@ describe('settings sections', () => {
     expect(
       settingsGroups.map((group) => [group.title, group.sections.map((section) => section.key)]),
     ).toEqual([
-      ['Household', ['general', 'users', 'alerts', 'sync']],
+      ['Household', ['general', 'users', 'alerts', 'sync', 'ai']],
       ['You', ['account', 'security', 'appearance']],
       ['Cashcove', ['system']],
     ])
@@ -22,6 +22,7 @@ describe('settings sections', () => {
       'users',
       'alerts',
       'sync',
+      'ai',
       'account',
       'security',
       'appearance',
@@ -32,6 +33,7 @@ describe('settings sections', () => {
 
   it('finds sections and falls back to General', () => {
     expect(findSection('sync').title).toBe('Sync')
+    expect(findSection('ai').title).toBe('AI')
     expect(findSection('account').title).toBe('Account')
     expect(findSection('nope')).toBe(defaultSection)
     expect(findSection(undefined)).toBe(defaultSection)
