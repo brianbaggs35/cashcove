@@ -26,6 +26,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated monocart-coverage-reports to 2.13.1
 - Updated sass-embedded to 1.105.1
 - Updated typescript-eslint to 8.71.1
+- Updated vite to 8.3.3
 
 ### Added
 
