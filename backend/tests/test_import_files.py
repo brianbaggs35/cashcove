@@ -29,7 +29,7 @@ def test_text_decodes_from_the_encodings_banks_save_in() -> None:
 def test_workbooks_pdfs_and_other_files_get_a_way_forward() -> None:
     assert problem(b"PK\x03\x04rest of a workbook") == EXCEL
     assert problem(b"\xd0\xcf\x11\xe0old workbook") == EXCEL
-    assert problem(b"%PDF-1.7").startswith("PDF statements can't be imported.")
+    assert problem(b"%PDF-1.7").startswith("A PDF statement is read on the AI tab")
     assert problem(b"GIF89a\x00\x01").startswith("This doesn't look like a statement file.")
     assert problem(b" \r\n ") == "The file is empty."
 
