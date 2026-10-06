@@ -12,7 +12,6 @@ what the bank wrote beside the payee (see ``privacy``).
 """
 
 import datetime as dt
-import json
 import logging
 import uuid
 from collections import defaultdict
@@ -30,6 +29,7 @@ from app.ai.deps import Sessions
 from app.ai.errors import AIError
 from app.ai.privacy import Protected, Text
 from app.ai.providers import Message
+from app.ai.replies import json_in
 from app.ai.service import AIConfig, Gateway, active, load_row
 from app.config import Settings
 from app.finance.text import text_key
@@ -348,18 +348,14 @@ def _line(
 
 def _parse(text: str) -> list[_Suggestion]:
     """The suggestions in the AI's answer, which is JSON but may have words around it."""
-    start = min((index for index in (text.find("{"), text.find("[")) if index >= 0), default=-1)
+    unreadable = "The AI's answer couldn't be read, so nothing was suggested."
+    payload = json_in(text, unreadable)
     try:
-        if start < 0:
-            raise ValueError("no JSON")
-        payload: object = json.JSONDecoder().raw_decode(text[start:])[0]
         return _Answer.model_validate(
             {"suggestions": payload} if isinstance(payload, list) else payload
         ).suggestions
-    except (ValueError, ValidationError) as error:
-        raise AIError(
-            errors.UNREADABLE, "The AI's answer couldn't be read, so nothing was suggested."
-        ) from error
+    except ValidationError as error:
+        raise AIError(errors.UNREADABLE, unreadable) from error
 
 
 def _store(

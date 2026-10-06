@@ -301,7 +301,7 @@ def test_files_only_go_into_open_accounts(
 @pytest.mark.parametrize(
     ("content", "message"),
     [
-        (b"%PDF-1.7", "PDF statements can't be imported."),
+        (b"%PDF-1.7", "A PDF statement is read on the AI tab, which needs AI"),
         (b"<OFX></OFX>", NO_TRANSACTIONS),
     ],
 )

@@ -7,12 +7,14 @@ or dismiss what it suggests. Every request to a provider is made here, by the se
 never reaches the browser and the browser never talks to a provider.
 """
 
+import base64
+import binascii
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Query, status
 
-from app.ai import chat, errors, reviews, service
+from app.ai import chat, errors, reviews, service, statements
 from app.ai.catalog import PROVIDERS, ModelChoice, Price, cloud_price, find_model, provider_info
 from app.ai.deps import AISessions, AITransport
 from app.ai.errors import AIError
@@ -39,6 +41,9 @@ from app.schemas.ai import (
     RecommendationResult,
     ReviewIn,
     ReviewOut,
+    StatementIn,
+    StatementOut,
+    StatementRowOut,
     UsageOut,
 )
 from app.schemas.budget import Day
@@ -200,6 +205,47 @@ def ask(
     except AIError as error:
         raise _problem(error) from error
     return ChatOut(reply=reply)
+
+
+@router.post("/statements")
+def read_statement(
+    body: StatementIn, auth: AdminAuth, db: Db, settings: AppSettings, transport: AITransport
+) -> StatementOut:
+    """Reads a PDF statement for the transactions on it, which nothing adds: they're checked and
+    corrected first, and then imported like any file's. The PDF is read here, and the AI is
+    only sent its transactions, with nothing in them that names an account, a bank or a person."""
+    config = service.require(db, settings)
+    try:
+        data = base64.b64decode(body.content, validate=True)
+    except binascii.Error:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "unreadable_statement",
+            "The file didn't arrive in one piece. Choose it again.",
+        ) from None
+    try:
+        reading = statements.read(db, settings, config, transport, auth.user, data)
+    except statements.StatementProblem as problem:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "unreadable_statement", problem.message
+        ) from None
+    except AIError as error:
+        raise _problem(error) from error
+    return StatementOut(
+        file_name=body.file_name,
+        rows=[
+            StatementRowOut(
+                line=row.line,
+                date=row.date,
+                payee=row.payee,
+                amount=row.amount,
+                note=row.note,
+            )
+            for row in reading.rows
+        ],
+        account_id=reading.account.id if reading.account else None,
+        skipped=reading.skipped,
+    )
 
 
 @router.get("/reviews")

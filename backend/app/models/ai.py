@@ -37,6 +37,8 @@ class AIPurpose(StrEnum):
     REVIEW = "review"
     # The Test button in Settings.
     TEST = "test"
+    # Reading the transactions off a PDF statement.
+    STATEMENT = "statement"
 
 
 class ReviewSource(StrEnum):

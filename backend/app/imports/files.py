@@ -15,8 +15,8 @@ _BINARY = {
     b"PK\x03\x04": EXCEL,
     b"\xd0\xcf\x11\xe0": EXCEL,
     b"%PDF": (
-        "PDF statements can't be imported. Download a CSV, OFX, QFX or QIF file from your "
-        "bank instead."
+        "A PDF statement is read on the AI tab, which needs AI to be set up in Settings > AI. "
+        "Or download a CSV, OFX, QFX or QIF file from your bank."
     ),
 }
 # Where the start of a file says which format it's in.
