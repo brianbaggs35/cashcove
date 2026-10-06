@@ -97,7 +97,10 @@ ANTHROPIC_MODELS = (
     ModelChoice(
         "claude-haiku-4-5-20251001",
         "Claude Haiku 4.5",
-        note="The fastest and cheapest. Anthropic won't retire it before October 15, 2026.",
+        note=(
+            "The fastest and cheapest. Anthropic won't retire it before October 15, 2026, "
+            "and gives at least 60 days' notice."
+        ),
         price=_price("1", "5"),
     ),
     ModelChoice(
@@ -137,7 +140,7 @@ OPENAI_MODELS = (
     ModelChoice(
         "gpt-5-mini",
         "GPT-5 mini",
-        note="OpenAI is shutting it down on December 11, 2026. Use GPT-5.6 Luna instead.",
+        note="OpenAI is shutting it down on December 11, 2026. Use GPT-5.4 mini instead.",
         deprecated=True,
         price=_price("0.25", "2", "0.025"),
     ),
