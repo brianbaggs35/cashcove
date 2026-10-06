@@ -6,6 +6,7 @@ nothing, and Ollama Cloud is billed by plan, so its tokens are counted without a
 """
 
 import datetime as dt
+from collections.abc import Iterator
 from datetime import UTC
 from typing import Any
 
@@ -21,6 +22,20 @@ PURPOSES = {
     AIPurpose.REVIEW: "Second opinions on categories",
     AIPurpose.TEST: "Connection tests",
 }
+
+
+# The most days a range covers, which is the API's limit. It bounds the loop that lists them, so
+# what was asked for only decides where the list stops.
+MAX_DAYS = 366
+
+
+def _each_day(first: dt.date, last: dt.date) -> Iterator[dt.date]:
+    """Every day from `first` to `last`."""
+    for offset in range(MAX_DAYS):
+        day = first + dt.timedelta(days=offset)
+        if day > last:
+            break
+        yield day
 
 
 def _midnight(day: dt.date) -> dt.datetime:
@@ -94,7 +109,7 @@ def usage(db: Session, days: int, today: dt.date) -> UsageOut:
                 tokens=per_day.get(found, (0, 0, 0))[1],
                 cost_micros=per_day.get(found, (0, 0, 0))[2],
             )
-            for found in (first + dt.timedelta(days=offset) for offset in range(days))
+            for found in _each_day(first, today)
         ],
         models=[
             UsageGroup(

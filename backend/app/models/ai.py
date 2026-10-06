@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TimestampMixin, UTCDateTime, enum_type, utcnow
 
 SET_NULL = "SET NULL"
+USERS = "users.id"
 SINGLETON_ID = 1
 
 
@@ -80,9 +81,7 @@ class AISettings(TimestampMixin, Base):
     api_key: Mapped[str | None] = mapped_column(String(1024))
     # Whether a statement file that was just imported gets a second opinion from the AI.
     review_imports: Mapped[bool] = mapped_column(default=True)
-    updated_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete=SET_NULL)
-    )
+    updated_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS, ondelete=SET_NULL))
 
 
 class AIReview(Base):
@@ -100,9 +99,7 @@ class AIReview(Base):
         ForeignKey("file_imports.id", ondelete=SET_NULL), index=True
     )
     # Who started it, and what answered: kept as they were, whatever is set up later.
-    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete=SET_NULL)
-    )
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS, ondelete=SET_NULL))
     provider: Mapped[AIProvider] = mapped_column(enum_type(AIProvider, "ai_provider"))
     model: Mapped[str] = mapped_column(String(120))
     # How many transactions it set out to look at, and how many it has.
@@ -153,9 +150,7 @@ class AIRecommendation(Base):
     )
     created_at: Mapped[dt.datetime] = mapped_column(UTCDateTime(), default=utcnow)
     decided_at: Mapped[dt.datetime | None] = mapped_column(UTCDateTime())
-    decided_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete=SET_NULL)
-    )
+    decided_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS, ondelete=SET_NULL))
 
 
 class AIUsage(Base):
@@ -173,7 +168,7 @@ class AIUsage(Base):
     # What it cost in millionths of a US dollar at the provider's list price, or none where the
     # provider doesn't charge per token (an Ollama cloud plan) and it can't be worked out.
     cost_micros: Mapped[int | None] = mapped_column(BigInteger())
-    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete=SET_NULL))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS, ondelete=SET_NULL))
     review_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("ai_reviews.id", ondelete=SET_NULL), index=True
     )

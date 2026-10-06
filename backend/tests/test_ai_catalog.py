@@ -171,7 +171,8 @@ def test_a_cloud_model_not_on_ollamas_price_list_has_no_cost() -> None:
 def test_every_ollama_cloud_model_on_its_price_list_has_a_price() -> None:
     assert len(OLLAMA_CLOUD_PRICES) == 17
     for name, price in OLLAMA_CLOUD_PRICES.items():
-        assert price.input > 0 and price.output > 0, name
+        assert price.input > 0, name
+        assert price.output > 0, name
         assert cloud_price(name) is price
 
 
@@ -216,7 +217,9 @@ def test_a_model_with_no_price_has_no_cost() -> None:
 def test_every_hosted_model_has_a_price_with_a_cached_rate() -> None:
     for model in (*ANTHROPIC_MODELS, *OPENAI_MODELS):
         assert model.price is not None, model.id
-        assert model.price.input > 0 and model.price.output > model.price.input / 10
+        assert model.price.input > 0
+        assert model.price.output > model.price.input / 10
     for model in OPENAI_MODELS:
-        assert model.price is not None and model.price.cached is not None, model.id
+        assert model.price is not None, model.id
+        assert model.price.cached is not None, model.id
         assert model.price.cached < model.price.input

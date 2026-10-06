@@ -1,6 +1,7 @@
 """The guardrails that keep account numbers, account names and bank names from an AI."""
 
 import datetime as dt
+import time
 
 import pytest
 from sqlalchemy.orm import Session
@@ -147,6 +148,38 @@ def test_a_question_keeps_years_and_amounts_but_not_long_numbers(text: str, expe
 
 def test_a_mask_in_a_question_is_still_taken_out() -> None:
     assert "4410" not in scrub("what is in the account ending in 4410", Text.ASKED)
+
+
+def test_the_spaces_and_dashes_after_a_number_are_kept() -> None:
+    assert scrub("Ref 12345678 - paid", Text.ASKED) == "Ref # - paid"
+    assert scrub("Ref 1234 - paid") == "Ref # - paid"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "*" * 4000,
+        "•" * 4000,
+        "x" * 4000,
+        "card" + " " * 4000,
+        "a" * 4000,
+        "a-" * 2000,
+        " " * 4000,
+        "1 " * 2000,
+        "1-" * 2000,
+        "a" * 4000 + "@",
+        "a@" + "b" * 4000,
+        "a@b." * 1000,
+        "#" + " " * 4000,
+    ],
+)
+def test_no_text_however_long_or_odd_makes_scrubbing_slow(text: str) -> None:
+    started = time.perf_counter()
+    HOUSEHOLD.scrub(text, Text.ASKED)
+    HOUSEHOLD.scrub(text, Text.BANK)
+    HOUSEHOLD.leaks(text)
+
+    assert time.perf_counter() - started < 0.5
 
 
 def test_a_date_isnt_mistaken_for_an_account_number() -> None:
