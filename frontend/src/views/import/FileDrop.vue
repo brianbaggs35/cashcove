@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, FileUp, Upload } from '@lucide/vue'
+import { ChevronDown, FileUp, Sparkles, Upload } from '@lucide/vue'
 import { ref, useTemplateRef } from 'vue'
 
 import { ACCEPTED_FILES, FILE_FORMATS } from '@/views/import/file'
@@ -74,6 +74,16 @@ function drop(event: DragEvent) {
           <v-chip v-for="name in FILE_FORMATS" :key="name" size="x-small" variant="tonal" label>
             {{ name }}
           </v-chip>
+          <v-chip
+            size="x-small"
+            variant="tonal"
+            color="primary"
+            label
+            :prepend-icon="Sparkles"
+            data-test="file-format-pdf"
+          >
+            PDF, read by AI
+          </v-chip>
         </div>
       </div>
       <v-btn
@@ -125,10 +135,15 @@ function drop(event: DragEvent) {
             </li>
             <li><strong>QIF</strong>, an older Quicken format, works too.</li>
           </ul>
+          <p class="mb-2">
+            <strong>PDF</strong> statements are read by the AI, so they can only be imported once AI
+            is set up in Settings. It takes the transactions off the PDF, with your account numbers,
+            names and addresses kept on this computer, and you check them before anything is added.
+            A scan or a photo of a statement can’t be read.
+          </p>
           <p class="mb-0 text-medium-emphasis">
-            PDF statements can’t be read. Banks keep a year or two online, so importing their files
-            now and then keeps your whole history in Cashcove, including accounts connected through
-            Plaid.
+            Banks keep a year or two online, so importing their files now and then keeps your whole
+            history in Cashcove, including accounts connected through Plaid.
           </p>
         </div>
       </v-expand-transition>

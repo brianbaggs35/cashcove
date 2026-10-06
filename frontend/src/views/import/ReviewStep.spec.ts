@@ -280,3 +280,83 @@ describe('ReviewStep', () => {
     expect(find('review-format-name').exists()).toBe(false)
   })
 })
+
+describe('ReviewStep with a statement the AI read', () => {
+  const statement = makePreview({ format: 'pdf', file_name: 'harbor-september.pdf' })
+  const aiRead =
+    (changes: Partial<{ skipped: number; suggested: string | null }> = {}) =>
+    (wizard: ReturnType<typeof seedWizard>) => {
+      wizard.source = 'statement'
+      wizard.skipped = changes.skipped ?? 0
+      wizard.suggestedAccount = changes.suggested === undefined ? checking.id : changes.suggested
+    }
+
+  it('says the AI read the rows, and to check each one', async () => {
+    const { find } = await render(statement, aiRead())
+
+    expect(find('review-file').text()).toContain('PDF · 4 transactions')
+    expect(find('review-statement-note').text()).toContain('The AI read these off your PDF.')
+    expect(find('review-statement-note').text()).toContain('use the pencil to change one')
+    expect(find('review-statement-skipped').exists()).toBe(false)
+  })
+
+  it('says nothing of the AI for a file Cashcove read itself', async () => {
+    const { find } = await render()
+
+    expect(find('review-statement-note').exists()).toBe(false)
+  })
+
+  it('says how many lines it left out', async () => {
+    const one = await render(statement, aiRead({ skipped: 1 }))
+    expect(one.find('review-statement-skipped').text()).toBe(
+      '1 other line looked like a transaction but wasn’t, and was left out.',
+    )
+    one.wrapper.unmount()
+
+    const many = await render(statement, aiRead({ skipped: 1204 }))
+    expect(many.find('review-statement-skipped').text()).toBe(
+      '1,204 other lines looked like transactions but weren’t, and were left out.',
+    )
+  })
+
+  it('flips which way the money went, until the statement is read again', async () => {
+    const { wizard, find } = await render(statement, aiRead())
+    const flip = vi.spyOn(wizard, 'flipSigns').mockImplementation(() => undefined)
+
+    await find('review-flip').trigger('click')
+    expect(flip).toHaveBeenCalledOnce()
+
+    wizard.refreshing = true
+    await flushPromises()
+    expect(find('review-flip').attributes('disabled')).toBeDefined()
+  })
+
+  it('says which account the last digits matched, here on this computer', async () => {
+    const { find } = await render(statement, aiRead())
+
+    expect(find('review-account').text()).toContain(
+      'Matched from the last digits on the statement, here on this computer. Change it if it’s wrong.',
+    )
+  })
+
+  it('stops saying that once another account is chosen', async () => {
+    const { find, wizard } = await render(statement, aiRead())
+
+    wizard.accountId = savings.id
+    await flushPromises()
+
+    expect(find('review-account').text()).not.toContain('Matched from the last digits')
+  })
+
+  it('asks for the account when none matched, rather than guessing', async () => {
+    const { find } = await render(
+      makePreview({ format: 'pdf', file_name: 'harbor-september.pdf', account_id: null }),
+      aiRead({ suggested: null }),
+    )
+
+    expect(find('review-account').text()).toContain(
+      'Choose the account these are from, or add it as a new one.',
+    )
+    expect(find('review-account').text()).not.toContain('Matched from the last digits')
+  })
+})

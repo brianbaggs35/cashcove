@@ -1,10 +1,11 @@
 import { apiDelete, apiGet, apiPost, apiPut } from '@/api/client'
+import type { ImportFile } from '@/api/imports'
 
 /** Where the household's AI runs. */
 export type AiProviderKey = 'ollama_local' | 'ollama_cloud' | 'anthropic' | 'openai'
 
 /** What a request to the AI was for. */
-export type AiPurpose = 'chat' | 'review' | 'test'
+export type AiPurpose = 'chat' | 'review' | 'test' | 'statement'
 
 /** One model someone can pick. */
 export interface AiModel {
@@ -71,6 +72,32 @@ export interface AiTestResult {
 export interface ChatTurn {
   role: 'user' | 'assistant'
   content: string
+}
+
+/** The biggest PDF the API reads. */
+export const MAX_STATEMENT_BYTES = 10 * 1024 * 1024
+
+/** One transaction as the AI read it off a statement, which may need checking. */
+export interface StatementRow {
+  /** Its number among the rows, counted from 1. */
+  line: number
+  date: string | null
+  payee: string
+  /** Positive for money in, negative for money out. */
+  amount: string | null
+  /** Why it should be checked, in words for people. */
+  note: string | null
+}
+
+/** What the AI read off a PDF statement. Nothing is added until it's checked and imported. */
+export interface StatementReading {
+  file_name: string
+  rows: StatementRow[]
+  /** The account the statement seems to be for, worked out on the server from the last digits
+   * and the bank it shows: none of that was sent to the AI. */
+  account_id: string | null
+  /** Lines that looked like transactions but weren't. */
+  skipped: number
 }
 
 export type ReviewSource = 'manual' | 'import'
@@ -207,6 +234,11 @@ export const testAiConnection = (input: AiConnectionInput) =>
 /** The reply to the last turn, which has to be a question. `today` is where the person is. */
 export const askAi = (messages: ChatTurn[], today: string) =>
   apiPost<{ reply: string }>('/ai/chat', { messages, today })
+
+/** Reads a PDF statement for its transactions. The PDF is read on the server, and the AI only
+ * gets the lines that are transactions, with nothing in them that names an account or a person. */
+export const readStatementWithAi = (file: ImportFile) =>
+  apiPost<StatementReading>('/ai/statements', file)
 
 /** Starts a review, which carries on after this answers: read it again to see how it's going. */
 export const startAiReview = (input: AiReviewInput) => apiPost<AiReview>('/ai/reviews', input)

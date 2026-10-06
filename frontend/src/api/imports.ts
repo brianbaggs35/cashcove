@@ -2,8 +2,8 @@ import type { AccountType } from '@/api/accounts'
 import { apiDelete, apiGet, apiPatch, apiPost, apiRequest } from '@/api/client'
 import type { BulkResult, TransactionSource } from '@/api/transactions'
 
-/** OFX covers QFX and QBO files, which are OFX too. */
-export type FileFormat = 'csv' | 'ofx' | 'qif'
+/** OFX covers QFX and QBO files, which are OFX too. A PDF is a statement the AI read. */
+export type FileFormat = 'csv' | 'ofx' | 'qif' | 'pdf'
 /** Which way round a date's numbers go: 2026-09-26, 09/26/2026 or 26/09/2026. */
 export type DateOrder = 'ymd' | 'mdy' | 'dmy'
 export type DecimalMark = '.' | ','

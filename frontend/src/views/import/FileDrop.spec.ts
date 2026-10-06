@@ -29,10 +29,19 @@ describe('FileDrop', () => {
       'QFX',
       'QBO',
       'QIF',
+      'PDF, read by AI',
     ])
     expect(wrapper.find('[data-test="file-input"]').attributes('accept')).toBe(
-      '.csv,.tsv,.txt,.ofx,.qfx,.qbo,.qif',
+      '.csv,.tsv,.txt,.ofx,.qfx,.qbo,.qif,.pdf',
     )
+  })
+
+  it('marks PDF as the one the AI reads, so it’s clear it needs AI', async () => {
+    const { wrapper } = await render()
+    const pdf = wrapper.find('[data-test="file-format-pdf"]')
+
+    expect(pdf.text()).toBe('PDF, read by AI')
+    expect(pdf.find('.v-icon').exists()).toBe(true)
   })
 
   it('opens the file picker, from its button or when asked', async () => {
@@ -93,8 +102,21 @@ describe('FileDrop', () => {
     expect(toggle.attributes('aria-expanded')).toBe('false')
     await toggle.trigger('click')
     expect(toggle.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.find('[data-test="file-help"]').text()).toContain(
-      'PDF statements can’t be read.',
-    )
+    const help = wrapper.find('[data-test="file-help"]').text()
+    expect(help).toContain('PDF statements are read by the AI')
+    expect(help).toContain('can only be imported once AI is set up in Settings')
+    expect(help).toContain('kept on this computer')
+    expect(help).toContain('A scan or a photo of a statement can’t be read.')
+    expect(help).not.toContain('PDF statements can’t be read.')
+  })
+
+  it('hands on a PDF the same way, for the import to have the AI read', async () => {
+    const { wrapper, drag } = await render()
+    const statement = new File(['%PDF-1.7'], 'september.pdf', { type: 'application/pdf' })
+
+    await choose(wrapper.find('[data-test="file-input"]'), [statement])
+    await drag('drop', ['Files'], [statement])
+
+    expect(wrapper.emitted('file')).toEqual([[statement], [statement]])
   })
 })
