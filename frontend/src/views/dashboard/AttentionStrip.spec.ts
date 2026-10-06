@@ -3,9 +3,9 @@ import { fidelity, makeConnection } from '@/test/connections'
 import { mountWithPlugins } from '@/test/mount'
 import AttentionStrip from '@/views/dashboard/AttentionStrip.vue'
 
-async function render(uncategorized: number, connections = [fidelity]) {
+async function render(uncategorized: number, connections = [fidelity], aiRecommendations = 0) {
   const { wrapper } = await mountWithPlugins(AttentionStrip, {
-    props: { uncategorized },
+    props: { uncategorized, aiRecommendations },
     beforeMount: () => {
       useConnectionsStore().connections = connections
     },
@@ -54,5 +54,42 @@ describe('AttentionStrip', () => {
     const onlyCategories = await render(2, [])
     expect(onlyCategories.find('[data-test="attention-banks"]').exists()).toBe(false)
     expect(onlyCategories.find('[data-test="attention-uncategorized"]').exists()).toBe(true)
+  })
+
+  describe('what the AI suggested', () => {
+    it('says how many suggestions are waiting, and where to look at them', async () => {
+      const wrapper = await render(0, [], 3)
+
+      expect(wrapper.find('[data-test="attention"]').exists()).toBe(true)
+      expect(wrapper.find('[data-test="attention-ai"]').text()).toContain(
+        'The AI has 3 suggestions for how your transactions are sorted.',
+      )
+      expect(wrapper.find('[data-test="attention-ai-review"]').attributes('href')).toBe(
+        '/ai/recommendations',
+      )
+      expect(wrapper.find('[data-test="attention-banks"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="attention-uncategorized"]').exists()).toBe(false)
+    })
+
+    it('says it in the singular', async () => {
+      const wrapper = await render(0, [], 1)
+
+      expect(wrapper.find('[data-test="attention-ai"]').text()).toContain(
+        'The AI has 1 suggestion for how your transactions are sorted.',
+      )
+    })
+
+    it('says nothing when there are none, which is always so without AI', async () => {
+      const wrapper = await render(2, [], 0)
+
+      expect(wrapper.find('[data-test="attention-ai"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="attention-uncategorized"]').exists()).toBe(true)
+    })
+
+    it('sits with the other things that need a look', async () => {
+      const wrapper = await render(2, [fidelity], 4)
+
+      expect(wrapper.findAll('[data-test="attention"] .v-alert')).toHaveLength(3)
+    })
   })
 })
