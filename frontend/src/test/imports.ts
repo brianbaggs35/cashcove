@@ -177,6 +177,7 @@ export function makeImport(changes: Partial<FileImport> = {}): FileImport {
     created_at: '2026-05-31T10:00:00Z',
     created_by: 'Alex Rivera',
     sorted: 0,
+    ai_review_id: null,
     ...changes,
   }
 }

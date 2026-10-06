@@ -21,7 +21,7 @@ import { sumAmounts } from '@/utils/money'
 import { coveredByBank } from '@/views/import/columns'
 import { readStatement } from '@/views/import/file'
 
-export type ImportStep = 'reading' | 'columns' | 'review' | 'importing' | 'done' | 'failed'
+export type ImportStep = 'reading' | 'columns' | 'review' | 'importing' | 'done' | 'ai' | 'failed'
 
 /** How long to wait after a change to the columns before reading the file again. */
 export const REREAD_DELAY = 350
@@ -272,7 +272,8 @@ export const useImportWizard = defineStore('import-wizard', () => {
         save_profile: formatSave.value,
       })
       record.value = done
-      step.value = 'done'
+      // With AI set up, the automations have sorted what they could and the AI looks next.
+      step.value = done.ai_review_id ? 'ai' : 'done'
       imports.added(done)
       // Saved formats and balances changed too.
       void imports.load()
