@@ -2,6 +2,7 @@ import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simp
 
 import * as account from '@/api/account'
 import * as accounts from '@/api/accounts'
+import * as ai from '@/api/ai'
 import * as auth from '@/api/auth'
 import * as budget from '@/api/budget'
 import * as categories from '@/api/categories'
@@ -621,8 +622,89 @@ const endpoints: [string, () => Promise<unknown>, string, string, unknown][] = [
   ],
 ]
 
+const connection: ai.AiConnectionInput = {
+  provider: 'ollama_local',
+  base_url: 'http://host.docker.internal:11434',
+  api_key: null,
+  model: null,
+}
+
+// What the AI tab and Settings > AI ask of the API.
+const aiEndpoints: typeof endpoints = [
+  ['fetchAiProviders', () => ai.fetchAiProviders(), 'GET', '/ai/providers', undefined],
+  ['fetchAiSettings', () => ai.fetchAiSettings(), 'GET', '/ai/settings', undefined],
+  [
+    'saveAiSettings',
+    () =>
+      ai.saveAiSettings({
+        provider: 'openai',
+        model: 'gpt-6-luna',
+        base_url: null,
+        api_key: 'sk-test-key-12345',
+        review_imports: true,
+      }),
+    'PUT',
+    '/ai/settings',
+    {
+      provider: 'openai',
+      model: 'gpt-6-luna',
+      base_url: null,
+      api_key: 'sk-test-key-12345',
+      review_imports: true,
+    },
+  ],
+  ['removeAiSettings', () => ai.removeAiSettings(), 'DELETE', '/ai/settings', undefined],
+  ['fetchAiModels', () => ai.fetchAiModels(connection), 'POST', '/ai/models', connection],
+  ['testAiConnection', () => ai.testAiConnection(connection), 'POST', '/ai/test', connection],
+  [
+    'askAi',
+    () => ai.askAi([{ role: 'user', content: 'How much on coffee?' }], '2026-09-20'),
+    'POST',
+    '/ai/chat',
+    { messages: [{ role: 'user', content: 'How much on coffee?' }], today: '2026-09-20' },
+  ],
+  [
+    'startAiReview',
+    () => ai.startAiReview({ scope: 'recent', days: 30, limit: 50, today: '2026-09-20' }),
+    'POST',
+    '/ai/reviews',
+    { scope: 'recent', days: 30, limit: 50, today: '2026-09-20' },
+  ],
+  ['fetchAiReviews', () => ai.fetchAiReviews(), 'GET', '/ai/reviews', undefined],
+  ['fetchAiReview', () => ai.fetchAiReview('r1'), 'GET', '/ai/reviews/r1', undefined],
+  [
+    'fetchRecommendations',
+    () => ai.fetchRecommendations(),
+    'GET',
+    '/ai/recommendations',
+    undefined,
+  ],
+  [
+    'fetchRecommendations with a query',
+    () => ai.fetchRecommendations({ status: 'applied', review_id: 'r1', page: 2, page_size: 20 }),
+    'GET',
+    '/ai/recommendations?status=applied&review_id=r1&page=2&page_size=20',
+    undefined,
+  ],
+  [
+    'applyRecommendations',
+    () => ai.applyRecommendations(['a', 'b']),
+    'POST',
+    '/ai/recommendations/apply',
+    { ids: ['a', 'b'] },
+  ],
+  [
+    'dismissRecommendations',
+    () => ai.dismissRecommendations(['a']),
+    'POST',
+    '/ai/recommendations/dismiss',
+    { ids: ['a'] },
+  ],
+  ['fetchAiUsage', () => ai.fetchAiUsage(30), 'GET', '/ai/usage?days=30', undefined],
+]
+
 describe('API endpoints', () => {
-  it.each(endpoints)('%s', async (_, call, method, path, body) => {
+  it.each([...endpoints, ...aiEndpoints])('%s', async (_, call, method, path, body) => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) })
