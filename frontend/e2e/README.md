@@ -14,6 +14,12 @@ links payments to a bill from both, and keeps a category chosen by hand.
 The Bills spec adds bills from the payment that paid them and links payments to them by hand and
 by automation, from the bank and from a statement file, and checks their reminders, categories
 and place in a budget.
+The AI specs set each provider up as Settings > AI does (Ollama on the computer and in the cloud,
+Anthropic and OpenAI, each tried before it is saved), ask questions, have the AI look over how
+transactions are sorted (on the AI tab, and as the last step of an import) and apply or dismiss
+what it suggests, and read what it all cost. They also prove what never leaves: every request the
+AI providers received is kept, and the specs check that no account number, account name or bank
+name is in any of them. AI is optional, so there are specs for the app without it, too.
 
 ## Running them
 
@@ -279,6 +285,8 @@ working across resets, even a reset in the middle of a test.
 | `budgetPage`                  | The Budget tab: `goto({ budget, on })`, `card(name)`, `choose(name)`, `tile('income' \| 'spent' \| 'net')`, `left`, `source(name)`, `transaction(payee)`, the dialogs' `openNew()`, `openEdit()`, `fillIn({ name, period, amount, startsOn })` and `save()`, and for what counts `openLink('income' \| 'spending')`, `chooseTab(tab)`, `tick(payee)`, `pickIn('account' \| 'category' \| 'subscription' \| 'rule', name)`, `add()`, `takeOff(payee)` and `showTransactions(filter)`. |
 | `connectPage`                 | The Connect tab: `goto()`, `card(bank)`, `status(bank)`, `account(bank, name)`, `syncNow(bank)`, `act(bank, 'choose')` from a bank's menu, `remove(bank, { deleteAccounts })`, and the wizard's `startConnecting({ history })`, `chooseAccounts(...names)`, `renameAccount(name, to)`, `importAccounts()` and `finish()`.                                                                                                                                                            |
 | `importPage`                  | The Import tab: `goto()`, `chooseFile(file)`, the columns step's `columnMatch(column)`, `matchColumn(column, 'Amount')` and `continue()`, the review step's `chooseAccount(name)`, `row(text)`, `tick(texts, { on })`, `showRows('New')`, `chooseBalance('move')` and `saveFormat(name)`, then `importRows()`, `seeTransactions()` and `close()`, and the lists' `importItem(file)`, `undo(file)`, `format(name)`, `renameFormat(name, to)` and `deleteFormat(name)`.                |
+| `aiPage`                      | The AI tab: `goto('ask' \| 'recommendations' \| 'usage')`, `ask(question)` and `messages`, `review({ scope })`, `suggestion(payee)`, `apply(payee)`, `dismiss(payee)`, `tick(payees)` with `applySelected` and `dismissSelected`, `show('Applied')`, `tile('open')` and, for usage, `usageTile('month')`, `modelRow(name)` and `showRange('7 days')`.                                                                                                                                |
+| `aiSettingsPage`              | Settings > AI: `goto()`, `chooseProvider('openai')`, `enterKey(key)`, `enterAddress(url)`, `fetchModels()`, `chooseModel(name)`, `modelChoices()`, `test()`, `save()` and `turnOff()`, and its `status`, `testResult` and `fetched`.                                                                                                                                                                                                                                                 |
 | `plaid`                       | Plaid, as the next section describes: Link's window (`link`), with `connect(bank)`, `signInAgain()`, `close()` and `fail()`, and the banks behind the test server, with `addTransaction({ … })` and `failSyncs(connectionId, code)`.                                                                                                                                                                                                                                                 |
 
 And helpers: `signInFiles` holds the saved sign-ins, `expectAccessible(page)` fails on WCAG
@@ -359,6 +367,24 @@ test('an admin connects a bank', async ({ connectPage, plaid }) => {
 
 `specs/connect.spec.ts` has more examples. Resets put the stand-in back to the baseline's
 banks.
+
+### The AI providers
+
+Nothing in the tests reaches Anthropic, OpenAI or Ollama either. The test server's AI requests go
+to a stand-in (`backend/e2e/ai.py`) that answers the way each provider does, from memory: it
+accepts the made-up keys in `AI_KEYS`, has Ollama's models on the computer (at `OLLAMA_ADDRESS`,
+while `OLLAMA_DOWN_ADDRESS` is a server that can't be reached) and in its cloud, and answers by
+rules rather than by a model. A second opinion suggests a category for a payee it recognizes
+(Venmo, Starbucks, Netflix, Shell and Uber), and a question is answered with how many recent
+transactions it was given and what was asked.
+
+- `setUpAi(api, 'anthropic', { reviewImports })` sets AI up through the API, as an admin would in
+  Settings, so a spec can start from there.
+- `addPayment(api, baseline, 'Starbucks', { amount, daysAgo })` enters a payment with no category,
+  for the AI to have a view on.
+- `harness.aiRequests()` lists every request the providers received since the last reset, with
+  the host, the path, whether it came with the right key and the body exactly as sent, to check
+  what was and wasn't shared.
 
 ### Conventions
 
