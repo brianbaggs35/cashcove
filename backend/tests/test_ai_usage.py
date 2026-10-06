@@ -109,6 +109,14 @@ def test_days_are_utc_days(admin_client: TestClient, session: Session) -> None:
     assert by_day == {"2026-10-04": 0, "2026-10-05": 1, "2026-10-06": 1}
 
 
+def test_the_longest_range_lists_every_day_it_covers(admin_client: TestClient) -> None:
+    days = usage(admin_client, days=366)["days"]
+
+    assert len(days) == 366
+    assert days[0]["day"] == "2025-10-06"
+    assert days[-1]["day"] == "2026-10-06"
+
+
 def test_only_the_days_in_the_range_count(admin_client: TestClient, session: Session) -> None:
     add_usage(session, at(TODAY - dt.timedelta(days=7)))
     add_usage(session, at(TODAY - dt.timedelta(days=6)))

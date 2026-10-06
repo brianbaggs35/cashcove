@@ -145,10 +145,12 @@ def test_the_providers_come_with_their_models_and_what_each_needs(
     providers = {item["key"]: item for item in admin_client.get("/api/ai/providers").json()}
 
     assert list(providers) == ["ollama_local", "ollama_cloud", "anthropic", "openai"]
-    assert providers["ollama_local"]["needs_url"] and not providers["ollama_local"]["needs_key"]
+    assert providers["ollama_local"]["needs_url"]
+    assert not providers["ollama_local"]["needs_key"]
     assert providers["ollama_local"]["default_url"] == "http://host.docker.internal:11434"
     assert providers["ollama_local"]["models"] == []
-    assert providers["ollama_cloud"]["needs_key"] and not providers["ollama_cloud"]["needs_url"]
+    assert providers["ollama_cloud"]["needs_key"]
+    assert not providers["ollama_cloud"]["needs_url"]
     assert [model["id"] for model in providers["anthropic"]["models"]] == [
         "claude-sonnet-5-5",
         "claude-haiku-4-5-20251001",

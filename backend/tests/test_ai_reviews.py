@@ -90,7 +90,8 @@ def test_starting_a_review_answers_at_once_and_the_review_carries_on_after(
         0,
         0,
     )
-    assert started["started_at"] is None and started["finished_at"] is None
+    assert started["started_at"] is None
+    assert started["finished_at"] is None
     assert admin_client.get(f"/api/ai/reviews/{started['id']}").json()["status"] == "done"
 
 
@@ -112,7 +113,8 @@ def test_a_review_suggests_better_categories_for_what_was_sorted_wrongly(
     assert (review["provider"], review["model"]) == ("openai", "gpt-6-luna")
     assert (review["open"], review["applied"], review["dismissed"]) == (3, 0, 0)
     assert review["error"] is None
-    assert review["started_at"] and review["finished_at"]
+    assert review["started_at"]
+    assert review["finished_at"]
     page = suggestions(admin_client)
     assert page["total"] == 3
     assert page["counts"] == {"open": 3, "applied": 0, "dismissed": 0}
@@ -338,8 +340,10 @@ def test_a_review_is_counted_in_the_usage_with_its_tokens_and_cost(
         "review",
     )
     assert str(usage.review_id) == review["id"]
-    assert usage.input_tokens > 0 and usage.output_tokens > 0
-    assert usage.cost_micros is not None and usage.cost_micros > 0
+    assert usage.input_tokens > 0
+    assert usage.output_tokens > 0
+    assert usage.cost_micros is not None
+    assert usage.cost_micros > 0
 
 
 def test_the_review_can_be_read_again_and_listed(admin_client: TestClient, made: Household) -> None:
@@ -722,7 +726,8 @@ def test_applying_gives_the_transaction_the_category_as_if_someone_chose_it(
     row = session.scalars(
         select(AIRecommendation).where(AIRecommendation.id == uuid.UUID(ids["Venmo"]))
     ).one()
-    assert row.decided_at is not None and row.decided_by_id is not None
+    assert row.decided_at is not None
+    assert row.decided_by_id is not None
 
 
 def test_applying_several_at_once(admin_client: TestClient, made: Household) -> None:
@@ -847,7 +852,8 @@ def test_suggestions_come_a_page_at_a_time_with_the_newest_first(
     second = suggestions(admin_client, page_size=2, page=2)
 
     assert (first["total"], first["page"], first["page_size"]) == (3, 1, 2)
-    assert len(first["items"]) == 2 and len(second["items"]) == 1
+    assert len(first["items"]) == 2
+    assert len(second["items"]) == 1
     assert not {item["id"] for item in first["items"]} & {item["id"] for item in second["items"]}
 
 

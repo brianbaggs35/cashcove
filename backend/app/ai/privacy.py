@@ -49,17 +49,20 @@ MIN_NAME = 3
 MIN_MASK = 4
 _YEAR = re.compile(r"(?:19|20|21)\d\d")
 
-_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
-# A long run of letters and digits together: a key, a token or an IBAN.
-_SECRET = re.compile(r"\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,}\b")
+# Every quantifier here is bounded or has nothing after it to backtrack into, so no text, however
+# long or odd, makes matching slow.
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){1,8}")
+# A long run of letters, digits, dashes and underscores, which is what a key or a token looks like
+# when it has both letters and digits (see `_is_secret`).
+_TOKEN = re.compile(r"\b[A-Za-z0-9_-]{24,}\b")
 # The last digits of a number as a bank shows them: xxxx4410, •••• 4410, ending in 4410.
 _MASK = re.compile(
-    r"(?:\b(?:x{2,}|ending(?:\s+in)?|acct|account|card|a/c|no\.?|number)\s*|[*•]+\s*|\.{3}\s*)"
-    r"\d{2,}\b|#\s*\d{4,}\b",
+    r"(?:\b(?:x{2,16}|ending(?:\s{1,3}in)?|acct|account|card|a/c|no\.?|number)\s{0,3}"
+    r"|[*•]{1,16}\s{0,3}|\.{3}\s{0,3})\d{2,}\b|#\s{0,3}\d{4,}\b",
     re.IGNORECASE,
 )
-# Digits, with the spaces and dashes numbers are written with.
-_DIGITS = re.compile(r"\d(?:[\d -]*\d)?")
+# Digits, with the spaces and dashes numbers are written with, and any of those left at the end.
+_DIGITS = re.compile(r"\d[\d -]*")
 _DATE = re.compile(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}")
 # A long number with nothing in it, as an account number is.
 _LONG_NUMBER = re.compile(r"\d{8,}")
@@ -109,6 +112,22 @@ def _column(
     return [value for value in db.scalars(select(column)) if value]
 
 
+def _shared_accounts(db: Session) -> tuple[list[str], list[str]]:
+    """The names and the masks of the accounts banks share, imported or not."""
+    names: list[str] = []
+    masks: list[str] = []
+    for (shared,) in db.execute(select(Connection.available_accounts)):
+        for account in shared:
+            names += [
+                value
+                for value in (account.get("name"), account.get("official_name"))
+                if isinstance(value, str)
+            ]
+            if isinstance(account.get("mask"), str):
+                masks.append(account["mask"])
+    return names, masks
+
+
 @dataclass(frozen=True)
 class Protected:
     """What the household's accounts and banks are called, which no AI is ever told."""
@@ -128,19 +147,11 @@ class Protected:
     def load(cls, db: Session) -> "Protected":
         """The names of every account and bank in Cashcove, including the accounts a bank
         shares that haven't been imported."""
-        names = _column(db, Account.name) + _column(db, Account.official_name)
-        masks = _column(db, Account.mask)
-        for (shared,) in db.execute(select(Connection.available_accounts)):
-            for account in shared:
-                names += [
-                    value
-                    for value in (account.get("name"), account.get("official_name"))
-                    if isinstance(value, str)
-                ]
-                if isinstance(account.get("mask"), str):
-                    masks.append(account["mask"])
+        shared_names, shared_masks = _shared_accounts(db)
+        names = _column(db, Account.name) + _column(db, Account.official_name) + shared_names
         # The last digits of the household's own accounts are protected wherever they appear,
         # not only after a word like "ending in".
+        masks = _column(db, Account.mask) + shared_masks
         names += [mask for mask in masks if len(mask) >= MIN_MASK and not _YEAR.fullmatch(mask)]
         institutions = _column(db, Account.institution) + _column(db, Connection.institution_name)
         labels = [
@@ -162,7 +173,7 @@ class Protected:
     def scrub(self, text: str, kind: Text = Text.BANK) -> str:
         """The text without anything that must not be sent."""
         text = _EMAIL.sub(HIDDEN, text)
-        text = _SECRET.sub(HIDDEN, text)
+        text = _TOKEN.sub(_hide_secret, text)
         if kind != Text.LABEL and self.names is not None:
             text = self.names.sub(ACCOUNT, text)
         text = _MASK.sub(ACCOUNT, text)
@@ -178,7 +189,7 @@ class Protected:
             found.append("an account number")
         if _EMAIL.search(text):
             found.append("an email address")
-        if _SECRET.search(text):
+        if any(_is_secret(token.group()) for token in _TOKEN.finditer(text)):
             found.append("something that looks like a key")
         return found
 
@@ -189,12 +200,25 @@ class Protected:
             raise PrivacyError(kinds)
 
 
+def _is_secret(token: str) -> bool:
+    """A long token that mixes letters and digits, as a key does and a long word doesn't."""
+    return any(character.isdigit() for character in token) and any(
+        character.isalpha() for character in token
+    )
+
+
+def _hide_secret(match: re.Match[str]) -> str:
+    return HIDDEN if _is_secret(match.group()) else match.group()
+
+
 def _hide_digits(minimum: int) -> Callable[[re.Match[str]], str]:
     """Replaces a run of digits with at least `minimum` of them, but not a date."""
 
     def replace(match: re.Match[str]) -> str:
         run = match.group()
-        digits = sum(character.isdigit() for character in run)
-        return run if digits < minimum or _DATE.fullmatch(run) else NUMBER
+        # The spaces and dashes the run ends with aren't part of the number.
+        number = run.rstrip(" -")
+        digits = sum(character.isdigit() for character in number)
+        return run if digits < minimum or _DATE.fullmatch(number) else NUMBER + run[len(number) :]
 
     return replace

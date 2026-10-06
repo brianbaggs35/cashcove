@@ -29,6 +29,9 @@ REVIEWS = "ai_reviews"
 RECOMMENDATIONS = "ai_recommendations"
 USAGE = "ai_usage"
 
+SET_NULL = "SET NULL"
+CASCADE = "CASCADE"
+
 # Stored as text; each table's CHECK constraints limit them to these values.
 PROVIDERS = ("ollama_local", "ollama_cloud", "anthropic", "openai")
 SOURCES = ("manual", "import")
@@ -77,7 +80,7 @@ def upgrade() -> None:
         _stamp("created_at"),
         _stamp("updated_at"),
         _check(SETTINGS, "ai_provider", "provider", PROVIDERS),
-        _link(SETTINGS, "updated_by_id", "users", "SET NULL"),
+        _link(SETTINGS, "updated_by_id", "users", SET_NULL),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_ai_settings")),
         if_not_exists=True,
     )
@@ -99,8 +102,8 @@ def upgrade() -> None:
         _check(REVIEWS, "review_source", "source", SOURCES),
         _check(REVIEWS, "review_status", "status", STATUSES),
         _check(REVIEWS, "ai_provider", "provider", PROVIDERS),
-        _link(REVIEWS, "import_id", "file_imports", "SET NULL"),
-        _link(REVIEWS, "created_by_id", "users", "SET NULL"),
+        _link(REVIEWS, "import_id", "file_imports", SET_NULL),
+        _link(REVIEWS, "created_by_id", "users", SET_NULL),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_ai_reviews")),
         if_not_exists=True,
     )
@@ -122,11 +125,11 @@ def upgrade() -> None:
         sa.Column("decided_by_id", sa.Uuid(), nullable=True),
         _check(RECOMMENDATIONS, "ai_confidence", "confidence", CONFIDENCES),
         _check(RECOMMENDATIONS, "recommendation_status", "status", DECISIONS),
-        _link(RECOMMENDATIONS, "review_id", "ai_reviews", "CASCADE"),
-        _link(RECOMMENDATIONS, "transaction_id", "transactions", "CASCADE"),
-        _link(RECOMMENDATIONS, "current_category_id", "categories", "SET NULL"),
-        _link(RECOMMENDATIONS, "suggested_category_id", "categories", "CASCADE"),
-        _link(RECOMMENDATIONS, "decided_by_id", "users", "SET NULL"),
+        _link(RECOMMENDATIONS, "review_id", "ai_reviews", CASCADE),
+        _link(RECOMMENDATIONS, "transaction_id", "transactions", CASCADE),
+        _link(RECOMMENDATIONS, "current_category_id", "categories", SET_NULL),
+        _link(RECOMMENDATIONS, "suggested_category_id", "categories", CASCADE),
+        _link(RECOMMENDATIONS, "decided_by_id", "users", SET_NULL),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_ai_recommendations")),
         sa.UniqueConstraint(
             "transaction_id",
@@ -164,8 +167,8 @@ def upgrade() -> None:
         sa.Column("review_id", sa.Uuid(), nullable=True),
         _check(USAGE, "ai_provider", "provider", PROVIDERS),
         _check(USAGE, "ai_purpose", "purpose", PURPOSES),
-        _link(USAGE, "user_id", "users", "SET NULL"),
-        _link(USAGE, "review_id", "ai_reviews", "SET NULL"),
+        _link(USAGE, "user_id", "users", SET_NULL),
+        _link(USAGE, "review_id", "ai_reviews", SET_NULL),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_ai_usage")),
         if_not_exists=True,
     )
