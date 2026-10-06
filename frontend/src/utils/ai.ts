@@ -3,6 +3,12 @@ import { formatCount } from '@/utils/format'
 
 const MILLION = 1_000_000
 
+/** Cents are enough for a dollar or more, and a cent's fractions matter below that. */
+function decimals(dollars: number): number {
+  if (dollars >= 1 || dollars === 0) return 2
+  return dollars >= 0.01 ? 3 : 4
+}
+
 /**
  * What an AI call or a month of them cost, from millionths of a US dollar. Providers bill in
  * dollars, whatever currency the household uses, so it says so where the locale would.
@@ -11,13 +17,11 @@ export function formatCost(micros: number, locale = 'en-US'): string {
   const dollars = micros / MILLION
   // Most calls cost a fraction of a cent, which "$0.00" would hide.
   if (micros > 0 && dollars < 0.0001) return `<${formatCost(100, locale)}`
-  // Cents are enough for a dollar or more, and a cent's fractions matter below that.
-  const digits = dollars >= 1 || dollars === 0 ? 2 : dollars >= 0.01 ? 3 : 4
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2,
-    maximumFractionDigits: digits,
+    maximumFractionDigits: decimals(dollars),
   }).format(dollars)
 }
 
