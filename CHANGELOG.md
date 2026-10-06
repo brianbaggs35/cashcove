@@ -28,6 +28,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated typescript-eslint to 8.71.1
 - Updated vite to 8.3.3
 - Updated vue-tsc to 3.3.12
+- Updated fastapi to 0.142.2
 
 ### Added
 
