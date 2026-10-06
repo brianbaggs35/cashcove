@@ -1,7 +1,7 @@
 import { findNavItem, navItems, type NavName } from '@/navigation'
 
 describe('navigation', () => {
-  it('lists the eleven tabs in menu order, the dashboard first', () => {
+  it('lists the twelve tabs in menu order, the dashboard first', () => {
     expect(navItems.map((item) => item.title)).toEqual([
       'Dashboard',
       'Accounts',
@@ -11,6 +11,7 @@ describe('navigation', () => {
       'Transactions',
       'Categories',
       'Automations',
+      'AI',
       'Import',
       'Connect',
       'Settings',

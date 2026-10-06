@@ -8,6 +8,7 @@ import {
   ReceiptText,
   Repeat,
   Settings,
+  Sparkles,
   Tags,
   WandSparkles,
   type LucideIcon,
@@ -22,6 +23,7 @@ export type NavName =
   | 'transactions'
   | 'categories'
   | 'automations'
+  | 'ai'
   | 'import'
   | 'connect'
   | 'settings'
@@ -91,6 +93,13 @@ export const navItems: NavItem[] = [
     path: '/automations',
     icon: WandSparkles,
     summary: 'Sort matching transactions into categories, subscriptions and bills for you.',
+  },
+  {
+    name: 'ai',
+    title: 'AI',
+    path: '/ai',
+    icon: Sparkles,
+    summary: 'Ask about your money, and get a second opinion on how it is sorted.',
   },
   {
     name: 'import',
