@@ -27,6 +27,7 @@ const stage = computed(() => {
         width="3"
         color="primary"
         class="flex-shrink-0"
+        aria-hidden="true"
       />
       <div style="min-width: 0">
         <div class="text-title-small font-weight-bold text-break">Reading {{ fileName }}</div>

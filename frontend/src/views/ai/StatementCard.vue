@@ -8,7 +8,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useAiStore } from '@/stores/ai'
 import type { StatementMessage } from '@/stores/aiChat'
 import { formatDateRange } from '@/utils/dates'
-import { sumAmounts, toCents } from '@/utils/money'
+import { negate, sumAmounts, toCents } from '@/utils/money'
 import { transactionCount } from '@/views/import/file'
 import StatementProgress from '@/views/import/StatementProgress.vue'
 
@@ -32,7 +32,10 @@ const rows = computed(() => reading.value.rows)
 const dated = computed(() => rows.value.flatMap((row) => (row.date ? [row.date] : [])).sort())
 const amounts = computed(() => rows.value.flatMap((row) => (row.amount ? [row.amount] : [])))
 const moneyIn = computed(() => sumAmounts(amounts.value.filter((amount) => toCents(amount) > 0)))
-const moneyOut = computed(() => sumAmounts(amounts.value.filter((amount) => toCents(amount) < 0)))
+/** What went out, as the amount it was: the label says which way. */
+const moneyOut = computed(() =>
+  negate(sumAmounts(amounts.value.filter((amount) => toCents(amount) < 0))),
+)
 /** Rows that are missing something or that the AI wasn't sure of. */
 const flagged = computed(
   () => rows.value.filter((row) => row.note || row.date === null || row.amount === null).length,
