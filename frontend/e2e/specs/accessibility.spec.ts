@@ -1,12 +1,22 @@
 import type { Page } from '@playwright/test'
 
-import { bankDate, csvFile, expect, expectAccessible, simpleCsv, TABS, test } from '../support'
+import {
+  bankDate,
+  csvFile,
+  expect,
+  expectAccessible,
+  setUpAi,
+  simpleCsv,
+  TABS,
+  test,
+} from '../support'
 
 const SETTINGS = [
   'general',
   'users',
   'alerts',
   'sync',
+  'ai',
   'account',
   'security',
   'appearance',
@@ -18,6 +28,8 @@ const PAGES = [
   ...Object.keys(TABS)
     .filter((tab) => tab !== 'settings')
     .map((tab) => `/${tab}`),
+  '/ai/recommendations',
+  '/ai/usage',
   ...SETTINGS.map((section) => `/settings/${section}`),
 ]
 
@@ -33,7 +45,13 @@ const LOADED: Record<string, string> = {
   '/bills': 'empty-state',
   '/automations': 'empty-state',
   '/budget': 'budget-summary',
+  '/ai': 'ai-setup',
+  '/ai/recommendations': 'tile-open',
+  '/ai/usage': 'usage-tile-month',
 }
+
+/** Pages where a viewer can do all an admin can, so there is nothing read-only to tell them. */
+const OPEN_TO_VIEWERS = new Set(['/ai', '/ai/usage'])
 
 /** An open dialog or menu. */
 const OVERLAY = '.v-overlay--active'
@@ -59,6 +77,11 @@ async function expectAccessibleOverlays(
       await closeOverlay(page)
     })
   }
+}
+
+/** A viewer is told what they can't change, where there is something they can't. */
+async function expectReadOnlyNotice(page: Page, path: string): Promise<void> {
+  if (!OPEN_TO_VIEWERS.has(path)) await expect(page.getByTestId('read-only-notice')).toBeVisible()
 }
 
 async function expectLoaded(page: Page, path: string): Promise<void> {
@@ -126,12 +149,16 @@ test.describe('Accessibility', () => {
           '/bills',
           '/categories',
           '/automations',
+          '/ai',
+          '/ai/recommendations',
+          '/ai/usage',
           '/settings/general',
           '/settings/users',
+          '/settings/ai',
         ]) {
           await test.step(path, async () => {
             await page.goto(path)
-            await expect(page.getByTestId('read-only-notice')).toBeVisible()
+            await expectReadOnlyNotice(page, path)
             await expectLoaded(page, path)
 
             await expectAccessible(page)
@@ -403,6 +430,77 @@ test.describe('Accessibility', () => {
           await page.getByTestId('chart-frame').nth(index).getByTestId('chart-view-table').click()
         }
         await expectAccessible(page)
+      })
+
+      test('the AI pages once AI is set up and has been used', async ({
+        page,
+        signInAs,
+        apiAs,
+        aiPage,
+        aiSettingsPage,
+      }) => {
+        test.slow()
+        await setUpAi(await apiAs('admin'))
+        await signInAs('admin')
+
+        // A conversation, what the AI suggested about the transactions, and what it cost.
+        await aiPage.goto('ask')
+        await aiPage.ask('How am I doing against my budgets?')
+        await expectAccessible(page)
+        await aiPage.goto('recommendations')
+        await aiPage.review()
+        await expect(aiPage.suggestions.first()).toBeVisible()
+        await expectAccessible(page)
+        await aiPage.goto('usage')
+        await expect(aiPage.modelRow('GPT-6 Luna (OpenAI)')).toBeVisible()
+        await expectAccessible(page)
+        await aiSettingsPage.goto()
+        await expect(aiSettingsPage.status).toHaveText('On · GPT-6 Luna')
+        await expectAccessible(page)
+        await aiSettingsPage.chooseProvider('ollama_local')
+        await expect(aiSettingsPage.address).toBeVisible()
+        await expectAccessible(page)
+      })
+
+      test('the AI dialogs and menus', async ({
+        page,
+        signInAs,
+        apiAs,
+        aiPage,
+        aiSettingsPage,
+        importPage,
+      }) => {
+        await setUpAi(await apiAs('admin'))
+        await signInAs('admin')
+
+        await aiPage.goto('recommendations')
+        await expectAccessibleOverlays(page, {
+          'asking for a review': () => aiPage.reviewButton.click(),
+        })
+        // What is shared opens in the page, not over it.
+        await aiPage.goto('ask')
+        await page.getByTestId('ai-privacy-toggle').click()
+        await expect(page.getByTestId('ai-privacy')).toContainText('What the AI is told')
+        await expectAccessible(page)
+        await aiSettingsPage.goto()
+        await expectAccessibleOverlays(page, {
+          'the models': () => aiSettingsPage.model.locator('.v-field').click(),
+          'turning AI off': () => aiSettingsPage.offButton.click(),
+        })
+        await importPage.goto()
+        await expectAccessibleOverlays(page, {
+          'the AI’s look at an import': async () => {
+            await importPage.chooseFile(
+              simpleCsv('coffee.csv', [
+                { days_ago: 2, description: 'STARBUCKS STORE 1234', amount: '-5.25' },
+                { days_ago: 3, description: 'LA TAQUERIA', amount: '-23.80' },
+              ]),
+            )
+            await importPage.continue()
+            await importPage.chooseAccount('Everyday checking')
+            await importPage.importRowsForAi()
+          },
+        })
       })
 
       test('the category dialogs', async ({ page, signInAs, categoriesPage }) => {

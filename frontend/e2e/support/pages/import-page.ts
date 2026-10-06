@@ -45,6 +45,16 @@ export class ImportPage {
   readonly reviewRows: Locator
   /** The dialog asking to confirm undoing an import, while it's open. */
   readonly undoDialog: Locator
+  /** The steps the dialog goes through: the last is the AI's, when AI is set up. */
+  readonly steps: Locator
+  /** The AI's second opinion on the rows that were just imported. */
+  readonly aiStep: Locator
+  /** What the AI would change about them, a card for each. */
+  readonly aiSuggestions: Locator
+  /** What it says when it agrees with how everything was sorted. */
+  readonly aiAgrees: Locator
+  /** What it says once every suggestion has been decided. */
+  readonly aiDecided: Locator
 
   constructor(readonly page: Page) {
     this.fileDrop = page.getByTestId('file-drop')
@@ -52,13 +62,18 @@ export class ImportPage {
     this.formats = page.getByTestId('saved-format')
     this.dialog = page.getByRole('dialog').filter({
       has: page.locator(
-        '[data-test="import-progress"], [data-test="import-failed"], [data-test="import-columns"], [data-test="import-review"], [data-test="import-done"]',
+        '[data-test="import-progress"], [data-test="import-failed"], [data-test="import-columns"], [data-test="import-review"], [data-test="import-done"], [data-test="import-ai"]',
       ),
     })
     this.notice = this.dialog.getByTestId('import-notice')
     this.columnRows = this.dialog.getByTestId('column-row')
     this.reviewRows = this.dialog.getByTestId('review-row')
     this.undoDialog = page.getByRole('dialog', { name: /^Undo importing/ })
+    this.steps = this.dialog.getByTestId('step-list').getByRole('listitem')
+    this.aiStep = this.dialog.getByTestId('import-ai')
+    this.aiSuggestions = this.dialog.getByTestId('recommendation')
+    this.aiAgrees = this.dialog.getByTestId('import-ai-agrees')
+    this.aiDecided = this.dialog.getByTestId('import-ai-decided')
   }
 
   async goto(): Promise<void> {
@@ -140,6 +155,25 @@ export class ImportPage {
   async importRows(): Promise<void> {
     await this.dialog.getByTestId('import-submit').click()
     await expect(this.dialog.getByTestId('import-done')).toBeVisible()
+  }
+
+  /**
+   * Imports the ticked rows when AI is set up, and waits until the AI has looked them over: it
+   * either has suggestions, or agrees with how they were sorted.
+   */
+  async importRowsForAi(): Promise<void> {
+    await this.dialog.getByTestId('import-submit').click()
+    await expect(this.aiStep).toBeVisible()
+    await expect(this.aiSuggestions.first().or(this.aiAgrees)).toBeVisible()
+  }
+
+  /** What the AI suggested for an imported row, by its payee. */
+  aiSuggestion(payee: string | RegExp): Locator {
+    return this.aiSuggestions.filter({
+      has: this.page
+        .getByTestId('reco-payee')
+        .filter({ hasText: typeof payee === 'string' ? exactly(payee) : payee }),
+    })
   }
 
   /** Once imported, goes to the Transactions tab showing what the import added. */

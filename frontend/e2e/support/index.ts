@@ -32,7 +32,19 @@ export {
   type SavedSignIn,
   type Who,
 } from './harness'
+export {
+  AI_KEYS,
+  OLLAMA_ADDRESS,
+  OLLAMA_DOWN_ADDRESS,
+  OLLAMA_MODELS,
+  addPayment,
+  setUpAi,
+  type AiProviderKey,
+  type AiRequest,
+} from './ai'
 export { AccountsPage, type AccountAction, type AccountFields } from './pages/accounts-page'
+export { AiPage, type AiSection, type ReviewChoice, type SuggestionStatus } from './pages/ai-page'
+export { AiSettingsPage } from './pages/ai-settings-page'
 export {
   AutomationsPage,
   type AutomationAction,

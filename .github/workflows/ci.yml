@@ -264,7 +264,9 @@ jobs:
   e2e:
     name: End-to-end
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # The specs run one at a time, on a computer and a phone, and a slow runner has taken twice as
+    # long as a fast one: 12 minutes on one, and over 30 on another, which cancelled the job.
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: frontend

@@ -8,6 +8,7 @@ import {
   type APIResponse,
 } from '@playwright/test'
 
+import type { AiRequest } from './ai'
 import type { BankTransaction } from './plaid'
 
 /**
@@ -552,6 +553,15 @@ export class Harness {
         `Making the bank fail failed with ${response.status()}: ${await response.text()}`,
       )
     }
+  }
+
+  /**
+   * Every request an AI provider has received since the last reset, as it was sent: what
+   * Cashcove asked, and with which key, for checking what was and wasn't shared.
+   */
+  async aiRequests(): Promise<AiRequest[]> {
+    const response = await this.api.get('/api/e2e/ai/requests')
+    return readJson<AiRequest[]>(response, 'Reading what the AI providers were sent')
   }
 
   /** The API's coverage so far, or null when the API isn't measuring it. */
