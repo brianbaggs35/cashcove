@@ -20,6 +20,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated @types/node to 26.6.4
 - Updated @vitest/coverage-v8 to 5.0.3
 - Updated vitest to 5.0.3
+- Updated eslint to 10.12.0
 
 ### Added
 
