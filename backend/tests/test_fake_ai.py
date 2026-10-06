@@ -196,3 +196,47 @@ def test_every_request_is_kept_as_the_provider_got_it() -> None:
     assert (seen.host, seen.path) == ("api.openai.com", "/v1/responses")
     assert body["input"] == [{"role": "user", "content": "What is 4410?"}]
     assert "4410" in seen.body
+
+
+# ---- Reading a statement's lines -------------------------------------------------------------
+
+STATEMENT = (
+    "You read lines from a bank statement and say what transaction each one is.\n\n"
+    "Statement year: 2026\n\nLines:\n"
+    "# Date Description Amount\n"
+    "1 | 09/03 | WHOLEFDS MKT [account] AUSTIN TX | 84.12\n"
+    "2 | 2026-09-05 | ACME CORP PAYROLL | 2,400.00 (in) [balance]\n"
+    "3 | Sep 7, 2026 | NETFLIX.COM | 15.49 (out)\n"
+    "4 | 12 Sep | AUTOPAY PAYMENT - THANK YOU | -500.00\n"
+    "5 | 09/15/26 | SOME SHOP | $9.99\n"
+)
+
+
+def test_the_lines_of_a_statement_are_read_by_rule() -> None:
+    fake = FakeAI()
+    connection, model = CONNECTIONS["openai"]
+
+    answer = ask(fake, connection, model, STATEMENT)
+
+    assert json.loads(answer)["transactions"] == [
+        {"line": 1, "date": "2026-09-03", "payee": "Wholefds Mkt Austin Tx", "amount": "-84.12"},
+        {"line": 2, "date": "2026-09-05", "payee": "Acme Corp Payroll", "amount": "2400.00"},
+        {"line": 3, "date": "2026-09-07", "payee": "Netflix.Com", "amount": "-15.49"},
+        {
+            "line": 4,
+            "date": "2026-09-12",
+            "payee": "Autopay Payment - Thank You",
+            "amount": "500.00",
+        },
+        {"line": 5, "date": "2026-09-15", "payee": "Some Shop", "amount": "-9.99"},
+    ]
+
+
+def test_a_statement_without_a_year_is_read_in_the_year_the_stand_in_assumes() -> None:
+    fake = FakeAI()
+    connection, model = CONNECTIONS["openai"]
+    system = STATEMENT.replace("Statement year: 2026\n", "")
+
+    answer = ask(fake, connection, model, system)
+
+    assert json.loads(answer)["transactions"][0]["date"] == "2026-09-03"

@@ -24,6 +24,10 @@ from app.models import (
 from app.schemas.budget import Day
 from app.schemas.fields import STRICT, AmountOut
 
+# A statement's PDF can be this big, and base64 takes four characters for every three bytes.
+MAX_STATEMENT_BYTES = 10 * 1024 * 1024
+MAX_STATEMENT_CONTENT = -(-MAX_STATEMENT_BYTES // 3) * 4
+
 # A key is a single token. Providers' are well under this, and nothing here is ever logged.
 ApiKey = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=8, max_length=512, pattern=r"^\S+$")
@@ -163,6 +167,41 @@ class ChatIn(BaseModel):
 
 class ChatOut(BaseModel):
     reply: str
+
+
+class StatementIn(BaseModel):
+    """A PDF statement to read the transactions off."""
+
+    model_config = STRICT
+
+    file_name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)
+    ]
+    # The PDF itself, base64-encoded.
+    content: Annotated[str, StringConstraints(min_length=1, max_length=MAX_STATEMENT_CONTENT)]
+
+
+class StatementRowOut(BaseModel):
+    """One transaction as the AI read it, which may need checking."""
+
+    # Its number among the rows, counted from 1.
+    line: int
+    date: dt.date | None
+    payee: str
+    # Positive for money in, negative for money out.
+    amount: AmountOut | None
+    # Why it should be checked, in words for people.
+    note: str | None
+
+
+class StatementOut(BaseModel):
+    file_name: str
+    rows: list[StatementRowOut]
+    # The account the statement seems to be for, from the last digits and the bank it shows. That
+    # was worked out here, and none of it was sent to the AI.
+    account_id: uuid.UUID | None
+    # How many lines looked like transactions but weren't.
+    skipped: int
 
 
 class ReviewIn(BaseModel):

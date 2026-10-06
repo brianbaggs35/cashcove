@@ -20,6 +20,7 @@ from app.imports.files import FileProblem, Statement, decode, sniff
 from app.imports.matching import Reviewed, review
 from app.imports.ofx import read_ofx
 from app.imports.qif import read_qif
+from app.imports.statement import is_statement, read_statement
 from app.models import (
     Account,
     AccountSource,
@@ -128,6 +129,8 @@ def read_file(db: Session, body: Upload, locale: str, today: dt.date) -> ReadFil
     """The file's statements, read the way asked or the way that fits it best."""
     try:
         text = decode(_content(body.content))
+        if is_statement(text):
+            return ReadFile(FileFormat.PDF, ImportOptions(), read_statement(text), None, None)
         match sniff(text):
             case FileFormat.OFX:
                 statements, options = read_ofx(text, body.options)

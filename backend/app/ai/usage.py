@@ -21,6 +21,7 @@ PURPOSES = {
     AIPurpose.CHAT: "Questions in the AI tab",
     AIPurpose.REVIEW: "Second opinions on categories",
     AIPurpose.TEST: "Connection tests",
+    AIPurpose.STATEMENT: "Statements read",
 }
 
 

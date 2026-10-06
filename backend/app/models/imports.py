@@ -24,6 +24,8 @@ class FileFormat(StrEnum):
     OFX = "ofx"
     # Quicken Interchange Format, the older plain-text format some banks still offer.
     QIF = "qif"
+    # A bank's PDF statement, which the AI read the transactions off.
+    PDF = "pdf"
 
 
 class ImportProfile(TimestampMixin, Base):

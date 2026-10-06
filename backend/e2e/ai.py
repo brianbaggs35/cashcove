@@ -7,6 +7,9 @@ provider checks its key, and what it is asked is answered by rules rather than b
 
 - a second opinion on how transactions are sorted suggests a category for a payee it
   recognizes (see RULES) and says nothing about the rest;
+- the lines of a bank statement are answered with the transaction each one is: its date, its
+  payee tidied up, and its amount, which is money in for a payroll, a deposit, a refund or a
+  payment to a card and money out for anything else;
 - a question is answered with how many recent transactions it was given and what was asked;
 - "Reply with OK" is answered with OK.
 
@@ -50,6 +53,17 @@ RULES = (
     ("uber", "Rideshare & taxis"),
 )
 
+_STATEMENT_LINE = re.compile(r"^(\d+) \| (.+?) \| (.*) \| (.*)$", re.MULTILINE)
+_STATEMENT_YEAR = re.compile(r"^Statement year: (\d{4})$", re.MULTILINE)
+_MONEY_IN = re.compile(r"payroll|deposit|refund|autopay|payment - thank|credit|interest paid", re.I)
+_PLACEHOLDER = re.compile(r"\[[a-z]+\]|#")
+_MONTH_NUMBERS = {
+    name: number
+    for number, name in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"],
+        start=1,
+    )
+}
 _TRANSACTION = re.compile(r"^(t\d+) \| \S+ \| (.*) \| \S+ \S+ \| currently: (.*)$", re.MULTILINE)
 _RECENT = re.compile(r"^\d{4}-\d{2}-\d{2} \|", re.MULTILINE)
 
@@ -90,9 +104,54 @@ def _review(system: str) -> str:
     return json.dumps({"suggestions": suggestions})
 
 
+def _iso_date(text: str, year: int) -> str:
+    """A date as a statement writes it, the way the AI is asked to give it."""
+    words = text.replace(",", " ").replace(".", " ").split()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return text
+    if "/" in text:
+        month, day, *years = (int(part) for part in text.split("/"))
+        written = years[0] if years else year
+        return f"{written + 2000 if written < 100 else written:04d}-{month:02d}-{day:02d}"
+    if words[0][:3].lower() in _MONTH_NUMBERS:
+        month_word, day_word, *tail = words
+    else:
+        day_word, month_word, *tail = words
+    written = int(tail[0]) if tail else year
+    return f"{written:04d}-{_MONTH_NUMBERS[month_word[:3].lower()]:02d}-{int(day_word):02d}"
+
+
+def _statement(system: str) -> str:
+    """The transactions the numbered lines of a statement are."""
+    found = _STATEMENT_YEAR.search(system)
+    year = int(found.group(1)) if found else 2026
+    lines = system.partition("Lines:")[2]
+    transactions: list[dict[str, str | int]] = []
+    for number, date, text, amounts in _STATEMENT_LINE.findall(lines):
+        amount = next(
+            token
+            for token in amounts.split()
+            if re.fullmatch(r"[-+(]?\$?[\d,]+\.\d{2}\)?-?", token)
+        )
+        value = amount.strip("-+()$").replace(",", "")
+        payee = " ".join(_PLACEHOLDER.sub("", text).split()).title()
+        sign = "" if _MONEY_IN.search(text) else "-"
+        transactions.append(
+            {
+                "line": int(number),
+                "date": _iso_date(date, year),
+                "payee": payee,
+                "amount": f"{sign}{value}",
+            }
+        )
+    return json.dumps({"transactions": transactions})
+
+
 def _answer(system: str, question: str) -> str:
     if "second opinion on how a household's transactions" in system:
         return _review(system)
+    if system.startswith("You read lines from a bank statement"):
+        return _statement(system)
     if system.startswith("Reply with the single word OK"):
         return "OK"
     latest = system.partition("## Latest transactions")[2].split("## Transactions whose", 1)[0]
