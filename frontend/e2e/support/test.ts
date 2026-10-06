@@ -11,6 +11,8 @@ import {
   type Who,
 } from './harness'
 import { AccountsPage } from './pages/accounts-page'
+import { AiPage } from './pages/ai-page'
+import { AiSettingsPage } from './pages/ai-settings-page'
 import { AppShell } from './pages/app-shell'
 import { AutomationsPage } from './pages/automations-page'
 import { BillsPage } from './pages/bills-page'
@@ -58,6 +60,10 @@ export interface CashcoveFixtures {
   dashboardPage: DashboardPage
   /** The Import tab and its import dialog. */
   importPage: ImportPage
+  /** The AI tab: asking questions, the AI's suggestions and what it cost. */
+  aiPage: AiPage
+  /** Settings > AI: the provider, its key and model. */
+  aiSettingsPage: AiSettingsPage
   /** Plaid Link's window, which a stand-in replaces in every test, and the banks behind the
    * test server's stand-in for Plaid. */
   plaid: PlaidStandIn
@@ -160,6 +166,14 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
 
   importPage: async ({ page }, use) => {
     await use(new ImportPage(page))
+  },
+
+  aiPage: async ({ page }, use) => {
+    await use(new AiPage(page))
+  },
+
+  aiSettingsPage: async ({ page }, use) => {
+    await use(new AiSettingsPage(page))
   },
 
   plaid: async ({ page, harness }, use) => {

@@ -10,6 +10,7 @@ const SETTINGS = [
   'users',
   'alerts',
   'sync',
+  'ai',
   'account',
   'security',
   'appearance',

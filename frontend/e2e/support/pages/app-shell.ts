@@ -12,6 +12,7 @@ export const TABS = {
   transactions: 'Transactions',
   categories: 'Categories',
   automations: 'Automations',
+  ai: 'AI',
   import: 'Import',
   connect: 'Connect',
   settings: 'Settings',
