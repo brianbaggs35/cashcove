@@ -21,6 +21,11 @@ services:
     ports:
       - "${CASHCOVE_HTTPS_PORT:-443}:8443"
       - "${CASHCOVE_HTTP_PORT:-80}:8080"
+    # Ollama on this computer, if you use it for AI, is at host.docker.internal: inside the
+    # container "localhost" is the container itself. Docker Desktop has that name already; this
+    # gives it to Docker on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - cashcove-data:/data
       # Drop fullchain.pem and privkey.pem here to use your own certificate.
