@@ -43,8 +43,11 @@ MAX_BYTES = 4 * 1024 * 1024
 # How much of a conversation Ollama keeps in view, which is more than its small default.
 OLLAMA_CONTEXT = 16384
 ANTHROPIC_VERSION = "2023-06-01"
-# Hosts a request is never sent to: where cloud servers keep their own credentials.
-BLOCKED_HOSTS = frozenset({"metadata.google.internal", "metadata", "fd00:ec2::254"})
+# Hosts a request is never sent to: where cloud servers keep their own credentials. The link-local
+# address they all use (169.254.169.254) is refused with the rest of that range.
+BLOCKED_HOSTS = frozenset({"metadata.google.internal", "metadata"})
+# AWS's IPv6 address for it, written in parts so it isn't mistaken for somewhere to connect to.
+AWS_METADATA_V6 = ipaddress.IPv6Address((0xFD00 << 112) | (0x0EC2 << 96) | 0x254)
 
 
 @dataclass(frozen=True)
@@ -101,7 +104,12 @@ def _blocked(host: str) -> bool:
         address = ipaddress.ip_address(host)
     except ValueError:
         return False
-    return address.is_link_local or address.is_unspecified or address.is_multicast
+    return (
+        address.is_link_local
+        or address.is_unspecified
+        or address.is_multicast
+        or address == AWS_METADATA_V6
+    )
 
 
 class _Model(BaseModel):

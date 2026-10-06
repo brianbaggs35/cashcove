@@ -176,13 +176,10 @@ def test_ollama_doesnt_know_other_paths() -> None:
 
 def test_a_server_that_is_down_cant_be_reached() -> None:
     fake = FakeAI()
+    down = Connection(AIProvider.OLLAMA_LOCAL, base_url=f"http://{DOWN_HOST}:11434")
 
     with pytest.raises(AIError) as caught:
-        ask(
-            fake,
-            Connection(AIProvider.OLLAMA_LOCAL, base_url=f"http://{DOWN_HOST}:11434"),
-            "llama3.2:3b",
-        )
+        ask(fake, down, "llama3.2:3b")
 
     assert caught.value.code == errors.UNREACHABLE
     assert fake.requests == []
