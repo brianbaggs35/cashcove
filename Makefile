@@ -9,7 +9,7 @@ HADOLINT_IMAGE := hadolint/hadolint:v2.15.1
 SHELLCHECK_IMAGE := koalaman/shellcheck:v0.11.0
 ACTIONLINT_IMAGE := rhysd/actionlint:1.7.12
 # Run from its image, pinned by digest, rather than a third-party GitHub Action.
-TRIVY_IMAGE := aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+TRIVY_IMAGE := aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
 TRIVY := docker run --rm -v cashcove-trivy-cache:/root/.cache/trivy
 TRIVY_FLAGS := --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 # pytest runs on a throwaway Postgres, the same image CI tests on. It only listens on this
