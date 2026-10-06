@@ -270,17 +270,17 @@ describe('AiSection', () => {
   })
 
   describe('Anthropic', () => {
-    it('has a key and Claude Sonnet 5.5 and Haiku 4.5 to choose from, with Sonnet chosen', async () => {
+    it('has a key and Claude Haiku 4.5 and Sonnet 5.5 to choose from, with Haiku chosen', async () => {
       const { find, choose, items, model } = await render()
 
       await choose('anthropic')
 
       expect(find('ai-key').exists()).toBe(true)
-      expect(items()).toEqual(['claude-sonnet-5-5', 'claude-haiku-4-5-20251001'])
-      expect(model()).toBe('claude-sonnet-5-5')
+      expect(items()).toEqual(['claude-haiku-4-5-20251001', 'claude-sonnet-5-5'])
+      expect(model()).toBe('claude-haiku-4-5-20251001')
     })
 
-    it('saves Haiku when it is chosen', async () => {
+    it('saves Haiku, which is chosen to start with, and Sonnet when that is chosen', async () => {
       const save = vi
         .spyOn(api, 'saveAiSettings')
         .mockResolvedValue(
@@ -289,16 +289,24 @@ describe('AiSection', () => {
       const { choose, type, pick, submit } = await render()
       await choose('anthropic')
       await type('ai-key', 'sk-ant-test-key')
-      await pick('claude-haiku-4-5-20251001')
 
       await submit()
 
-      expect(save).toHaveBeenCalledWith(
+      expect(save).toHaveBeenLastCalledWith(
         expect.objectContaining({
           provider: 'anthropic',
           model: 'claude-haiku-4-5-20251001',
           api_key: 'sk-ant-test-key',
         }),
+      )
+
+      await choose('anthropic')
+      await type('ai-key', 'sk-ant-test-key')
+      await pick('claude-sonnet-5-5')
+      await submit()
+
+      expect(save).toHaveBeenLastCalledWith(
+        expect.objectContaining({ provider: 'anthropic', model: 'claude-sonnet-5-5' }),
       )
     })
   })
