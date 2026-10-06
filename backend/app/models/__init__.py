@@ -1,6 +1,18 @@
 """ORM models. Import every model module here so Alembic autogenerate sees it."""
 
 from app.models.account import LIABILITY_TYPES, Account, AccountSource, AccountType
+from app.models.ai import (
+    AIProvider,
+    AIPurpose,
+    AIRecommendation,
+    AIReview,
+    AISettings,
+    AIUsage,
+    Confidence,
+    RecommendationStatus,
+    ReviewSource,
+    ReviewStatus,
+)
 from app.models.app_settings import AppSettings
 from app.models.audit import AuditEvent
 from app.models.auth import (
@@ -44,6 +56,12 @@ from app.models.user import Role, User
 
 __all__ = [
     "LIABILITY_TYPES",
+    "AIProvider",
+    "AIPurpose",
+    "AIRecommendation",
+    "AIReview",
+    "AISettings",
+    "AIUsage",
     "Account",
     "AccountSource",
     "AccountType",
@@ -64,6 +82,7 @@ __all__ = [
     "Category",
     "CategoryGroup",
     "CategoryKind",
+    "Confidence",
     "Connection",
     "ConnectionProvider",
     "ConnectionStatus",
@@ -79,8 +98,11 @@ __all__ = [
     "Passkey",
     "PasswordReset",
     "PaymentFrequency",
+    "RecommendationStatus",
     "RecoveryCode",
     "RecurringKind",
+    "ReviewSource",
+    "ReviewStatus",
     "Role",
     "Subscription",
     "SyncTrigger",
