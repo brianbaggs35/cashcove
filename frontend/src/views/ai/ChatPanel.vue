@@ -170,8 +170,9 @@ watch(
         @keydown.enter.exact.prevent="submit"
       >
         <template #append-inner>
+          <!-- A field cancels the default action of a click inside it, a submit button's too, so
+               the button sends the question itself. -->
           <v-btn
-            type="submit"
             :icon="SendHorizontal"
             color="primary"
             variant="flat"
@@ -179,6 +180,7 @@ watch(
             aria-label="Send"
             :disabled="!canSend"
             data-test="chat-send"
+            @click="submit"
           />
         </template>
       </v-textarea>
