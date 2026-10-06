@@ -3,10 +3,12 @@ only admins import files, undo imports, and rename or delete saved formats."""
 
 import uuid
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, BackgroundTasks, status
 from sqlalchemy import func, select
 
-from app.auth.deps import AdminAuth, CurrentAuth, Db
+from app.ai import reviews
+from app.ai.deps import AISessions, AITransport
+from app.auth.deps import AdminAuth, AppSettings, CurrentAuth, Db
 from app.auth.service import load_preferences
 from app.imports.service import (
     get_profile,
@@ -46,12 +48,29 @@ def preview_import(body: ImportPreviewRequest, auth: AdminAuth, db: Db) -> Impor
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_import(body: ImportCreate, auth: AdminAuth, db: Db) -> FileImportOut:
-    """Imports the chosen transactions from a file into an open account."""
+def create_import(
+    body: ImportCreate,
+    auth: AdminAuth,
+    db: Db,
+    settings: AppSettings,
+    background: BackgroundTasks,
+    transport: AITransport,
+    sessions: AISessions,
+) -> FileImportOut:
+    """Imports the chosen transactions from a file into an open account. Automations sort them
+    as they come in, and when AI is set up it then gets a second opinion on how they were
+    sorted, which carries on after this answers."""
     locale = load_preferences(db).general.locale
     record, sorted_count = import_file(db, body, auth.user, locale, utcnow().date())
+    started = reviews.for_import(db, settings, auth.user, record.id)
+    if started is not None:
+        background.add_task(reviews.run, sessions, settings, transport, started[0].id, started[1])
     return FileImportOut.model_validate(record).model_copy(
-        update={"created_by": auth.user.name, "sorted": sorted_count}
+        update={
+            "created_by": auth.user.name,
+            "sorted": sorted_count,
+            "ai_review_id": started[0].id if started else None,
+        }
     )
 
 

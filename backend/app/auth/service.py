@@ -39,6 +39,11 @@ def plaid_box(settings: Settings) -> SecretBox:
     return _box(settings.read_secret_key(), "plaid")
 
 
+def ai_box(settings: Settings) -> SecretBox:
+    """Encrypts the key of the household's AI provider."""
+    return _box(settings.read_secret_key(), "ai")
+
+
 def load_preferences(db: Session) -> Preferences:
     row = db.get(AppSettings, SINGLETON_ID)
     # Stored documents are merged over the defaults, so new fields appear without a migration.
