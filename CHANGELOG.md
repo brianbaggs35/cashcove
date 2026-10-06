@@ -24,6 +24,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated eslint-plugin-playwright to 2.12.1
 - Updated jsdom to 30.1.2
 - Updated monocart-coverage-reports to 2.13.1
+- Updated sass-embedded to 1.105.1
 
 ### Added
 
