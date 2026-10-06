@@ -358,6 +358,21 @@ describe('import wizard', () => {
     expect(reloadAccounts).toHaveBeenCalledOnce()
   })
 
+  it('goes on to the AI’s second opinion when AI is set up and has begun one', async () => {
+    const { wizard } = await started()
+    wizard.step = 'review'
+    const record = makeImport({ id: 'import-new', ai_review_id: 'review-import' })
+    vi.spyOn(api, 'createImport').mockResolvedValue(record)
+    vi.spyOn(api, 'fetchImports').mockResolvedValue([record])
+    vi.spyOn(api, 'fetchSavedFormats').mockResolvedValue([])
+    vi.spyOn(accountsApi, 'fetchAccounts').mockResolvedValue([checking])
+
+    await wizard.importRows()
+
+    expect(wizard.step).toBe('ai')
+    expect(wizard.record?.ai_review_id).toBe('review-import')
+  })
+
   it('leaves a linked account’s balance to its bank', async () => {
     const { wizard } = await started({ ...ofx, account_id: visa.id })
     expect(wizard.linked).toBe(true)

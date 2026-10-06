@@ -228,6 +228,8 @@ export interface FileImport {
   created_by: string | null
   /** How many of what it added the household's automations sorted, when it was imported. */
   sorted: number
+  /** The AI's second opinion on how they were sorted, when it's set up to give one. */
+  ai_review_id: string | null
 }
 
 /** A CSV layout saved for a bank's files, which the next file with its columns is read with. */
