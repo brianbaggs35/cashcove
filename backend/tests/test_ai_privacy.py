@@ -7,7 +7,8 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.ai.errors import BLOCKED, PrivacyError
-from app.ai.privacy import ACCOUNT, Protected, Text
+from app.ai.privacy import ACCOUNT, ADDRESS, HIDDEN, PERSON, Protected, Text
+from app.config import Settings
 from app.models import (
     Budget,
     BudgetPeriod,
@@ -17,6 +18,7 @@ from app.models import (
     HistoryStatus,
 )
 from tests.finance import add_account, add_category, add_group, linked_account
+from tests.helpers import add_user
 
 HOUSEHOLD = Protected.of(
     [
@@ -26,7 +28,8 @@ HOUSEHOLD = Protected.of(
         "Harbor",
         "Tartan Bank",
         "Tartan",
-    ]
+    ],
+    people=["Alex Rivera", "Sam Rivera"],
 )
 
 
@@ -121,7 +124,8 @@ def test_short_numbers_in_a_payee_are_left_alone(text: str, expected: str) -> No
     [
         ("AMZN Mktp 1234", "AMZN Mktp #"),
         ("Ref 12345678901234", "Ref #"),
-        ("Call 555 123 4567", "Call #"),
+        ("Call 555 123 4567", f"Call {HIDDEN}"),
+        ("Dial 5551234", "Dial #"),
         ("Pay 1234-5678-9012-3456", "Pay #"),
         ("IRS TREAS 310", "IRS TREAS 310"),
         ("Fee 2026-10-05", "Fee 2026-10-05"),
@@ -256,6 +260,92 @@ def test_a_date_and_a_formatted_amount_pass_the_check() -> None:
     HOUSEHOLD.ensure_clean("2026-10-05 | Rent | -1,850.00 USD | 12,345,678.90")
 
 
+# ---- People, phone numbers, ID numbers and addresses -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Paid Alex Rivera back", f"Paid {PERSON} back"),
+        ("SAM RIVERA payroll", f"{PERSON} payroll"),
+        # A first name alone is a common word, not who someone is.
+        ("Alexander's Bakery", "Alexander's Bakery"),
+        ("ZELLE PAYMENT TO JOHN SMITH", f"ZELLE PAYMENT TO {PERSON}"),
+        ("Venmo payment from Jo", f"Venmo payment from {PERSON}"),
+        ("Wire from ACME CORP LLC", f"Wire from {PERSON}"),
+        ("CASH APP TO Maria De La Cruz Lopez", f"CASH APP TO {PERSON}"),
+        # Without who it went to or came from there's no one to hide.
+        ("VENMO CASHOUT", "VENMO CASHOUT"),
+        ("PAYPAL *SPOTIFY", "PAYPAL *SPOTIFY"),
+    ],
+)
+def test_the_people_in_the_household_and_who_a_payment_went_to_are_taken_out(
+    text: str, expected: str
+) -> None:
+    assert scrub(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Call (415) 555-1234 now", f"Call {HIDDEN} now"),
+        ("415.555.1234", HIDDEN),
+        ("+1 415 555 1234", HIDDEN),
+        ("tel 4155551234", f"tel {HIDDEN}"),
+        ("SSN 123-45-6789 on file", f"SSN {HIDDEN} on file"),
+        ("PAYPAL *SPOTIFY 402-935-7733", f"PAYPAL *SPOTIFY {HIDDEN}"),
+        # A date and an amount are neither.
+        ("posted 2026-10-05 for 1,850.00", "posted 2026-10-05 for 1,850.00"),
+    ],
+)
+def test_phone_numbers_and_id_numbers_are_taken_out(text: str, expected: str) -> None:
+    assert scrub(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Visit 4500 Oak Ave today", f"Visit {ADDRESS} today"),
+        ("RENT 123 MAIN STREET", f"RENT {ADDRESS}"),
+        ("deliver to 12 Elm St.", f"deliver to {ADDRESS}"),
+        ("77 Sunset Boulevard", ADDRESS),
+        # A number and a word aren't an address without a street.
+        ("7 Eleven", "7 Eleven"),
+        ("Store 12 Whole Foods", "Store 12 Whole Foods"),
+    ],
+)
+def test_street_addresses_are_taken_out(text: str, expected: str) -> None:
+    assert scrub(text) == expected
+
+
+def test_a_label_is_never_scrubbed_for_people_or_addresses() -> None:
+    assert scrub("Alex Rivera at 12 Elm St", Text.LABEL) == "Alex Rivera at 12 Elm St"
+
+
+@pytest.mark.parametrize(
+    ("text", "kind"),
+    [
+        ("Alex Rivera paid", "a person's name"),
+        ("call 415-555-1234", "a phone number or an ID number"),
+        ("ssn 123-45-6789", "a phone number or an ID number"),
+        ("at 12 Elm St", "a street address"),
+    ],
+)
+def test_the_check_refuses_people_phone_numbers_id_numbers_and_addresses(
+    text: str, kind: str
+) -> None:
+    with pytest.raises(PrivacyError) as caught:
+        HOUSEHOLD.ensure_clean(text)
+
+    assert kind in caught.value.kinds
+    assert text not in caught.value.message
+
+
+def test_a_household_with_no_people_protects_no_names_of_people() -> None:
+    assert Protected.of([]).scrub("Alex Rivera") == "Alex Rivera"
+    assert not Protected.of([]).leaks("Alex Rivera")
+
+
 # ---- Loading what to protect from the household's records -----------------------------------
 
 
@@ -320,3 +410,14 @@ def test_an_accounts_name_may_be_a_category_or_a_budget_label(session: Session) 
 
 def test_a_household_with_no_accounts_protects_no_names(session: Session) -> None:
     assert Protected.load(session).names is None
+
+
+def test_the_people_in_the_household_are_protected(session: Session, settings: Settings) -> None:
+    add_user(session, settings, email="alex@example.com", name="Alex Rivera")
+    add_user(session, settings, email="jo@example.com", name="Jo")
+
+    protected = Protected.load(session)
+
+    assert protected.scrub("Zelle Alex Rivera rent") == f"Zelle {PERSON} rent"
+    # Too short to tell from a word.
+    assert protected.scrub("Jo's Diner") == "Jo's Diner"
