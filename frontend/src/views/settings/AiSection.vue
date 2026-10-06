@@ -232,10 +232,12 @@ onMounted(async () => {
             <v-row density="compact">
               <v-col v-for="item in ai.providers" :key="item.key" cols="12" sm="6">
                 <label
+                  :for="`ai-provider-${item.key}`"
                   class="ai-provider d-flex align-start ga-2 pa-3 h-100"
                   :class="{ 'ai-provider--active': provider === item.key }"
                 >
                   <v-radio
+                    :id="`ai-provider-${item.key}`"
                     :value="item.key"
                     density="comfortable"
                     hide-details

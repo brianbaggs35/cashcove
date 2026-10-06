@@ -8,9 +8,10 @@ export interface Inline {
 export type Block =
   { kind: 'paragraph'; parts: Inline[] } | { kind: 'list'; ordered: boolean; items: Inline[][] }
 
-const BULLET = /^\s*[-*•]\s+(.*)$/
-const NUMBERED = /^\s*\d+[.)]\s+(.*)$/
-const HEADING = /^\s{0,3}#{1,6}\s+(.*)$/
+// What starts a line, and nothing after it to give back to: the text is what follows the match.
+const BULLET = /^\s*[-*•]\s+/
+const NUMBERED = /^\s*\d+[.)]\s+/
+const HEADING = /^\s{0,3}#{1,6}\s+/
 const TABLE_ROW = /^\s*\|(.*)\|\s*$/
 // The line of dashes under a table's heading.
 const TABLE_RULE = /^[\s|:-]+$/
@@ -71,11 +72,12 @@ export function parseRichText(text: string): Block[] {
     const heading = HEADING.exec(line)
     const row = TABLE_ROW.exec(line)
     if (!line.trim()) flush()
-    else if (bullet?.[1] !== undefined) item(false, bullet[1])
-    else if (numbered?.[1] !== undefined) item(true, numbered[1])
-    else if (heading?.[1] !== undefined) {
+    else if (bullet) item(false, line.slice(bullet[0].length))
+    else if (numbered) item(true, line.slice(numbered[0].length))
+    else if (heading) {
       flush()
-      blocks.push({ kind: 'paragraph', parts: [{ text: heading[1].trim(), bold: true }] })
+      const text = line.slice(heading[0].length).trim()
+      blocks.push({ kind: 'paragraph', parts: [{ text, bold: true }] })
     } else if (row?.[1] !== undefined) {
       flush()
       if (!TABLE_RULE.test(row[1])) {
