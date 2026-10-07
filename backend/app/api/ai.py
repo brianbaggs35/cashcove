@@ -1,10 +1,12 @@
 """AI: choosing a provider, asking questions about the household's money, second opinions on how
 transactions are sorted, and what it all cost.
 
-Everyone in the household can read what's set up (never the key), ask questions and see the
-suggestions and the cost; only admins change the provider or the key, start a review, and apply
-or dismiss what it suggests. Every request to a provider is made here, by the server, so a key
-never reaches the browser and the browser never talks to a provider.
+The AI tab is for admins: they ask the questions, see the suggestions and the cost, start a
+review and apply or dismiss what it suggests, and choose the provider and the key. Everyone in
+the household can read whether AI is set up (never the key), which the rest of the app needs to
+know, and find transactions in plain words on the Transactions tab, which only picks filters.
+Every request to a provider is made here, by the server, so a key never reaches the browser and
+the browser never talks to a provider.
 """
 
 import base64
@@ -185,7 +187,7 @@ def test_connection(
 @router.post("/chat")
 def ask(
     body: ChatIn,
-    auth: CurrentAuth,
+    auth: AdminAuth,
     db: Db,
     settings: AppSettings,
     rates: ExchangeRates,
@@ -288,7 +290,7 @@ def read_statement(
 
 
 @router.get("/reviews")
-def list_reviews(auth: CurrentAuth, db: Db) -> list[ReviewOut]:
+def list_reviews(auth: AdminAuth, db: Db) -> list[ReviewOut]:
     """The latest second opinions, newest first, with what each found."""
     return reviews.reviews(db)
 
@@ -314,7 +316,7 @@ def start_review(
 
 
 @router.get("/reviews/{review_id}")
-def read_review(review_id: uuid.UUID, auth: CurrentAuth, db: Db) -> ReviewOut:
+def read_review(review_id: uuid.UUID, auth: AdminAuth, db: Db) -> ReviewOut:
     found = reviews.reviews(db, review_id)
     if not found:
         raise ApiError(status.HTTP_404_NOT_FOUND, "not_found", "That review doesn't exist anymore.")
@@ -323,7 +325,7 @@ def read_review(review_id: uuid.UUID, auth: CurrentAuth, db: Db) -> ReviewOut:
 
 @router.get("/recommendations")
 def list_recommendations(
-    query: Annotated[RecommendationQuery, Query()], auth: CurrentAuth, db: Db
+    query: Annotated[RecommendationQuery, Query()], auth: AdminAuth, db: Db
 ) -> RecommendationPage:
     """What the AI suggested, with how many are waiting, applied and dismissed."""
     return reviews.recommendations(db, query)
@@ -345,7 +347,7 @@ def dismiss_recommendations(
 
 @router.get("/usage")
 def read_usage(
-    auth: CurrentAuth,
+    auth: AdminAuth,
     db: Db,
     days: Annotated[int, Query(ge=1, le=366)] = 30,
     today: Annotated[Day | None, Query(description="The last day to count.")] = None,

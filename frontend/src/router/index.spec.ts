@@ -4,7 +4,7 @@ import { createMemoryHistory } from 'vue-router'
 import { saveOnboardingStep } from '@/auth/onboarding'
 import { navItems } from '@/navigation'
 import { HOME, buildRouter, routes, safeRedirect } from '@/router'
-import { makeSessionState, signedOutState } from '@/test/fixtures'
+import { makeSessionState, makeUser, signedOutState } from '@/test/fixtures'
 import { useSession } from '@/test/mount'
 
 async function visit(path: string, session: Parameters<typeof useSession>[0] = makeSessionState()) {
@@ -102,6 +102,31 @@ describe('access', () => {
     const home = await visit(HOME, signedOutState())
     expect(home.name).toBe('sign-in')
     expect(home.query).toEqual({})
+  })
+})
+
+describe('admin pages', () => {
+  const viewer = () => makeSessionState({ user: makeUser({ role: 'viewer' }) })
+
+  it('are for admins, and send anyone else home', async () => {
+    expect((await visit('/ai')).name).toBe('ai')
+    expect((await visit('/ai/usage')).fullPath).toBe('/ai/usage')
+    expect((await visit('/ai', viewer())).fullPath).toBe(HOME)
+    expect((await visit('/ai/recommendations', viewer())).fullPath).toBe(HOME)
+  })
+
+  it('ask signed-out people to sign in first, coming back afterwards', async () => {
+    const route = await visit('/ai', signedOutState())
+    expect(route.name).toBe('sign-in')
+    expect(route.query).toEqual({ redirect: '/ai' })
+  })
+
+  it('leave every other tab open to viewers', async () => {
+    const others = navItems.filter((item) => !item.admin)
+    expect(others.length).toBeGreaterThan(0)
+    for (const item of others) {
+      expect((await visit(item.path, viewer())).fullPath).toBe(item.path)
+    }
   })
 })
 

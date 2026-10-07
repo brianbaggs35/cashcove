@@ -10,15 +10,6 @@ interface Category {
   name: string
 }
 
-interface Review {
-  id: string
-  status: 'pending' | 'running' | 'done' | 'failed'
-}
-
-interface SuggestionPage {
-  items: { id: string }[]
-}
-
 async function categoryId(api: ApiClient, name: string): Promise<string> {
   const groups = await api.get<{ categories: Category[] }[]>('/categories')
   const found = groups
@@ -226,57 +217,6 @@ test.describe('The AI’s second opinion', () => {
       await aiPage.goto('recommendations')
       await expect(aiPage.reviewButton).toHaveCount(0)
       await expect(aiPage.page.getByTestId('recommendations-setup')).toBeVisible()
-    })
-  })
-
-  test.describe('as a viewer', () => {
-    test.use({ storageState: signInFiles.viewer })
-
-    test('sees what the AI suggested, and can neither decide nor ask for a review', async ({
-      aiPage,
-      apiAs,
-    }) => {
-      const admin = await apiAs('admin')
-      await setUpAi(admin)
-      const review = await admin.post<Review>('/ai/reviews', {
-        scope: 'recent',
-        days: 30,
-        limit: 50,
-        today: dateOf({ days_ago: 0 }),
-      })
-      // It carries on after it has started.
-      await expect
-        .poll(async () => (await admin.get<Review>(`/ai/reviews/${review.id}`)).status)
-        .toBe('done')
-
-      await aiPage.goto('recommendations')
-
-      await expect(aiPage.page.getByTestId('read-only-notice')).toBeVisible()
-      const suggestion = aiPage.suggestion('Venmo')
-      await expect(suggestion).toBeVisible()
-      await expect(suggestion.getByTestId('reco-apply')).toHaveCount(0)
-      await expect(suggestion.getByTestId('reco-dismiss')).toHaveCount(0)
-      await expect(suggestion.getByTestId('recommendation-select')).toHaveCount(0)
-      await expect(aiPage.reviewButton).toHaveCount(0)
-
-      // The server says no as well.
-      const viewer = await apiAs('viewer')
-      const { items } = await viewer.get<SuggestionPage>('/ai/recommendations?status=open')
-      const ids = items.map((item) => item.id)
-      await expect(viewer.post('/ai/recommendations/apply', { ids })).rejects.toThrow(
-        /failed with 403/,
-      )
-      await expect(viewer.post('/ai/recommendations/dismiss', { ids })).rejects.toThrow(
-        /failed with 403/,
-      )
-      await expect(
-        viewer.post('/ai/reviews', {
-          scope: 'recent',
-          days: 30,
-          limit: 50,
-          today: dateOf({ days_ago: 0 }),
-        }),
-      ).rejects.toThrow(/failed with 403/)
     })
   })
 })

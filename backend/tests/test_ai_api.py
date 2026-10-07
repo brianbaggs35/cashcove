@@ -80,7 +80,12 @@ def test_signing_in_is_required_for_every_ai_endpoint(
         ("post", "/api/ai/test", {"provider": "openai", "api_key": LONG_ENOUGH}),
         ("post", "/api/ai/statements", {"file_name": "a.pdf", "content": "JVBERg=="}),
         ("post", "/api/ai/automation-suggestions", None),
+        ("post", "/api/ai/chat", {"messages": [{"role": "user", "content": "hi"}]}),
+        ("get", "/api/ai/usage", None),
+        ("get", "/api/ai/reviews", None),
+        ("get", "/api/ai/reviews/2f6f1c1a-0000-4000-8000-000000000001", None),
         ("post", "/api/ai/reviews", {}),
+        ("get", "/api/ai/recommendations", None),
         (
             "post",
             "/api/ai/recommendations/apply",
@@ -93,7 +98,7 @@ def test_signing_in_is_required_for_every_ai_endpoint(
         ),
     ],
 )
-def test_viewers_cant_change_ai_or_spend_on_it(
+def test_viewers_cant_use_the_ai_tab_change_ai_or_spend_on_it(
     viewer_client: TestClient, method: str, path: str, body: dict[str, Any] | None
 ) -> None:
     response = viewer_client.request(method, path, json=body)
@@ -101,8 +106,8 @@ def test_viewers_cant_change_ai_or_spend_on_it(
     assert error(response) == "admin_only"
 
 
-def test_viewers_can_read_how_ai_is_set_up_ask_questions_and_see_the_cost(
-    admin_client: TestClient, viewer: User, session: Session
+def test_viewers_can_read_how_ai_is_set_up_and_find_transactions_in_plain_words(
+    admin_client: TestClient, admin: User, viewer: User, session: Session
 ) -> None:
     household(session)
     configure(admin_client)
@@ -111,16 +116,12 @@ def test_viewers_can_read_how_ai_is_set_up_ask_questions_and_see_the_cost(
 
     assert viewer_client.get("/api/ai/settings").json()["configured"] is True
     assert viewer_client.get("/api/ai/providers").status_code == 200
-    chat = viewer_client.post(
-        "/api/ai/chat", json={"messages": [{"role": "user", "content": "Hi"}]}
-    )
-    assert chat.status_code == 200, chat.text
     # Finding transactions only picks filters, which anyone who can see them can ask for.
     search = viewer_client.post("/api/ai/search", json={"query": "coffee"})
     assert search.status_code == 200, search.text
-    assert viewer_client.get("/api/ai/usage").json()["totals"]["calls"] == 2
-    assert viewer_client.get("/api/ai/reviews").status_code == 200
-    assert viewer_client.get("/api/ai/recommendations").status_code == 200
+    # What it cost is for the admins, who can see it.
+    sign_in(viewer_client, admin.email)
+    assert viewer_client.get("/api/ai/usage").json()["totals"]["calls"] == 1
 
 
 def test_a_change_needs_the_csrf_token(admin_client: TestClient) -> None:

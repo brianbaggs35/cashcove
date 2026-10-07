@@ -90,22 +90,4 @@ test.describe('AI usage', () => {
       ).toHaveText([/Second opinions on categories/])
     })
   })
-
-  test.describe('as a viewer', () => {
-    test.use({ storageState: signInFiles.viewer })
-
-    test('can see what it cost', async ({ aiPage, apiAs }) => {
-      const admin = await apiAs('admin')
-      await setUpAi(admin, 'anthropic')
-      await admin.post('/ai/chat', {
-        messages: [{ role: 'user', content: 'Where could I cut back?' }],
-        today: dateOf({ days_ago: 0 }),
-      })
-
-      await aiPage.goto('usage')
-
-      await expect(aiPage.usageTile('month')).toContainText('1 calls')
-      await expect(aiPage.modelRow('Claude Haiku 4.5 (Anthropic)')).toBeVisible()
-    })
-  })
 })

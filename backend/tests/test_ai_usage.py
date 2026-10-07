@@ -223,11 +223,11 @@ def test_a_range_that_makes_no_sense_is_refused(
     assert admin_client.get("/api/ai/usage", params=params).status_code == 422
 
 
-def test_viewers_can_see_the_cost(client: TestClient, viewer: User, session: Session) -> None:
+def test_viewers_cant_see_the_cost(client: TestClient, viewer: User, session: Session) -> None:
     add_usage(session, at(TODAY))
     sign_in(client, viewer.email)
 
-    assert usage(client)["totals"]["calls"] == 1
+    assert error(client.get("/api/ai/usage")) == "admin_only"
 
 
 def test_usage_needs_someone_signed_in(client: TestClient) -> None:

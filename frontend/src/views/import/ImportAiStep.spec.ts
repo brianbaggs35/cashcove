@@ -5,7 +5,6 @@ import { notices } from '@/composables/notify'
 import { polling, POLL_INTERVAL } from '@/composables/useReviewProgress'
 import { makeRecommendation, makeRecommendationPage, makeReview } from '@/test/ai'
 import { seedFinance } from '@/test/finance'
-import { makeSessionState, makeUser } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
 import ImportAiStep from '@/views/import/ImportAiStep.vue'
 
@@ -21,18 +20,15 @@ const target = makeRecommendation({
 interface Options {
   review?: api.AiReview
   page?: api.RecommendationPage
-  role?: 'admin' | 'viewer'
 }
 
 async function render({
   review = makeReview({ id: 'review-import', source: 'import', open: 2, applied: 0, dismissed: 0 }),
   page = makeRecommendationPage([coffee, target], { total: 2 }),
-  role = 'admin',
 }: Options = {}) {
   const fetchReview = vi.spyOn(api, 'fetchAiReview').mockResolvedValue(review)
   const fetchList = vi.spyOn(api, 'fetchRecommendations').mockResolvedValue(page)
   const mounted = await mountWithPlugins(ImportAiStep, {
-    session: makeSessionState({ user: makeUser({ role }) }),
     props: { reviewId: 'review-import', notes },
     beforeMount: () => seedFinance(),
   })
@@ -295,14 +291,5 @@ describe('ImportAiStep', () => {
     )
     expect(wrapper.find('[data-test="recommendation-list"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="import-ai-decided"]').exists()).toBe(false)
-  })
-
-  it('lets a viewer see the suggestions without deciding on them', async () => {
-    const { wrapper, find } = await render({ role: 'viewer' })
-
-    expect(wrapper.findAll('[data-test="recommendation"]')).toHaveLength(2)
-    expect(find('import-ai-apply-all').exists()).toBe(false)
-    expect(find('import-ai-dismiss-all').exists()).toBe(false)
-    expect(find('reco-apply').exists()).toBe(false)
   })
 })

@@ -134,25 +134,4 @@ test.describe('Asking the AI', () => {
       await expect(aiPage.error).toHaveCount(0)
     })
   })
-
-  test.describe('as a viewer', () => {
-    test.use({ storageState: signInFiles.viewer })
-
-    test('can ask too, and is told an admin sets AI up when it isn’t', async ({
-      aiPage,
-      apiAs,
-    }) => {
-      await aiPage.goto()
-      await expect(aiPage.setupViewer).toContainText('An admin can choose an AI provider')
-      await expect(aiPage.setupLink).toHaveCount(0)
-
-      await setUpAi(await apiAs('admin'))
-      await aiPage.goto()
-      await aiPage.ask('Which subscriptions cost the most?')
-
-      await expect(aiPage.messages.last()).toContainText(
-        'You asked: Which subscriptions cost the most?',
-      )
-    })
-  })
 })

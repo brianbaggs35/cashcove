@@ -11,12 +11,10 @@ import { formatShortDate } from '@/utils/format'
 
 /**
  * What the AI suggested, a card to each: the transaction, the category it has and the one the AI
- * would give it, and why. Admins can tick several, or apply or turn down one.
+ * would give it, and why. Several can be ticked, or one applied or turned down.
  */
 defineProps<{
   items: AiRecommendation[]
-  /** Admins decide; everyone else just sees. */
-  canDecide: boolean
   busy?: boolean
 }>()
 const emit = defineEmits<{ apply: [ids: string[]]; dismiss: [ids: string[]] }>()
@@ -36,7 +34,7 @@ const { locale } = useHousehold()
     >
       <div class="d-flex align-start ga-2 flex-grow-1" style="min-width: 0">
         <v-checkbox-btn
-          v-if="canDecide && item.status === 'open'"
+          v-if="item.status === 'open'"
           v-model="selected"
           :value="item.id"
           density="comfortable"
@@ -85,7 +83,7 @@ const { locale } = useHousehold()
           {{ item.status === 'applied' ? 'Applied' : 'Dismissed' }}
         </v-chip>
       </div>
-      <div v-else-if="canDecide" class="reco__actions d-flex ga-2 flex-shrink-0">
+      <div v-else class="reco__actions d-flex ga-2 flex-shrink-0">
         <v-btn
           size="small"
           variant="tonal"
