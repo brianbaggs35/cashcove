@@ -348,7 +348,8 @@ What the **AI** tab does:
   pencil on each), flip every row's direction if the statement came out the wrong way round, and
   tick what to add. **Nothing is added until you do**, and duplicates, automations, balances and
   undo work as they do for any file. A scan or a photo has no text to read, and says so: download
-  the statement as a PDF with text in it, or as CSV, OFX or QFX.
+  the statement as a PDF with text in it, or as CSV, OFX or QFX. A long statement is read a batch
+  at a time within five minutes, and a model too slow for it says so rather than timing out.
 - **Recommendations**: the AI looks over transactions nobody chose a category for, such as ones an
   automation left alone, and suggests a category for each, with how confident it is and why. Ask
   for a review of recent or uncategorized transactions, then **Apply** or **Dismiss** each

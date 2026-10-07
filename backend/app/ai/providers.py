@@ -50,6 +50,13 @@ BLOCKED_HOSTS = frozenset({"metadata.google.internal", "metadata"})
 AWS_METADATA_V6 = ipaddress.IPv6Address((0xFD00 << 112) | (0x0EC2 << 96) | 0x254)
 
 
+def timeout_of(seconds: float | None) -> httpx.Timeout:
+    """How long to wait for a model's answer: this many seconds, or as long as usual."""
+    if seconds is None:
+        return TIMEOUT
+    return httpx.Timeout(seconds, connect=min(seconds, TIMEOUT.connect or seconds))
+
+
 @dataclass(frozen=True)
 class Connection:
     """What's needed to reach a provider."""
@@ -149,10 +156,11 @@ class AIClient:
         *,
         version: str,
         transport: httpx.BaseTransport | None = None,
+        timeout: httpx.Timeout = TIMEOUT,
     ) -> None:
         self._connection = connection
         self._http = httpx.Client(
-            timeout=TIMEOUT,
+            timeout=timeout,
             transport=transport,
             headers={"User-Agent": f"Cashcove/{version}"},
         )

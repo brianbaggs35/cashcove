@@ -9,7 +9,15 @@ import pytest
 
 from app.ai import errors
 from app.ai.errors import AIError
-from app.ai.providers import MAX_BYTES, AIClient, Connection, Message, normalize_url
+from app.ai.providers import (
+    MAX_BYTES,
+    TIMEOUT,
+    AIClient,
+    Connection,
+    Message,
+    normalize_url,
+    timeout_of,
+)
 from app.ai.tokens import Tokens
 from app.models import AIProvider
 
@@ -599,3 +607,32 @@ def test_only_ollama_has_models_to_fetch(connection: Connection) -> None:
     with pytest.raises(AIError) as caught:
         models_of(connection, lambda _: tags())
     assert caught.value.code == errors.BAD_REQUEST
+
+
+# ---- How long it waits -----------------------------------------------------------------------
+
+
+def test_it_waits_as_long_as_usual_unless_told_how_long() -> None:
+    assert timeout_of(None) is TIMEOUT
+    assert timeout_of(42.5) == httpx.Timeout(42.5, connect=10.0)
+    # It doesn't wait longer to connect than it waits altogether.
+    assert timeout_of(3.0) == httpx.Timeout(3.0, connect=3.0)
+
+
+def test_a_request_is_given_the_wait_it_was_asked_for() -> None:
+    waits: list[dict[str, float | None]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        waits.append(request.extensions["timeout"])
+        return openai_reply()
+
+    for timeout in (TIMEOUT, timeout_of(20.0)):
+        with AIClient(
+            OPENAI, version="9.9.9", transport=httpx.MockTransport(handle), timeout=timeout
+        ) as ai:
+            ai.complete("m", SYSTEM, TURNS, max_tokens=10)
+
+    assert waits == [
+        {"connect": 10.0, "read": 300.0, "write": 300.0, "pool": 300.0},
+        {"connect": 10.0, "read": 20.0, "write": 20.0, "pool": 20.0},
+    ]

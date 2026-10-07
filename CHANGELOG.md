@@ -58,7 +58,8 @@ and give it a version and a date when you cut a release (see Releases in the
     here, from the last digits and the bank's name, and the direction of each amount is read from
     the statement's columns. A scan or a photo is refused, since sending a picture would send it
     all. What the AI says is checked against the line it was given, and anything doubtful is
-    flagged for you.
+    flagged for you. A long statement is read a batch at a time within five minutes, and a model
+    too slow for it says so instead of the request timing out.
   - **No account number, account name or bank name ever reaches an AI.** What an AI is sent is built
     from dates, amounts, payees and the names of categories, budgets, subscriptions and bills;
     anything that looks like an account number, its last digits, an email address or a key is taken

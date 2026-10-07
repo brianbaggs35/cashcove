@@ -7,6 +7,7 @@ import datetime as dt
 import io
 import json
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from pypdf import PdfReader, PdfWriter
@@ -14,10 +15,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai import statements
-from app.ai.errors import BLOCKED, EMPTY, UNREADABLE, AIError
+from app.ai.errors import BLOCKED, EMPTY, UNREACHABLE, UNREADABLE, AIError
 from app.ai.privacy import Protected
 from app.ai.providers import Connection
-from app.ai.service import AIConfig
+from app.ai.service import AIConfig, Gateway
 from app.ai.statements import (
     Amount,
     Layout,
@@ -591,6 +592,56 @@ def test_a_long_statement_goes_to_the_ai_a_batch_at_a_time(
     assert [row.line for row in reading.rows] == [1, 2, 3, 4, 5]
     assert len(fake_ai.requests) == 3
     assert len(session.scalars(select(AIUsage)).all()) == 3
+
+
+class Clock:
+    """A clock that says what a test says it is, one reading at a time."""
+
+    def __init__(self, *readings: float) -> None:
+        self._readings = iter(readings)
+
+    def __call__(self) -> float:
+        return next(self._readings)
+
+
+def test_each_batch_is_given_the_time_that_is_left_to_read_the_statement(
+    session: Session, settings: Settings, fake_ai: FakeAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    household(session)
+    monkeypatch.setattr(statements, "BATCH", 3)
+    # The reading starts at 1, and a batch is asked for at 2 and at 120.
+    monkeypatch.setattr(statements, "monotonic", Clock(1.0, 2.0, 120.0))
+    waits: list[float | None] = []
+    ask = Gateway.ask
+
+    def asking(self: Gateway, *args: Any, timeout: float | None = None, **kwargs: Any) -> str:
+        waits.append(timeout)
+        return ask(self, *args, timeout=timeout, **kwargs)
+
+    monkeypatch.setattr(Gateway, "ask", asking)
+
+    reading = run(session, settings, fake_ai, make_pdf(CHECKING))
+
+    assert [row.line for row in reading.rows] == [1, 2, 3, 4, 5]
+    assert waits == [statements.READING_BUDGET - 1.0, statements.READING_BUDGET - 119.0]
+
+
+def test_a_statement_the_ai_is_too_slow_to_read_says_so_before_the_server_gives_up(
+    session: Session, settings: Settings, fake_ai: FakeAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    household(session)
+    monkeypatch.setattr(statements, "BATCH", 2)
+    # Too little of the time is left for a second batch.
+    left = statements.MIN_ASK - 0.5
+    monkeypatch.setattr(statements, "monotonic", Clock(0.0, 0.0, statements.READING_BUDGET - left))
+    data = make_pdf(CHECKING)
+
+    with pytest.raises(AIError) as caught:
+        run(session, settings, fake_ai, data)
+
+    assert (caught.value.code, caught.value.message) == (UNREACHABLE, statements.TOO_SLOW)
+    # Only the first batch was asked for, and nothing it said is kept.
+    assert len(fake_ai.requests) == 1
 
 
 def test_a_line_the_ai_doesnt_return_is_counted_as_skipped(
