@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.ai import errors
 from app.ai.errors import AIError
 from app.ai.labels import categories
-from app.ai.privacy import MIN_NAME, Protected, Text
+from app.ai.privacy import MIN_NAME, Protected, Text, institution_names
 from app.ai.providers import Message
 from app.ai.replies import json_in
 from app.ai.service import AIConfig, Gateway
@@ -139,17 +139,6 @@ class _Answer(BaseModel):
 # ---- The accounts a question names ----------------------------------------------------------
 
 
-def _institutions(name: str) -> list[str]:
-    """A bank as named, and without "Bank" and the like, since people say "Tartan"."""
-    short = re.sub(
-        r"[\s,.-]+(?:bank|banking|credit union|financial|n\.?a\.?|inc\.?|corp\.?|co\.?)\s*$",
-        "",
-        name,
-        flags=re.IGNORECASE,
-    ).strip()
-    return [name, short] if short and short != name else [name]
-
-
 def _names(
     accounts: Sequence[Account],
 ) -> tuple[dict[str, set[uuid.UUID]], dict[str, set[uuid.UUID]]]:
@@ -161,7 +150,7 @@ def _names(
         names = [
             account.name,
             account.official_name or "",
-            *_institutions(account.institution or ""),
+            *institution_names(account.institution or ""),
         ]
         for name in names:
             if len(text_key(name)) >= MIN_NAME:
@@ -183,7 +172,9 @@ def _without_whole_names(
     """The text without the names of accounts and banks in it, which are found."""
     if not whole:
         return text
-    spelled = [re.escape(key).replace(r"\ ", r"\s+") for key in sorted(whole, key=len)[::-1]]
+    spelled = [
+        re.escape(key).replace(r"\ ", r"\s+") for key in sorted(whole, key=len, reverse=True)
+    ]
     pattern = re.compile(
         r"(?<![A-Za-z0-9])(?:" + "|".join(spelled) + r")(?![A-Za-z0-9])", re.IGNORECASE
     )

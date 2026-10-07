@@ -107,7 +107,7 @@ class Text(Enum):
     LABEL = auto()
 
 
-def _institution_names(name: str) -> list[str]:
+def institution_names(name: str) -> list[str]:
     """An institution as named, and without "Bank" and the like, since a payee says "TD" or
     "Tartan" and not the whole name."""
     short = _INSTITUTION_SUFFIX.sub("", name).strip()
@@ -193,7 +193,7 @@ class Protected:
             for label in _column(db, column)
         ]
         return cls.of(
-            [*names, *(short for name in institutions for short in _institution_names(name))],
+            [*names, *(short for name in institutions for short in institution_names(name))],
             labels,
             _column(db, User.name),
         )
