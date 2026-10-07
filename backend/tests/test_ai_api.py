@@ -40,6 +40,7 @@ def stored(session: Session) -> AISettings:
         ("post", "/api/ai/models", {"provider": "ollama_cloud"}),
         ("post", "/api/ai/test", {"provider": "openai"}),
         ("post", "/api/ai/chat", {"messages": [{"role": "user", "content": "hi"}]}),
+        ("post", "/api/ai/search", {"query": "coffee"}),
         ("post", "/api/ai/statements", {"file_name": "a.pdf", "content": "JVBERg=="}),
         ("get", "/api/ai/reviews", None),
         ("post", "/api/ai/reviews", {}),
@@ -112,7 +113,10 @@ def test_viewers_can_read_how_ai_is_set_up_ask_questions_and_see_the_cost(
         "/api/ai/chat", json={"messages": [{"role": "user", "content": "Hi"}]}
     )
     assert chat.status_code == 200, chat.text
-    assert viewer_client.get("/api/ai/usage").json()["totals"]["calls"] == 1
+    # Finding transactions only picks filters, which anyone who can see them can ask for.
+    search = viewer_client.post("/api/ai/search", json={"query": "coffee"})
+    assert search.status_code == 200, search.text
+    assert viewer_client.get("/api/ai/usage").json()["totals"]["calls"] == 2
     assert viewer_client.get("/api/ai/reviews").status_code == 200
     assert viewer_client.get("/api/ai/recommendations").status_code == 200
 

@@ -10,12 +10,16 @@ provider checks its key, and what it is asked is answered by rules rather than b
 - the lines of a bank statement are answered with the transaction each one is: its date, its
   payee tidied up, and its amount, which is money in for a payroll, a deposit, a refund or a
   payment to a card and money out for anything else;
-- a question is answered with how many recent transactions it was given and what was asked;
+- what someone typed to find transactions is turned into filters from the words it recognizes
+  (see _search), and a question is answered with how many recent transactions it was given and
+  what was asked;
 - "Reply with OK" is answered with OK.
 
 Every request is kept, as the provider received it, so tests can check what was and wasn't sent.
 """
 
+import calendar
+import datetime as dt
 import json
 import re
 from dataclasses import dataclass
@@ -147,9 +151,87 @@ def _statement(system: str) -> str:
     return json.dumps({"transactions": transactions})
 
 
+_TODAY = re.compile(r"^Today is (\d{4}-\d{2}-\d{2})\.$", re.MULTILINE)
+_OVER = re.compile(r"\b(?:over|above|more than|at least)\s+\$?(\d[\d,]*(?:\.\d{1,2})?)", re.I)
+_UNDER = re.compile(r"\b(?:under|below|less than|at most)\s+\$?(\d[\d,]*(?:\.\d{1,2})?)", re.I)
+_LOOK_FOR = re.compile(r"\bat\s+([A-Za-z][\w'&-]*)", re.I)
+_SPENT = re.compile(r"\b(?:spent|spend|spending|bought|paid|purchases?|expenses?)\b", re.I)
+_EARNED = re.compile(r"\b(?:earned|income|deposits?|paychecks?|refunds?|received)\b", re.I)
+_MONTHS = [name.lower() for name in calendar.month_name[1:]]
+
+
+def _month(year: int, month: int) -> tuple[str, str]:
+    return (
+        dt.date(year, month, 1).isoformat(),
+        dt.date(year, month, calendar.monthrange(year, month)[1]).isoformat(),
+    )
+
+
+def _days(text: str, today: dt.date) -> tuple[str | None, str | None]:
+    """The first and last day a question asks for, as the AI is asked to work them out."""
+    lower = text.lower()
+    previous = today.replace(day=1) - dt.timedelta(days=1)
+    if "last month" in lower:
+        return _month(previous.year, previous.month)
+    if "this month" in lower:
+        return today.replace(day=1).isoformat(), today.isoformat()
+    if "last year" in lower:
+        return f"{today.year - 1}-01-01", f"{today.year - 1}-12-31"
+    if "this year" in lower:
+        return f"{today.year}-01-01", today.isoformat()
+    for number, name in enumerate(_MONTHS, start=1):
+        if re.search(rf"\b{name}\b", lower):
+            # The latest one that has begun.
+            return _month(today.year if number <= today.month else today.year - 1, number)
+    return None, None
+
+
+def _search(system: str, question: str) -> str:
+    """The filters for what someone typed, from the words it recognizes: a category named as it
+    is listed, an amount after "over" or "under", "last month" and the like, "spent" or "earned",
+    "at" and a name to look for, and a request for the biggest or oldest. Anything else is left."""
+    today = dt.date.fromisoformat(next(iter(_TODAY.findall(system)), "2026-09-20"))
+    listed = system.partition("## Categories, by group")[2]
+    names = [name for line in listed.splitlines() for name in line.partition(": ")[2].split("; ")]
+    lower = question.lower()
+    chosen = [name for name in names if name and name.lower() in lower]
+    ignored: list[str] = []
+    if "hobbies" in lower:
+        # A category that isn't listed, which can't be used.
+        chosen.append("Hobbies")
+    if "birthday" in lower:
+        ignored.append("birthday")
+    over, under = _OVER.search(question), _UNDER.search(question)
+    start, end = _days(question, today)
+    look_for = _LOOK_FOR.search(question)
+    out, into = _SPENT.search(question), _EARNED.search(question)
+    big = re.search(r"\b(?:biggest|largest)\b", lower)
+    order = "most_out" if big and out else "most_in" if big and into else None
+    if "oldest" in lower:
+        order = "oldest"
+    return json.dumps(
+        {
+            "words": look_for.group(1) if look_for else None,
+            "categories": chosen,
+            "uncategorized": "uncategorized" in lower,
+            "direction": "out" if out else "in" if into else None,
+            "min": over.group(1) if over else None,
+            "max": under.group(1) if under else None,
+            "from": start,
+            "to": end,
+            "status": "pending" if "pending" in lower else None,
+            "sources": [],
+            "order": order,
+            "ignored": ignored,
+        }
+    )
+
+
 def _answer(system: str, question: str) -> str:
     if "second opinion on how a household's transactions" in system:
         return _review(system)
+    if system.startswith("You turn what someone typed into filters"):
+        return _search(system, question)
     if system.startswith("You read lines from a bank statement"):
         return _statement(system)
     if system.startswith("Reply with the single word OK"):
