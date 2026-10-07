@@ -5,7 +5,10 @@ import type {
   AiReview,
   AiSettings,
   AiUsage,
+  AutomationSuggestion,
   RecommendationPage,
+  SearchFilters,
+  SearchResult,
   StatementReading,
   StatementRow,
 } from '@/api/ai'
@@ -275,6 +278,55 @@ export function makeStatementReading(changes: Partial<StatementReading> = {}): S
     ],
     account_id: 'account-checking',
     skipped: 1,
+    ...changes,
+  }
+}
+
+/** What the AI made of "groceries over $50 last month": a category, an amount and some days. */
+export function makeSearchFilters(changes: Partial<SearchFilters> = {}): SearchFilters {
+  return {
+    q: '',
+    account_ids: [],
+    category_ids: ['category-groceries'],
+    uncategorized: false,
+    start: '2026-08-01',
+    end: '2026-08-31',
+    direction: 'out',
+    status: null,
+    sources: [],
+    min_amount: '50.00',
+    max_amount: null,
+    sort: null,
+    ...changes,
+  }
+}
+
+export function makeSearchResult(
+  changes: Partial<SearchResult> = {},
+  filters: Partial<SearchFilters> = {},
+): SearchResult {
+  return { filters: makeSearchFilters(filters), ignored: [], ...changes }
+}
+
+/** An automation the AI suggests for a payee that groceries were chosen for four times. */
+export function makeAutomationSuggestion(
+  changes: Partial<AutomationSuggestion> = {},
+): AutomationSuggestion {
+  return {
+    ref: 'g1',
+    name: 'Whole Foods',
+    payees: ['WHOLEFDS MKT'],
+    match: 'starts_with',
+    direction: 'out',
+    category_id: 'category-groceries',
+    apply_to: 'all',
+    reason: 'Every one begins with WHOLEFDS MKT.',
+    choices: 4,
+    last_chosen: '2026-09-18',
+    examples: ['WHOLEFDS MKT #10231 AUSTIN TX', 'WHOLEFDS MKT #10232 AUSTIN TX'],
+    sorts_now: 2,
+    elsewhere: 0,
+    overlaps: [],
     ...changes,
   }
 }

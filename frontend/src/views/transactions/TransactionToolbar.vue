@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { ArrowDownUp, CalendarRange, ListFilter, Search, type LucideIcon } from '@lucide/vue'
+import {
+  ArrowDownUp,
+  CalendarRange,
+  ListFilter,
+  Search,
+  Sparkles,
+  type LucideIcon,
+} from '@lucide/vue'
 import { onScopeDispose, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 
@@ -7,19 +14,31 @@ import type { TransactionSort } from '@/api/transactions'
 import { periods, type PeriodKey } from '@/utils/dates'
 import type { TransactionFilters } from '@/views/transactions/view'
 
-/** Search, the period, the way into the other filters, and on phones, the order. */
-const props = defineProps<{
-  filters: TransactionFilters
-  sort: TransactionSort
-  /** How many other filters are on, shown on the Filters button. */
-  filterCount: number
-}>()
+/**
+ * Search, the period, the way into the other filters, finding by describing, which only shows
+ * once AI is set up, and on phones, the order.
+ */
+const props = withDefaults(
+  defineProps<{
+    filters: TransactionFilters
+    sort: TransactionSort
+    /** How many other filters are on, shown on the Filters button. */
+    filterCount: number
+    /** AI is set up, so transactions can be found by describing them. */
+    ai?: boolean
+    /** The box for describing them is open. */
+    aiOpen?: boolean
+  }>(),
+  { ai: false, aiOpen: false },
+)
 const emit = defineEmits<{
   search: [q: string]
   period: [period: PeriodKey]
   sort: [sort: TransactionSort]
   /** Opens the filters, at the dates when choosing a custom period. */
   filters: [focus?: 'dates']
+  /** Opens or closes the box for finding transactions by describing them. */
+  ai: []
 }>()
 
 const sorts: { value: TransactionSort; title: string }[] = [
@@ -119,6 +138,17 @@ function choosePeriod(value: PeriodKey | 'custom') {
         @click="emit('filters')"
       />
     </v-badge>
+    <v-btn
+      v-if="ai"
+      v-bind="button(Sparkles, 'Find with AI')"
+      :variant="aiOpen ? 'tonal' : 'outlined'"
+      :color="aiOpen ? 'primary' : undefined"
+      height="48"
+      aria-label="Find with AI"
+      :aria-expanded="aiOpen"
+      data-test="transaction-ai"
+      @click="emit('ai')"
+    />
     <v-menu location="bottom end">
       <template #activator="{ props: activator }">
         <v-btn
