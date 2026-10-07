@@ -14,7 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Query, status
 
-from app.ai import chat, errors, reviews, search, service, statements
+from app.ai import automations, chat, errors, reviews, search, service, statements
 from app.ai.catalog import PROVIDERS, ModelChoice, Price, cloud_price, find_model, provider_info
 from app.ai.deps import AISessions, AITransport
 from app.ai.errors import AIError
@@ -28,6 +28,7 @@ from app.models.base import utcnow
 from app.schemas.ai import (
     AISettingsIn,
     AISettingsOut,
+    AutomationSuggestions,
     ChatIn,
     ChatOut,
     ConnectionIn,
@@ -227,6 +228,20 @@ def find_transactions(
             body.query,
             body.today or utcnow().date(),
         )
+    except AIError as error:
+        raise _problem(error) from error
+
+
+@router.post("/automation-suggestions")
+def suggest_automations(
+    auth: AdminAuth, db: Db, settings: AppSettings, transport: AITransport
+) -> AutomationSuggestions:
+    """Automations for the payees the household has put in the same category again and again,
+    worded by the AI and tried on its transactions. None is created: they are for an admin to
+    check, change and create like any other. Nothing is asked of the AI when there are none."""
+    config = service.require(db, settings)
+    try:
+        return automations.suggest(db, settings, config, transport, auth.user)
     except AIError as error:
         raise _problem(error) from error
 

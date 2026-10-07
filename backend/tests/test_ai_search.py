@@ -2,6 +2,7 @@
 and that no account or bank name is sent to find them."""
 
 import json
+import uuid
 from typing import Any
 
 import pytest
@@ -374,7 +375,7 @@ def test_an_account_is_named_by_its_name_its_banks_or_a_word_only_it_has(
     session: Session,
 ) -> None:
     home = household(session)
-    named = {
+    named: dict[str, tuple[list[uuid.UUID], str]] = {
         "Everyday Checking transactions": ([home.checking.id], "transactions"),
         "at harbor credit union": ([home.checking.id], "at"),
         "at Harbor": ([home.checking.id], "at"),
