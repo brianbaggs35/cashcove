@@ -2,14 +2,19 @@ import { flushPromises } from '@vue/test-utils'
 
 import * as accountsApi from '@/api/accounts'
 import type { Account } from '@/api/accounts'
+import * as aiApi from '@/api/ai'
 import { ApiError } from '@/api/client'
 import * as importsApi from '@/api/imports'
 import * as api from '@/api/transactions'
 import { confirmRequest } from '@/composables/confirm'
 import { notices } from '@/composables/notify'
+import { useAiStore } from '@/stores/ai'
+import { aiOff, makeAiSettings, makeProviders, makeSearchResult } from '@/test/ai'
 import { answer } from '@/test/confirm'
 import {
   checking,
+  coffee,
+  groceries,
   latte,
   makeAccount,
   makePage,
@@ -30,6 +35,8 @@ interface Options {
   route?: string
   width?: number
   accounts?: Account[]
+  /** AI is set up, as Settings > AI does. It's off unless a test says. */
+  ai?: boolean
 }
 
 async function render({
@@ -37,12 +44,18 @@ async function render({
   route = '/transactions',
   width = 1280,
   accounts = [checking, savings, visa],
+  ai = false,
 }: Options = {}) {
   const mounted = await mountWithPlugins(TransactionsView, {
     width,
     route,
     session: makeSessionState({ user: makeUser({ role }) }),
-    beforeMount: () => seedFinance({ accounts }),
+    beforeMount: () => {
+      seedFinance({ accounts })
+      const store = useAiStore()
+      store.providers = makeProviders()
+      store.settings = ai ? makeAiSettings() : aiOff
+    },
   })
   await flushPromises()
   const { wrapper, router } = mounted
@@ -50,13 +63,13 @@ async function render({
   const component = (name: string) => wrapper.findComponent({ name })
   const query = () => router.currentRoute.value.query
   /** Waits for the address to change to this, then for the list to load again. */
-  async function routeIs(expected: Record<string, string>) {
+  async function routeIs(expected: Record<string, string | string[]>) {
     await vi.waitFor(() => {
       expect(query()).toEqual(expected)
     })
     await flushPromises()
   }
-  return { ...mounted, find, component, routeIs }
+  return { ...mounted, find, component, query, routeIs }
 }
 
 describe('TransactionsView', () => {
@@ -514,5 +527,157 @@ describe('TransactionsView', () => {
       expect(wrapper.find('.v-progress-linear').exists()).toBe(true)
       expect(component('TransactionList').exists()).toBe(true)
     })
+  })
+})
+
+describe('TransactionsView, finding transactions by describing them', () => {
+  /** What the AI makes of "groceries over $50 last month", with every other filter left out. */
+  const found = (changes: Partial<aiApi.SearchFilters> = {}, ignored: string[] = []) =>
+    makeSearchResult({ ignored }, { category_ids: [groceries.id], ...changes })
+
+  it('has no way to, and says nothing of AI, until AI is set up', async () => {
+    vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+    const { find } = await render()
+
+    expect(find('transaction-ai').exists()).toBe(false)
+    expect(find('ai-search').exists()).toBe(false)
+  })
+
+  it('opens a box to describe them in, from a button, and puts it away again', async () => {
+    vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+    const { find } = await render({ ai: true })
+
+    expect(find('ai-search').exists()).toBe(false)
+    expect(find('transaction-ai').attributes('aria-expanded')).toBe('false')
+
+    await find('transaction-ai').trigger('click')
+    await flushPromises()
+    expect(find('ai-search').exists()).toBe(true)
+    expect(find('transaction-ai').attributes('aria-expanded')).toBe('true')
+
+    await find('transaction-ai').trigger('click')
+    await flushPromises()
+    expect(find('transaction-ai').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('puts the box away from its own close button too', async () => {
+    vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+    const { find } = await render({ ai: true })
+    await find('transaction-ai').trigger('click')
+    await flushPromises()
+
+    await find('ai-search-close').trigger('click')
+    await flushPromises()
+
+    expect(find('transaction-ai').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('shows what the AI found as the tab’s own filters, replacing the ones that were on', async () => {
+    const fetch = vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+    const ask = vi.spyOn(aiApi, 'searchWithAi').mockResolvedValue(
+      found({
+        q: 'whole',
+        start: '2026-08-01',
+        end: '2026-08-31',
+        direction: 'out',
+        min_amount: '50.00',
+        sort: 'amount',
+      }),
+    )
+    const { find, routeIs } = await render({
+      ai: true,
+      route: '/transactions?direction=in&account=account-savings',
+    })
+    await find('transaction-ai').trigger('click')
+    await flushPromises()
+
+    await find('ai-search-input').find('input').setValue('groceries over $50 last month')
+    await find('ai-search-find').trigger('click')
+    await flushPromises()
+
+    expect(ask).toHaveBeenCalledWith('groceries over $50 last month', expect.any(String))
+    await routeIs({
+      q: 'whole',
+      category: [groceries.id],
+      from: '2026-08-01',
+      to: '2026-08-31',
+      direction: 'out',
+      min: '50.00',
+      sort: 'amount',
+    })
+    expect(fetch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        q: 'whole',
+        category_id: [groceries.id],
+        account_id: [],
+        direction: 'out',
+        start: '2026-08-01',
+        end: '2026-08-31',
+        min_amount: '50.00',
+        sort: 'amount',
+      }),
+    )
+    // The filters it found are chips, which can be taken off.
+    expect(find('filter-chips').text()).toContain('Groceries')
+    expect(find('ai-search-result').exists()).toBe(true)
+  })
+
+  it('keeps the order the list was in when the AI had none to ask for', async () => {
+    vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+    vi.spyOn(aiApi, 'searchWithAi').mockResolvedValue(found({ category_ids: [coffee.id] }))
+    const { find, routeIs } = await render({ ai: true, route: '/transactions?sort=payee' })
+    await find('transaction-ai').trigger('click')
+    await flushPromises()
+
+    await find('ai-search-input').find('input').setValue('coffee')
+    await find('ai-search-find').trigger('click')
+    await flushPromises()
+
+    await routeIs({
+      category: [coffee.id],
+      from: '2026-08-01',
+      to: '2026-08-31',
+      direction: 'out',
+      min: '50.00',
+      sort: 'payee',
+    })
+  })
+
+  it('leaves the filters alone, and says so, when there was nothing in it to filter by', async () => {
+    vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+    vi.spyOn(aiApi, 'searchWithAi').mockResolvedValue(
+      found({
+        category_ids: [],
+        start: null,
+        end: null,
+        direction: null,
+        min_amount: null,
+      }),
+    )
+    const { find, query } = await render({ ai: true, route: '/transactions?direction=in' })
+    await find('transaction-ai').trigger('click')
+    await flushPromises()
+
+    await find('ai-search-input').find('input').setValue('something blue')
+    await find('ai-search-find').trigger('click')
+    await flushPromises()
+
+    expect(find('ai-search-nothing').exists()).toBe(true)
+    expect(query()).toEqual({ direction: 'in' })
+  })
+
+  it('is there for a viewer too, since it only picks filters', async () => {
+    vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+    const { find } = await render({ ai: true, role: 'viewer' })
+
+    expect(find('transaction-ai').exists()).toBe(true)
+  })
+
+  it('has no box to describe them in when there are no transactions at all', async () => {
+    vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage([]))
+    const { find } = await render({ ai: true })
+
+    expect(find('transaction-ai').exists()).toBe(false)
+    expect(find('ai-search').exists()).toBe(false)
   })
 })
