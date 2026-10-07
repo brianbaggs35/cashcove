@@ -5,10 +5,10 @@ import { mountWithPlugins } from '@/test/mount'
 import TransactionToolbar from '@/views/transactions/TransactionToolbar.vue'
 import { emptyFilters } from '@/views/transactions/view'
 
-async function render(filterCount = 0, width = 1280) {
+async function render(filterCount = 0, width = 1280, ai: { ai?: boolean; aiOpen?: boolean } = {}) {
   const mounted = await mountWithPlugins(TransactionToolbar, {
     width,
-    props: { filters: emptyFilters(), sort: '-date', filterCount },
+    props: { filters: emptyFilters(), sort: '-date', filterCount, ...ai },
   })
   const find = (name: string) => mounted.wrapper.find(`[data-test="${name}"]`)
   return { ...mounted, find, search: find('transaction-search').find('input') }
@@ -127,5 +127,35 @@ describe('TransactionToolbar', () => {
     expect(find('transaction-filters').attributes('aria-label')).toBe('Filters')
     expect(find('transaction-sort').attributes('aria-label')).toBe('Sort')
     expect(wrapper.find('.v-badge__badge').text()).toBe('2')
+  })
+
+  it('has no way to find transactions by describing them until AI is set up', async () => {
+    const { find } = await render()
+
+    expect(find('transaction-ai').exists()).toBe(false)
+  })
+
+  it('has a button to open and close the box for describing them, which says which it is', async () => {
+    const { wrapper, find } = await render(0, 1280, { ai: true })
+    const button = find('transaction-ai')
+
+    expect(button.text()).toBe('Find with AI')
+    expect(button.attributes('aria-label')).toBe('Find with AI')
+    expect(button.attributes('aria-expanded')).toBe('false')
+    expect(button.classes()).toContain('v-btn--variant-outlined')
+
+    await button.trigger('click')
+    expect(wrapper.emitted('ai')).toHaveLength(1)
+
+    await wrapper.setProps({ aiOpen: true })
+    expect(find('transaction-ai').attributes('aria-expanded')).toBe('true')
+    expect(find('transaction-ai').classes()).toContain('v-btn--variant-tonal')
+  })
+
+  it('shows just the icon on a phone, as the other buttons do', async () => {
+    const { find } = await render(0, 360, { ai: true })
+
+    expect(find('transaction-ai').text()).toBe('')
+    expect(find('transaction-ai').attributes('aria-label')).toBe('Find with AI')
   })
 })

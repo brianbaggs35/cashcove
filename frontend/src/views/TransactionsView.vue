@@ -15,13 +15,17 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import ReadOnlyNotice from '@/components/ui/ReadOnlyNotice.vue'
 import { confirmAndRun } from '@/composables/confirm'
 import { notify } from '@/composables/notify'
+import type { SearchResult } from '@/api/ai'
 import { useAccountsStore } from '@/stores/accounts'
+import { useAiStore } from '@/stores/ai'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import { useImportsStore } from '@/stores/imports'
 import type { PeriodKey } from '@/utils/dates'
 import { toCents } from '@/utils/money'
 import AutomationDialog from '@/views/automations/AutomationDialog.vue'
+import AiSearch from '@/views/transactions/AiSearch.vue'
+import { filtersFromSearch } from '@/views/transactions/searchFilters'
 import BulkBar from '@/views/transactions/BulkBar.vue'
 import CategorizeDialog from '@/views/transactions/CategorizeDialog.vue'
 import FilterChips from '@/views/transactions/FilterChips.vue'
@@ -43,6 +47,7 @@ import {
 
 const auth = useAuthStore()
 const accounts = useAccountsStore()
+const ai = useAiStore()
 const categories = useCategoriesStore()
 const imports = useImportsStore()
 const { mdAndUp } = useDisplay()
@@ -77,6 +82,8 @@ async function load() {
 onMounted(() => {
   void accounts.ensureLoaded()
   void categories.ensureLoaded()
+  // Whether AI is set up says whether transactions can be found by describing them.
+  void ai.ensureLoaded()
   void load()
 })
 
@@ -167,6 +174,17 @@ function choosePeriod(period: PeriodKey) {
   filter({ period, start: null, end: null })
 }
 
+// Finding transactions by describing them: what the AI found stands in for the filters that were
+// on, and is shown as the chips for them, to look at and change.
+const aiOpen = ref(false)
+
+function aiFound({ filters }: SearchResult) {
+  update({
+    filters: filtersFromSearch(filters),
+    ...(filters.sort ? { sort: filters.sort } : {}),
+  })
+}
+
 // Acting on several at once.
 const categorizing = ref(false)
 const linking = ref(false)
@@ -223,11 +241,16 @@ async function removeSelected() {
       :filters="view.filters"
       :sort="view.sort"
       :filter-count="filterCount(view.filters)"
+      :ai="ai.configured"
+      :ai-open="aiOpen"
       @search="(q) => filter({ q })"
       @period="choosePeriod"
       @sort="(sort) => update({ sort })"
       @filters="showFilters"
+      @ai="aiOpen = !aiOpen"
     />
+
+    <AiSearch v-if="ai.configured && !empty" v-model:open="aiOpen" @found="aiFound" />
 
     <FilterChips :filters="view.filters" @change="filter" @clear="clear" />
 

@@ -1,11 +1,13 @@
+import type { AutomationDirection, AutomationMatch, AutomationScope } from '@/api/automations'
 import { apiDelete, apiGet, apiPost, apiPut } from '@/api/client'
 import type { ImportFile } from '@/api/imports'
+import type { TransactionSort, TransactionSource } from '@/api/transactions'
 
 /** Where the household's AI runs. */
 export type AiProviderKey = 'ollama_local' | 'ollama_cloud' | 'anthropic' | 'openai'
 
 /** What a request to the AI was for. */
-export type AiPurpose = 'chat' | 'review' | 'test' | 'statement'
+export type AiPurpose = 'chat' | 'review' | 'test' | 'statement' | 'search' | 'automation'
 
 /** One model someone can pick. */
 export interface AiModel {
@@ -98,6 +100,64 @@ export interface StatementReading {
   account_id: string | null
   /** Lines that looked like transactions but weren't. */
   skipped: number
+}
+
+/**
+ * The Transactions tab's filters that what someone typed came to. The AI only picked them, and
+ * each was checked on the server; the tab applies them as if they had been chosen by hand.
+ */
+export interface SearchFilters {
+  /** Words to look for in payees, descriptions, notes and categories. */
+  q: string
+  account_ids: string[]
+  category_ids: string[]
+  uncategorized: boolean
+  start: string | null
+  end: string | null
+  direction: 'in' | 'out' | null
+  status: 'pending' | 'posted' | null
+  sources: TransactionSource[]
+  /** How big the amount is, whichever way the money went. */
+  min_amount: string | null
+  max_amount: string | null
+  sort: TransactionSort | null
+}
+
+export interface SearchResult {
+  filters: SearchFilters
+  /** Parts of the question that couldn't be used, in words for people. */
+  ignored: string[]
+}
+
+/** An automation the AI suggests, which nothing has created: what the form for a new one takes. */
+export interface AutomationSuggestion {
+  /** Which of the suggestions it is, for as long as the answer is on the screen. */
+  ref: string
+  name: string
+  payees: string[]
+  match: AutomationMatch
+  direction: AutomationDirection
+  category_id: string
+  apply_to: AutomationScope
+  /** The AI's reason for wording it so. */
+  reason: string
+  /** How many times that category was chosen for what it matches, and the last time. */
+  choices: number
+  last_chosen: string
+  /** A few of the payees it matches, as the household's transactions have them. */
+  examples: string[]
+  /** How many transactions with no category it would sort now. */
+  sorts_now: number
+  /** How many it matches that were put in another category, which it leaves alone. */
+  elsewhere: number
+  /** Older automations that give some of the same transactions a category, and so win. */
+  overlaps: { automation_id: string; automation_name: string; count: number }[]
+}
+
+export interface AutomationSuggestions {
+  suggestions: AutomationSuggestion[]
+  /** How many payees had a category chosen for them often enough to be looked at. */
+  considered: number
 }
 
 export type ReviewSource = 'manual' | 'import'
@@ -239,6 +299,14 @@ export const askAi = (messages: ChatTurn[], today: string) =>
  * gets the lines that are transactions, with nothing in them that names an account or a person. */
 export const readStatementWithAi = (file: ImportFile) =>
   apiPost<StatementReading>('/ai/statements', file)
+
+/** Turns what someone typed into the filters of the Transactions tab. It finds nothing itself. */
+export const searchWithAi = (query: string, today: string) =>
+  apiPost<SearchResult>('/ai/search', { query, today })
+
+/** Automations for the payees a category was chosen for again and again. Nothing is created. */
+export const suggestAutomationsWithAi = () =>
+  apiPost<AutomationSuggestions>('/ai/automation-suggestions')
 
 /** Starts a review, which carries on after this answers: read it again to see how it's going. */
 export const startAiReview = (input: AiReviewInput) => apiPost<AiReview>('/ai/reviews', input)

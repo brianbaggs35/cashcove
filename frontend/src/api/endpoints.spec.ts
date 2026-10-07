@@ -664,6 +664,20 @@ const aiEndpoints: typeof endpoints = [
     { messages: [{ role: 'user', content: 'How much on coffee?' }], today: '2026-09-20' },
   ],
   [
+    'searchWithAi',
+    () => ai.searchWithAi('groceries over $50', '2026-09-20'),
+    'POST',
+    '/ai/search',
+    { query: 'groceries over $50', today: '2026-09-20' },
+  ],
+  [
+    'suggestAutomationsWithAi',
+    () => ai.suggestAutomationsWithAi(),
+    'POST',
+    '/ai/automation-suggestions',
+    undefined,
+  ],
+  [
     'readStatementWithAi',
     () => ai.readStatementWithAi({ file_name: 'september.pdf', content: 'JVBERi0xLjc=' }),
     'POST',
