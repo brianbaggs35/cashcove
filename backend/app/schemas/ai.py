@@ -20,9 +20,11 @@ from app.models import (
     RecommendationStatus,
     ReviewSource,
     ReviewStatus,
+    TransactionSource,
 )
 from app.schemas.budget import Day
 from app.schemas.fields import STRICT, AmountOut
+from app.schemas.transactions import Sort
 
 # A statement's PDF can be this big, and base64 takes four characters for every three bytes.
 MAX_STATEMENT_BYTES = 10 * 1024 * 1024
@@ -202,6 +204,42 @@ class StatementOut(BaseModel):
     account_id: uuid.UUID | None
     # How many lines looked like transactions but weren't.
     skipped: int
+
+
+class SearchIn(BaseModel):
+    """What someone typed to find transactions, in their own words."""
+
+    model_config = STRICT
+
+    query: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
+    # The date where the person is, which "last month" and "in March" are measured from.
+    today: Day | None = None
+
+
+class SearchFilters(BaseModel):
+    """The Transactions tab's filters that a question came to, which the tab applies as if they
+    had been chosen by hand. Nothing here says what any transaction is."""
+
+    # Words to look for in payees, descriptions, notes and categories.
+    q: str
+    account_ids: list[uuid.UUID]
+    category_ids: list[uuid.UUID]
+    uncategorized: bool
+    start: dt.date | None
+    end: dt.date | None
+    direction: Literal["in", "out"] | None
+    status: Literal["pending", "posted"] | None
+    sources: list[TransactionSource]
+    # How big the amount is, whichever way the money went.
+    min_amount: AmountOut | None
+    max_amount: AmountOut | None
+    sort: Sort | None
+
+
+class SearchOut(BaseModel):
+    filters: SearchFilters
+    # Parts of the question that couldn't be used, in words for people.
+    ignored: list[str]
 
 
 class ReviewIn(BaseModel):
