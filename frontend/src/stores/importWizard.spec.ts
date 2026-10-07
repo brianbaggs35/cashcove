@@ -161,11 +161,11 @@ describe('import wizard', () => {
   it('says why a file could not be read', async () => {
     const wizard = useImportWizard()
     vi.spyOn(api, 'previewImport').mockRejectedValue(
-      new ApiError(422, 'PDF statements can’t be imported.', { code: 'unreadable_file' }),
+      new ApiError(422, 'This looks like an Excel workbook.', { code: 'unreadable_file' }),
     )
     await wizard.start(file())
     expect(wizard.step).toBe('failed')
-    expect(wizard.notice).toBe('PDF statements can’t be imported.')
+    expect(wizard.notice).toBe('This looks like an Excel workbook.')
 
     await wizard.start(new File([], 'empty.csv'))
     expect(wizard.notice).toBe('empty.csv is empty. Download it from your bank again.')

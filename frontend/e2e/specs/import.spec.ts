@@ -224,11 +224,12 @@ test.describe('Importing statement files', () => {
   test('a file that isn’t a statement can be swapped for another', async ({ page, importPage }) => {
     await importPage.goto()
     await importPage.chooseFile({
-      name: 'statement.pdf',
-      mimeType: 'application/pdf',
-      buffer: Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n'),
+      name: 'statement.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      // A workbook is a zip file, which starts with these bytes.
+      buffer: Buffer.from('PK\x03\x04workbook'),
     })
-    await expect(importPage.notice).toContainText("PDF statements can't be imported.")
+    await expect(importPage.notice).toContainText('This looks like an Excel workbook.')
 
     const chooser = page.waitForEvent('filechooser')
     await importPage.dialog.getByTestId('import-choose-again').click()
