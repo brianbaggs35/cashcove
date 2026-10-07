@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.ai import errors
 from app.ai.deps import Sessions
 from app.ai.errors import AIError
+from app.ai.labels import categories
 from app.ai.privacy import Protected, Text
 from app.ai.providers import Message
 from app.ai.replies import json_in
@@ -39,7 +40,6 @@ from app.models import (
     AIRecommendation,
     AIReview,
     Category,
-    CategoryGroup,
     Confidence,
     FileImport,
     RecommendationStatus,
@@ -265,30 +265,12 @@ def _review(
         user_id=review.created_by_id,
         review_id=review.id,
     )
-    categories = _categories(db, protected)
+    choices = categories(db, protected)
     for start in range(0, len(ids), BATCH):
         chunk = ids[start : start + BATCH]
-        _batch(db, gateway, protected, review, chunk, categories)
+        _batch(db, gateway, protected, review, chunk, choices)
         review.reviewed += len(chunk)
         db.commit()
-
-
-def _categories(db: Session, protected: Protected) -> tuple[str, dict[str, uuid.UUID]]:
-    """The categories to choose from as text, and by the name they're compared by."""
-    rows = db.execute(
-        select(CategoryGroup.name, CategoryGroup.kind, Category.name, Category.id)
-        .join(Category, Category.group_id == CategoryGroup.id)
-        .order_by(CategoryGroup.name, Category.name)
-    ).all()
-    grouped: defaultdict[str, list[str]] = defaultdict(list)
-    by_name: dict[str, uuid.UUID] = {}
-    for group, kind, name, category_id in rows:
-        grouped[f"{protected.scrub(group, Text.LABEL)} ({kind})"].append(
-            protected.scrub(name, Text.LABEL)
-        )
-        by_name[text_key(name)] = category_id
-    text = "\n".join(f"{group}: {'; '.join(names)}" for group, names in grouped.items())
-    return text, by_name
 
 
 def _batch(

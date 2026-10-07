@@ -14,7 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Query, status
 
-from app.ai import chat, errors, reviews, service, statements
+from app.ai import chat, errors, reviews, search, service, statements
 from app.ai.catalog import PROVIDERS, ModelChoice, Price, cloud_price, find_model, provider_info
 from app.ai.deps import AISessions, AITransport
 from app.ai.errors import AIError
@@ -41,6 +41,8 @@ from app.schemas.ai import (
     RecommendationResult,
     ReviewIn,
     ReviewOut,
+    SearchIn,
+    SearchOut,
     StatementIn,
     StatementOut,
     StatementRowOut,
@@ -205,6 +207,28 @@ def ask(
     except AIError as error:
         raise _problem(error) from error
     return ChatOut(reply=reply)
+
+
+@router.post("/search")
+def find_transactions(
+    body: SearchIn, auth: CurrentAuth, db: Db, settings: AppSettings, transport: AITransport
+) -> SearchOut:
+    """Turns what someone typed into the Transactions tab's filters. It only says which filters, for
+    the tab to apply, and finds nothing itself, so everyone who can see transactions can ask.
+    The accounts it names are found here and no account or bank name is sent to the AI."""
+    config = service.require(db, settings)
+    try:
+        return search.find(
+            db,
+            settings,
+            config,
+            transport,
+            auth.user,
+            body.query,
+            body.today or utcnow().date(),
+        )
+    except AIError as error:
+        raise _problem(error) from error
 
 
 @router.post("/statements")
