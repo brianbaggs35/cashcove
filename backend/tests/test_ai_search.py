@@ -156,7 +156,9 @@ def test_the_days_a_question_asks_for_are_worked_out_from_today(
 
     filters = filters_of(admin_client, query)["filters"]
 
-    assert (filters["start"], filters["end"]) == days
+    start, end = days
+    assert filters["start"] == start
+    assert filters["end"] == end
 
 
 def test_uncategorized_pending_and_an_amount_below_are_found_too(
@@ -239,8 +241,10 @@ def test_amounts_and_days_the_wrong_way_round_are_put_right(
 
     filters = filters_of(admin_client, "anything")["filters"]
 
-    assert (filters["min_amount"], filters["max_amount"]) == ("10.00", "1200.50")
-    assert (filters["start"], filters["end"]) == ("2026-09-01", "2026-09-30")
+    assert filters["min_amount"] == "10.00"
+    assert filters["max_amount"] == "1200.50"
+    assert filters["start"] == "2026-09-01"
+    assert filters["end"] == "2026-09-30"
 
 
 @pytest.mark.parametrize(
@@ -300,7 +304,8 @@ def test_an_answer_with_words_around_the_json_is_read(
 
     filters = filters_of(admin_client, "anything")["filters"]
 
-    assert (filters["q"], filters["direction"]) == ("taqueria", "out")
+    assert filters["q"] == "taqueria"
+    assert filters["direction"] == "out"
 
 
 # ---- Accounts, which the AI is never told ----------------------------------------------------
