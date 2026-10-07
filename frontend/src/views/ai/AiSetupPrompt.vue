@@ -10,14 +10,10 @@ import {
   type LucideIcon,
 } from '@lucide/vue'
 
-import { useAuthStore } from '@/stores/auth'
-
 /**
  * What the AI tab shows until AI is set up. AI is optional: every other page works the same
  * without it, and this says so, and what the AI tab can do once it's on.
  */
-const auth = useAuthStore()
-
 const features: { icon: LucideIcon; title: string; text: string }[] = [
   {
     icon: MessageCircleQuestion,
@@ -78,7 +74,6 @@ const features: { icon: LucideIcon; title: string; text: string }[] = [
         These can only be used with AI.
       </p>
       <v-btn
-        v-if="auth.isAdmin"
         to="/settings/ai"
         color="primary"
         variant="flat"
@@ -88,9 +83,6 @@ const features: { icon: LucideIcon; title: string; text: string }[] = [
       >
         Set up AI
       </v-btn>
-      <p v-else class="text-body-medium text-medium-emphasis mb-0" data-test="ai-setup-viewer">
-        An admin can choose an AI provider in Settings.
-      </p>
     </div>
   </v-card>
 </template>

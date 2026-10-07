@@ -28,4 +28,6 @@ def read_dashboard(
     """What came in and what was spent this month and over the months before, where the money
     went this month, and how many transactions still have no category."""
     result = dashboard(db, rates, today or utcnow().date())
-    return result.model_copy(update={"ai_recommendations": open_count(db)})
+    # The AI tab is for admins, so only they are told what is waiting there.
+    waiting = open_count(db) if auth.user.is_admin else 0
+    return result.model_copy(update={"ai_recommendations": waiting})

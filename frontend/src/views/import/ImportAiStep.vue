@@ -6,7 +6,6 @@ import { fetchRecommendations, type RecommendationPage } from '@/api/ai'
 import { errorMessage } from '@/api/client'
 import { useRecommendationActions } from '@/composables/useRecommendationActions'
 import { useReviewProgress } from '@/composables/useReviewProgress'
-import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import { agreementWith, suggestionsOf } from '@/utils/ai'
 import { formatCount } from '@/utils/format'
@@ -24,7 +23,6 @@ const emit = defineEmits<{ finished: [] }>()
 /** The most suggestions listed here; the AI tab has them all. */
 const LIMIT = 50
 
-const auth = useAuthStore()
 const categories = useCategoriesStore()
 const page = ref<RecommendationPage | null>(null)
 const error = ref<string | null>(null)
@@ -118,53 +116,51 @@ onMounted(() => void categories.ensureLoaded())
             The AI has {{ formatCount(suggestionsOf(review), 'suggestion') }} for how these were
             sorted. Nothing changes until you apply one.
           </p>
-          <template v-if="auth.isAdmin">
-            <template v-if="selected.length">
-              <v-btn
-                color="primary"
-                variant="tonal"
-                size="small"
-                :prepend-icon="Check"
-                :loading="decide.busy.value"
-                data-test="import-ai-apply-selected"
-                @click="decide.run('apply', selected)"
-              >
-                Apply {{ selected.length }}
-              </v-btn>
-              <v-btn
-                variant="text"
-                size="small"
-                :prepend-icon="X"
-                :disabled="decide.busy.value"
-                data-test="import-ai-dismiss-selected"
-                @click="decide.run('dismiss', selected)"
-              >
-                Dismiss {{ selected.length }}
-              </v-btn>
-            </template>
-            <template v-else>
-              <v-btn
-                color="primary"
-                variant="tonal"
-                size="small"
-                :prepend-icon="Check"
-                :loading="decide.busy.value"
-                data-test="import-ai-apply-all"
-                @click="decide.run('apply', everyId)"
-              >
-                Apply all {{ items.length }}
-              </v-btn>
-              <v-btn
-                variant="text"
-                size="small"
-                :prepend-icon="X"
-                :disabled="decide.busy.value"
-                data-test="import-ai-dismiss-all"
-                @click="decide.run('dismiss', everyId)"
-              >
-                Dismiss all
-              </v-btn>
-            </template>
+          <template v-if="selected.length">
+            <v-btn
+              color="primary"
+              variant="tonal"
+              size="small"
+              :prepend-icon="Check"
+              :loading="decide.busy.value"
+              data-test="import-ai-apply-selected"
+              @click="decide.run('apply', selected)"
+            >
+              Apply {{ selected.length }}
+            </v-btn>
+            <v-btn
+              variant="text"
+              size="small"
+              :prepend-icon="X"
+              :disabled="decide.busy.value"
+              data-test="import-ai-dismiss-selected"
+              @click="decide.run('dismiss', selected)"
+            >
+              Dismiss {{ selected.length }}
+            </v-btn>
+          </template>
+          <template v-else>
+            <v-btn
+              color="primary"
+              variant="tonal"
+              size="small"
+              :prepend-icon="Check"
+              :loading="decide.busy.value"
+              data-test="import-ai-apply-all"
+              @click="decide.run('apply', everyId)"
+            >
+              Apply all {{ items.length }}
+            </v-btn>
+            <v-btn
+              variant="text"
+              size="small"
+              :prepend-icon="X"
+              :disabled="decide.busy.value"
+              data-test="import-ai-dismiss-all"
+              @click="decide.run('dismiss', everyId)"
+            >
+              Dismiss all
+            </v-btn>
           </template>
         </div>
         <v-alert
@@ -179,7 +175,6 @@ onMounted(() => void categories.ensureLoaded())
         <RecommendationList
           v-model="selected"
           :items="items"
-          :can-decide="auth.isAdmin"
           :busy="decide.busy.value"
           @apply="decide.run('apply', $event)"
           @dismiss="decide.run('dismiss', $event)"

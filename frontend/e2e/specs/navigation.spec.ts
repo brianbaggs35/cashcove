@@ -3,7 +3,7 @@ import { expect, TABS, test, type Tab } from '../support'
 test.describe('Navigation', () => {
   test.beforeEach(async ({ baseline, signInAs }) => {
     await baseline.reset()
-    await signInAs('viewer')
+    await signInAs('admin')
   })
 
   for (const [tab, title] of Object.entries(TABS) as [Tab, string][]) {

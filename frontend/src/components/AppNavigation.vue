@@ -1,10 +1,16 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import StatusIndicator from '@/components/StatusIndicator.vue'
 import { useConnectionAlerts } from '@/composables/useConnectionAlerts'
 import { navItems } from '@/navigation'
+import { useAuthStore } from '@/stores/auth'
 
 const open = defineModel<boolean | null>({ default: null })
 const alerts = useConnectionAlerts()
+const auth = useAuthStore()
+/** The tabs this person can open: some are for admins only. */
+const items = computed(() => navItems.filter((item) => !item.admin || auth.isAdmin))
 </script>
 
 <template>
@@ -18,7 +24,7 @@ const alerts = useConnectionAlerts()
     </router-link>
 
     <v-list tag="ul" nav class="px-3" color="primary" aria-label="Sections">
-      <li v-for="item in navItems" :key="item.name">
+      <li v-for="item in items" :key="item.name">
         <v-list-item :to="item.path" :title="item.title" rounded="lg" class="app-nav__item mb-1">
           <template #prepend>
             <v-icon :icon="item.icon" size="20" />

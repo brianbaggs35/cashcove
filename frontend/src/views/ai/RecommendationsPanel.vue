@@ -12,12 +12,10 @@ import {
 } from '@/api/ai'
 import { errorMessage } from '@/api/client'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import ReadOnlyNotice from '@/components/ui/ReadOnlyNotice.vue'
 import { notify } from '@/composables/notify'
 import { useRecommendationActions } from '@/composables/useRecommendationActions'
 import { useReviewProgress } from '@/composables/useReviewProgress'
 import { useAiStore } from '@/stores/ai'
-import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import { reviewActive, suggestionsOf } from '@/utils/ai'
 import { formatCount } from '@/utils/format'
@@ -34,7 +32,6 @@ import ReviewProgress from '@/views/ai/ReviewProgress.vue'
 const PAGE_SIZE = 20
 
 const ai = useAiStore()
-const auth = useAuthStore()
 const categories = useCategoriesStore()
 const route = useRoute()
 
@@ -54,7 +51,6 @@ const following = ref<string | null>(null)
 
 const items = computed(() => data.value?.items ?? [])
 const counts = computed(() => data.value?.counts ?? { open: 0, applied: 0, dismissed: 0 })
-const canReview = computed(() => auth.isAdmin && ai.configured)
 const filteredReview = computed(() => reviews.value.find((item) => item.id === reviewFilter.value))
 const confident = computed(() =>
   items.value.filter((item) => item.status === 'open' && item.confidence === 'high'),
@@ -162,11 +158,6 @@ onMounted(() => {
 
 <template>
   <div data-test="ai-recommendations">
-    <ReadOnlyNotice
-      v-if="!auth.isAdmin"
-      text="You can see what the AI suggested. Only an admin can apply or dismiss it, or ask for a review."
-    />
-
     <v-alert
       v-if="error"
       type="error"
@@ -238,7 +229,7 @@ onMounted(() => {
             </p>
           </div>
           <v-btn
-            v-if="canReview"
+            v-if="ai.configured"
             color="primary"
             variant="flat"
             :prepend-icon="Sparkles"
@@ -276,7 +267,7 @@ onMounted(() => {
             One review{{ filteredReview?.file_name ? `: ${filteredReview.file_name}` : '' }}
           </v-chip>
           <v-spacer />
-          <template v-if="auth.isAdmin && status === 'open' && items.length">
+          <template v-if="status === 'open' && items.length">
             <template v-if="selected.length">
               <v-btn
                 color="primary"
@@ -329,7 +320,6 @@ onMounted(() => {
           <RecommendationList
             v-model="selected"
             :items="data.items"
-            :can-decide="auth.isAdmin"
             :busy="decide.busy.value"
             @apply="decide.run('apply', $event)"
             @dismiss="decide.run('dismiss', $event)"
@@ -365,7 +355,7 @@ onMounted(() => {
           data-test="recommendations-empty"
         >
           <v-btn
-            v-if="status === 'open' && canReview"
+            v-if="status === 'open' && ai.configured"
             color="primary"
             variant="tonal"
             :prepend-icon="Sparkles"
@@ -376,7 +366,7 @@ onMounted(() => {
             Review transactions
           </v-btn>
           <v-btn
-            v-else-if="status === 'open' && auth.isAdmin && !ai.configured"
+            v-else-if="status === 'open' && !ai.configured"
             to="/settings/ai"
             variant="tonal"
             data-test="recommendations-setup"

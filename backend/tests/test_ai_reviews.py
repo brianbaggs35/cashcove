@@ -898,15 +898,27 @@ def test_the_dashboard_says_how_many_suggestions_are_waiting(
     assert dashboard["ai_recommendations"] == 2
 
 
-def test_viewers_see_the_suggestions_but_cant_decide(
+def test_viewers_cant_see_the_suggestions_or_decide(
     admin_client: TestClient, made: Household, viewer: User
 ) -> None:
     ids = reviewed(admin_client, made)
     sign_in(admin_client, viewer.email)
 
-    assert suggestions(admin_client)["total"] == 3
+    assert error(admin_client.get("/api/ai/recommendations")) == "admin_only"
     response = admin_client.post("/api/ai/recommendations/apply", json={"ids": [ids["Venmo"]]})
     assert error(response) == "admin_only"
+
+
+def test_viewers_are_not_told_what_is_waiting_on_the_ai_tab(
+    admin_client: TestClient, made: Household, viewer: User
+) -> None:
+    reviewed(admin_client, made)
+    params = {"today": TODAY_TEXT}
+    assert admin_client.get("/api/dashboard", params=params).json()["ai_recommendations"] == 3
+
+    sign_in(admin_client, viewer.email)
+
+    assert admin_client.get("/api/dashboard", params=params).json()["ai_recommendations"] == 0
 
 
 # ---- Importing a file ---------------------------------------------------------------------------

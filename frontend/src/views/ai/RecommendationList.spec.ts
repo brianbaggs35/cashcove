@@ -22,7 +22,7 @@ const turnedDown = makeRecommendation({
 
 async function render(props: Record<string, unknown> = {}) {
   const mounted = await mountWithPlugins(RecommendationList, {
-    props: { items: [coffee, groceries, decided, turnedDown], canDecide: true, ...props },
+    props: { items: [coffee, groceries, decided, turnedDown], ...props },
     beforeMount: () => seedFinance(),
   })
   return mounted.wrapper
@@ -84,15 +84,6 @@ describe('RecommendationList', () => {
       expect(item.find('[data-test="recommendation-select"]').exists()).toBe(false)
       expect(item.classes()).toContain('reco--decided')
     }
-  })
-
-  it('only shows a viewer what was suggested', async () => {
-    const wrapper = await render({ canDecide: false })
-
-    expect(wrapper.find('[data-test="reco-apply"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="reco-dismiss"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="recommendation-select"]').exists()).toBe(false)
-    expect(wrapper.findAll('[data-test="recommendation"]')).toHaveLength(4)
   })
 
   it('can’t be used while a decision is being made', async () => {

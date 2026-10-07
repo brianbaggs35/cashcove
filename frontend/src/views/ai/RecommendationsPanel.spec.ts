@@ -13,7 +13,6 @@ import {
   makeReview,
 } from '@/test/ai'
 import { seedFinance } from '@/test/finance'
-import { makeSessionState, makeUser } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
 import RecommendationsPanel from '@/views/ai/RecommendationsPanel.vue'
 import ReviewDialog from '@/views/ai/ReviewDialog.vue'
@@ -33,7 +32,6 @@ const venmo = makeRecommendation({
 })
 
 interface Options {
-  role?: 'admin' | 'viewer'
   settings?: ReturnType<typeof makeAiSettings>
   page?: api.RecommendationPage
   reviews?: api.AiReview[]
@@ -44,7 +42,6 @@ interface Options {
 }
 
 async function render({
-  role = 'admin',
   settings = makeAiSettings(),
   page = makeRecommendationPage([coffee, target, venmo], {
     counts: { open: 3, applied: 2, dismissed: 1 },
@@ -59,7 +56,6 @@ async function render({
   if (listFails) fetchList.mockRejectedValueOnce(new Error('Offline'))
   if (reviewsFail) fetchReviews.mockRejectedValueOnce(new Error('Reviews offline'))
   const mounted = await mountWithPlugins(RecommendationsPanel, {
-    session: makeSessionState({ user: makeUser({ role }) }),
     route,
     beforeMount: () => {
       seedFinance()
@@ -322,31 +318,13 @@ describe('RecommendationsPanel', () => {
       expect(find('review-empty-open').exists()).toBe(false)
     })
 
-    it('sends an admin to set AI up when it isn’t', async () => {
+    it('sends them to set AI up when it isn’t', async () => {
       const { find } = await render({ page: empty, reviews: [], settings: aiOff })
 
       expect(find('review-open').exists()).toBe(false)
       expect(find('review-empty-open').exists()).toBe(false)
       expect(find('recommendations-setup').attributes('href')).toBe('/settings/ai')
     })
-
-    it('offers a viewer nothing to do', async () => {
-      const { find } = await render({ page: empty, reviews: [], role: 'viewer' })
-
-      expect(find('review-open').exists()).toBe(false)
-      expect(find('review-empty-open').exists()).toBe(false)
-      expect(find('recommendations-setup').exists()).toBe(false)
-    })
-  })
-
-  it('lets a viewer see the suggestions and nothing else', async () => {
-    const { wrapper, find } = await render({ role: 'viewer' })
-
-    expect(find('read-only-notice').text()).toContain('Only an admin can apply or dismiss it')
-    expect(wrapper.findAll('[data-test="recommendation"]')).toHaveLength(3)
-    expect(find('reco-apply').exists()).toBe(false)
-    expect(find('select-confident').exists()).toBe(false)
-    expect(find('review-open').exists()).toBe(false)
   })
 
   it('says when the suggestions can’t be loaded, and tries again', async () => {

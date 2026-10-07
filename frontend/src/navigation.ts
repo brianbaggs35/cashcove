@@ -34,6 +34,8 @@ export interface NavItem {
   path: string
   icon: LucideIcon
   summary: string
+  /** Only admins can open it, so nobody else is offered it. */
+  admin?: boolean
 }
 
 // The single source for the nav menu, routes and each tab's header.
@@ -100,6 +102,7 @@ export const navItems: NavItem[] = [
     path: '/ai',
     icon: Sparkles,
     summary: 'Ask about your money, and get a second opinion on how it is sorted.',
+    admin: true,
   },
   {
     name: 'import',

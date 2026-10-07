@@ -437,39 +437,4 @@ test.describe('Reading a PDF statement', () => {
       await expect(transactionsPage.row('LA TAQUERIA')).toBeVisible()
     })
   })
-
-  test.describe('as a viewer', () => {
-    test.use({ storageState: signInFiles.viewer })
-
-    test('can ask the AI, and is told only an admin can import a statement', async ({
-      aiPage,
-      apiAs,
-      page,
-    }) => {
-      await readingAi(await apiAs('admin'))
-      await aiPage.goto()
-
-      await expect(aiPage.statementViewer).toHaveText('Only an admin can import a statement.')
-      await expect(aiPage.statementChoose).toHaveCount(0)
-      await expect(aiPage.attach).toHaveCount(0)
-      // Dropping a PDF on the conversation does nothing.
-      await aiPage.conversation.dispatchEvent('dragenter')
-      await expect(aiPage.dropTarget).toHaveCount(0)
-      await aiPage.ask('Which subscriptions cost the most?')
-      await expect(page.getByTestId('import-review')).toHaveCount(0)
-    })
-
-    test('can’t have the AI read a statement through the API either', async ({ apiAs }) => {
-      await readingAi(await apiAs('admin'))
-      const viewer = await apiAs('viewer')
-      const file = statement()
-
-      await expect(
-        viewer.post('/ai/statements', {
-          file_name: file.name,
-          content: file.buffer.toString('base64'),
-        }),
-      ).rejects.toThrow(/failed with 403/)
-    })
-  })
 })

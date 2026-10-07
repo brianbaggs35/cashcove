@@ -3,7 +3,7 @@ import { navItems } from '@/navigation'
 import { useConnectionsStore } from '@/stores/connections'
 import { usePreferencesStore } from '@/stores/preferences'
 import { fidelity, makeConnection, tartan } from '@/test/connections'
-import { makePreferences } from '@/test/fixtures'
+import { makePreferences, makeSessionState, makeUser } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
 
 describe('AppNavigation', () => {
@@ -19,6 +19,18 @@ describe('AppNavigation', () => {
     expect(wrapper.find('.v-list-item--active').text()).toBe('Budget')
     // Each link sits in a list item, so screen readers can count the tabs.
     expect(wrapper.findAll('ul[aria-label="Sections"] > li > a')).toHaveLength(navItems.length)
+    wrapper.unmount()
+  })
+
+  it('leaves the AI tab out for a viewer, who can’t open it', async () => {
+    const { wrapper } = await mountWithPlugins(AppNavigation, {
+      withApp: true,
+      width: 1920,
+      session: makeSessionState({ user: makeUser({ role: 'viewer' }) }),
+    })
+    const titles = wrapper.findAll('.app-nav__item').map((link) => link.text())
+    expect(titles).toEqual(navItems.filter((item) => !item.admin).map((item) => item.title))
+    expect(titles).not.toContain('AI')
     wrapper.unmount()
   })
 
