@@ -41,6 +41,7 @@ def stored(session: Session) -> AISettings:
         ("post", "/api/ai/test", {"provider": "openai"}),
         ("post", "/api/ai/chat", {"messages": [{"role": "user", "content": "hi"}]}),
         ("post", "/api/ai/search", {"query": "coffee"}),
+        ("post", "/api/ai/automation-suggestions", None),
         ("post", "/api/ai/statements", {"file_name": "a.pdf", "content": "JVBERg=="}),
         ("get", "/api/ai/reviews", None),
         ("post", "/api/ai/reviews", {}),
@@ -78,6 +79,7 @@ def test_signing_in_is_required_for_every_ai_endpoint(
         ("post", "/api/ai/models", {"provider": "ollama_cloud", "api_key": LONG_ENOUGH}),
         ("post", "/api/ai/test", {"provider": "openai", "api_key": LONG_ENOUGH}),
         ("post", "/api/ai/statements", {"file_name": "a.pdf", "content": "JVBERg=="}),
+        ("post", "/api/ai/automation-suggestions", None),
         ("post", "/api/ai/reviews", {}),
         (
             "post",
