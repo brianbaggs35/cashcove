@@ -16,7 +16,7 @@ from app.ai import errors
 from app.ai.catalog import cost_micros, provider_info
 from app.ai.errors import AIError
 from app.ai.privacy import Protected
-from app.ai.providers import AIClient, Connection, Message
+from app.ai.providers import AIClient, Connection, Message, timeout_of
 from app.ai.tokens import Tokens
 from app.auth.crypto import DecryptionError
 from app.auth.deps import ApiError
@@ -184,14 +184,19 @@ class Gateway:
         messages: Sequence[Message],
         *,
         max_tokens: int,
+        timeout: float | None = None,
     ) -> str:
         """The model's answer. `instructions` is Cashcove's own wording and `data` is what it's
         drawn from the household's records, which, like the conversation, is checked first: if
-        anything in them looks like account information, nothing is sent."""
+        anything in them looks like account information, nothing is sent. It waits `timeout`
+        seconds for the answer, or as long as it usually does."""
         self._protected.ensure_clean(data, *(message.content for message in messages))
         system = f"{instructions}\n\n{data}" if data else instructions
         with AIClient(
-            self._config.connection, version=self._settings.version, transport=self._transport
+            self._config.connection,
+            version=self._settings.version,
+            transport=self._transport,
+            timeout=timeout_of(timeout),
         ) as client:
             try:
                 answer = client.complete(
