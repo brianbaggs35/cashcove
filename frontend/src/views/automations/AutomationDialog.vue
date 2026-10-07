@@ -9,6 +9,7 @@ import {
   type Automation,
   type AutomationCount,
   type AutomationDirection,
+  type AutomationDraft,
   type AutomationInput,
   type AutomationMatch,
   type AutomationPreview,
@@ -54,12 +55,19 @@ import { kinds } from '@/views/subscriptions/kinds'
  * Adds an automation, or changes one, in two steps. The first finds the transactions: ticked
  * from the list, or typed as text to look for, and fine-tuned by how they're compared, where and
  * for how much. The second says what happens to them and whether it reaches back to ones
- * already there. Transactions picked elsewhere, like on the Transactions tab, start it off.
+ * already there. Transactions picked elsewhere, like on the Transactions tab, start it off, and so
+ * can a draft, like an automation the AI suggests, which is a new automation like any other until
+ * it's saved.
  */
 const open = defineModel<boolean>({ required: true })
-const props = withDefaults(defineProps<{ automation: Automation | null; seed?: Transaction[] }>(), {
-  seed: () => [],
-})
+const props = withDefaults(
+  defineProps<{
+    automation: Automation | null
+    seed?: Transaction[]
+    draft?: AutomationDraft | null
+  }>(),
+  { seed: () => [], draft: null },
+)
 const emit = defineEmits<{ saved: [automation: AutomationSaved] }>()
 
 const accounts = useAccountsStore()
@@ -296,25 +304,27 @@ function useTickedAmounts() {
 
 function reset() {
   const automation = props.automation
+  // What it starts with: the automation being changed, a draft of a new one, or nothing.
+  const origin = automation ?? props.draft
   step.value = 0
   typed.value = ''
   ticked.value = new Map()
-  form.name = automation?.name ?? ''
-  form.payees = [...(automation?.payees ?? [])]
-  form.match = automation?.match ?? 'exact'
-  form.direction = automation?.direction ?? 'any'
-  directionChosen.value = automation !== null
+  form.name = origin?.name ?? ''
+  form.payees = [...(origin?.payees ?? [])]
+  form.match = origin?.match ?? 'exact'
+  form.direction = origin?.direction ?? 'any'
+  directionChosen.value = origin !== null
   form.accountId = automation?.account_id ?? null
   Object.assign(form, amountFields(automation?.min_amount ?? null, automation?.max_amount ?? null))
-  form.categoryId = automation?.category_id ?? null
+  form.categoryId = origin?.category_id ?? null
   form.subscriptionId = automation?.subscription_id ?? null
   const saved = automation?.counts ?? []
   form.incomeBudgets = saved.filter((item) => item.kind === 'income').map((item) => item.budget_id)
   form.spendingBudgets = saved
     .filter((item) => item.kind === 'spending')
     .map((item) => item.budget_id)
-  form.applyTo = automation?.apply_to ?? 'all'
-  nameTyped.value = automation !== null
+  form.applyTo = origin?.apply_to ?? 'all'
+  nameTyped.value = origin !== null
   preview.value = null
   saving.clear()
   // Transactions picked elsewhere start a new automation off.

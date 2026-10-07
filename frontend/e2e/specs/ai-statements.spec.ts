@@ -386,7 +386,7 @@ test.describe('Reading a PDF statement', () => {
       await aiPage.goto()
 
       await expect(aiPage.setup).toContainText('Read a PDF statement')
-      await expect(aiPage.setup.getByText('Needs AI')).toHaveCount(3)
+      await expect(aiPage.setup.getByText('Needs AI')).toHaveCount(5)
       await expect(aiPage.setup.getByTestId('ai-setup-needs')).toHaveText(
         'These can only be used with AI.',
       )

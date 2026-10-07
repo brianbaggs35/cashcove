@@ -45,6 +45,16 @@ export interface Automation {
   updated_at: string
 }
 
+/** What a new automation can start with, e.g. one the AI suggests. Nothing has been created. */
+export interface AutomationDraft {
+  name: string
+  payees: string[]
+  match: AutomationMatch
+  direction: AutomationDirection
+  category_id: string | null
+  apply_to: AutomationScope
+}
+
 export interface AutomationInput {
   name: string
   payees: string[]
