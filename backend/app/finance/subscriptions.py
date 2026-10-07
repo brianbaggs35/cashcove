@@ -7,12 +7,17 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
 
+from fastapi import status
 from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.orm import Session
 
-from app.models import PaymentFrequency, Subscription, Transaction
+from app.auth.deps import ApiError
+from app.finance.categories import find_category
+from app.models import Account, PaymentFrequency, RecurringKind, Subscription, Transaction
 from app.models.base import CENT
+from app.schemas.subscriptions import SubscriptionCreate, SubscriptionUpdate
 
 # How many of a subscription's latest payments its typical amount is the average of.
 RECENT_PAYMENTS = 6
@@ -204,3 +209,161 @@ def unlink_payment(db: Session, subscription_id: uuid.UUID, transaction_id: uuid
         .where(Transaction.id == transaction_id, Transaction.subscription_id == subscription_id)
         .values(subscription_id=None)
     )
+
+
+# ---- Setting one up, and changing it -------------------------------------------------------------
+#
+# These don't commit, so a request can set up several things and keep all of them or none.
+
+
+def find_recurring(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID, *, lock: bool = False
+) -> Subscription:
+    """The subscription or the bill, which has to be one of that kind: a bill's ID isn't a
+    subscription's, and asking for one as the other is as good as asking for something that isn't
+    there."""
+    subscription = db.get(Subscription, subscription_id, with_for_update=lock)
+    if subscription is None or subscription.kind != kind:
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "not_found", f"That {kind} doesn't exist anymore."
+        )
+    return subscription
+
+
+def open_account(db: Session, account_id: uuid.UUID) -> Account:
+    account = db.get(Account, account_id)
+    if account is None:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "unknown_account", "Choose an account."
+        )
+    if account.is_closed:
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "closed_account", "Choose an open account for payments."
+        )
+    return account
+
+
+def ensure_untracked(
+    db: Session, account_id: uuid.UUID, payee: str, except_id: uuid.UUID | None = None
+) -> None:
+    """A payee is tracked once from an account, as a subscription or as a bill, since a payment
+    can only be one of them."""
+    query = select(Subscription.kind).where(
+        Subscription.account_id == account_id,
+        func.lower(func.trim(Subscription.payee)) == normalized_payee(payee),
+    )
+    if except_id is not None:
+        query = query.where(Subscription.id != except_id)
+    tracked_as = db.scalar(query)
+    if tracked_as is not None:
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "duplicate_rule",
+            f"A {tracked_as} already tracks this payee from this account.",
+        )
+
+
+def seed_payee(
+    db: Session,
+    kind: RecurringKind,
+    account_id: uuid.UUID,
+    payee: str,
+    transaction_id: uuid.UUID | None,
+) -> tuple[uuid.UUID, str]:
+    """The account and the payee to track: the ones given, or a payment's own."""
+    if transaction_id is None:
+        return account_id, payee
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND,
+            "transaction_not_found",
+            "That transaction doesn't exist anymore.",
+        )
+    if transaction.amount >= 0:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "not_payment",
+            f"Choose an outgoing transaction as a {kind} payment.",
+        )
+    if transaction.account_id != account_id:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "account_mismatch",
+            f"The selected payment must come from the {kind} account.",
+        )
+    return account_id, transaction.payee
+
+
+def set_fields(subscription: Subscription, changes: dict[str, Any]) -> None:
+    """Sets what a change mentions. Only the category and notes can be cleared, with null."""
+    for name, value in changes.items():
+        if value is not None or name in {"category_id", "notes"}:
+            setattr(subscription, name, value)
+
+
+def create_recurring(db: Session, kind: RecurringKind, body: SubscriptionCreate) -> Subscription:
+    """Adds a subscription or a bill, and links the payments it already has to it."""
+    open_account(db, body.account_id)
+    find_category(db, body.category_id)
+    _, payee = seed_payee(
+        db, kind, body.account_id, body.payee or body.name, body.seed_transaction_id
+    )
+    ensure_untracked(db, body.account_id, payee)
+    subscription = Subscription(
+        name=body.name,
+        kind=kind,
+        payee=payee,
+        amount=body.amount,
+        amount_varies=body.amount_varies,
+        frequency=body.frequency,
+        account_id=body.account_id,
+        next_due_date=body.next_due_date,
+        category_id=body.category_id,
+        notes=body.notes,
+    )
+    db.add(subscription)
+    db.flush()
+    backfill_subscription(db, subscription)
+    return subscription
+
+
+def change_recurring(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionUpdate
+) -> Subscription:
+    """Changes what a change mentions. A new account or payee changes which payments it tracks,
+    and a new category goes on the payments already linked."""
+    subscription = find_recurring(db, kind, subscription_id, lock=True)
+    changes = body.model_dump(exclude_unset=True)
+    seed_transaction_id = changes.pop("seed_transaction_id", None)
+    account_id = changes.get("account_id") or subscription.account_id
+    payee = changes.get("payee") or subscription.payee
+    if seed_transaction_id is not None:
+        account_id, payee = seed_payee(db, kind, account_id, payee, seed_transaction_id)
+        changes["account_id"] = account_id
+        changes["payee"] = payee
+    open_account(db, account_id)
+    if "category_id" in changes:
+        find_category(db, changes["category_id"])
+    account_changed = account_id != subscription.account_id
+    matcher_changed = account_changed or normalized_payee(payee) != normalized_payee(
+        subscription.payee
+    )
+    resumed = changes.get("active") is True and not subscription.active
+    if matcher_changed:
+        ensure_untracked(db, account_id, payee, subscription.id)
+        detach_matching(db, subscription)
+    set_fields(subscription, changes)
+    if matcher_changed:
+        subscription.account_id = account_id
+        subscription.payee = payee
+    if "category_id" in changes:
+        db.execute(
+            update(Transaction)
+            .where(Transaction.subscription_id == subscription.id)
+            .values(category_id=changes["category_id"])
+        )
+    # Payments that arrived while matching was paused are caught up when it resumes.
+    if subscription.active and (matcher_changed or resumed):
+        backfill_subscription(db, subscription)
+    return subscription

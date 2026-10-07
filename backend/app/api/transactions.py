@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
-from sqlalchemy import case, delete, desc, func, select, update
+from sqlalchemy import case, delete, desc, func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import AdminAuth, ApiError, CurrentAuth, Db
@@ -14,7 +14,7 @@ from app.finance.accounts import get_account, move_balance, writable_account
 from app.finance.automations import RuleBook
 from app.finance.categories import find_category
 from app.finance.subscriptions import normalized_payee
-from app.finance.transactions import SORT_ORDERS, conditions, like_pattern
+from app.finance.transactions import SORT_ORDERS, categorize, conditions, like_pattern
 from app.models import Account, Transaction, TransactionSource
 from app.models.base import utcnow
 from app.schemas.transactions import (
@@ -242,12 +242,6 @@ def delete_transactions(body: TransactionIds, auth: AdminAuth, db: Db) -> BulkRe
 def categorize_transactions(body: BulkCategorize, auth: AdminAuth, db: Db) -> BulkResult:
     """Gives several transactions the same category, or takes theirs away. Automations leave a
     category given as it is from then on; taking it away hands it back to them."""
-    find_category(db, body.category_id)
-    updated = db.scalars(
-        update(Transaction)
-        .where(Transaction.id.in_(body.ids))
-        .values(category_id=body.category_id, category_chosen=body.category_id is not None)
-        .returning(Transaction.id)
-    ).all()
+    count = categorize(db, body.ids, body.category_id)
     db.commit()
-    return BulkResult(count=len(updated))
+    return BulkResult(count=count)

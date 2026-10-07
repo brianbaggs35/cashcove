@@ -22,13 +22,17 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
+from fastapi import status
 from sqlalchemy import ColumnElement, and_, func, not_, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.auth.deps import ApiError
+from app.finance.categories import find_category
 from app.finance.subscriptions import advance_due_date, normalized_payee
 from app.finance.text import column_key, text_key
 from app.finance.transactions import like_pattern
 from app.models import (
+    Account,
     Automation,
     AutomationDirection,
     AutomationMatch,
@@ -36,6 +40,7 @@ from app.models import (
     Transaction,
 )
 from app.models.base import Money
+from app.schemas.automations import AutomationCreate
 
 
 @dataclass(frozen=True)
@@ -413,3 +418,50 @@ def overlaps(
         if count:
             found.append(Overlap(automation=other, count=count))
     return found
+
+
+# ---- Adding one ----------------------------------------------------------------------------------
+
+
+def check_choices(
+    db: Session,
+    account_id: uuid.UUID | None,
+    category_id: uuid.UUID | None,
+    subscription_id: uuid.UUID | None,
+) -> None:
+    """What an automation points at has to exist."""
+    if account_id is not None and db.get(Account, account_id) is None:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "unknown_account",
+            "That account doesn't exist anymore. Choose another one.",
+        )
+    find_category(db, category_id)
+    if subscription_id is not None and db.get(Subscription, subscription_id) is None:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "unknown_subscription",
+            "That subscription or bill doesn't exist anymore. Choose another one.",
+        )
+
+
+def new_automation(db: Session, body: AutomationCreate) -> Automation:
+    """Adds an automation, which doesn't sort anything yet and counts toward no budget: that is
+    for the one who asked for it to do next. Doesn't commit."""
+    check_choices(db, body.account_id, body.category_id, body.subscription_id)
+    automation = Automation(
+        name=body.name,
+        payees=distinct_payees(body.payees),
+        match=body.match,
+        direction=body.direction,
+        account_id=body.account_id,
+        min_amount=body.min_amount,
+        max_amount=body.max_amount,
+        category_id=body.category_id,
+        subscription_id=body.subscription_id,
+        apply_to=body.apply_to,
+        active=True,
+    )
+    db.add(automation)
+    db.flush()
+    return automation

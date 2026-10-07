@@ -195,3 +195,42 @@ def not_a_transfer() -> ColumnElement[bool]:
     return or_(
         Transaction.category_id.is_(None), Transaction.category_id.not_in(transfer_categories())
     )
+
+
+# ---- Adding categories and groups ------------------------------------------------------------
+#
+# These don't commit, so a request can add several things and keep all of them or none.
+
+
+def name_taken(what: str, name: str) -> ApiError:
+    return ApiError(
+        status.HTTP_409_CONFLICT, "name_taken", f"There's already a {what} called {name}."
+    )
+
+
+def ensure_unique_name(db: Session, model: type[Category] | type[CategoryGroup], name: str) -> None:
+    """Names are unique whatever their case, so "groceries" can't sit beside "Groceries"."""
+    clash = db.scalar(select(model.name).where(func.lower(model.name) == name.lower()).limit(1))
+    if clash is not None:
+        raise name_taken("category" if model is Category else "group", clash)
+
+
+def find_group(db: Session, group_id: uuid.UUID) -> CategoryGroup:
+    group = db.get(CategoryGroup, group_id)
+    if group is None:
+        raise ApiError(status.HTTP_404_NOT_FOUND, "not_found", "That group doesn't exist anymore.")
+    return group
+
+
+def new_group(db: Session, name: str, kind: CategoryKind) -> CategoryGroup:
+    ensure_unique_name(db, CategoryGroup, name)
+    group = CategoryGroup(name=name, kind=kind)
+    db.add(group)
+    return group
+
+
+def new_category(db: Session, group: CategoryGroup, name: str, emoji: str) -> Category:
+    ensure_unique_name(db, Category, name)
+    category = Category(group=group, name=name, emoji=emoji)
+    db.add(category)
+    return category
