@@ -22,6 +22,8 @@ PURPOSES = {
     AIPurpose.REVIEW: "Second opinions on categories",
     AIPurpose.TEST: "Connection tests",
     AIPurpose.STATEMENT: "Statements read",
+    AIPurpose.SEARCH: "Transaction searches",
+    AIPurpose.AUTOMATION: "Automation suggestions",
 }
 
 
