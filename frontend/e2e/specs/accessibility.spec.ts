@@ -54,9 +54,6 @@ const LOADED: Record<string, string> = {
   '/ai/usage': 'usage-tile-month',
 }
 
-/** Pages where a viewer can do all an admin can, so there is nothing read-only to tell them. */
-const OPEN_TO_VIEWERS = new Set(['/ai', '/ai/usage'])
-
 /**
  * A bank's PDF statement for the checking account, with a payment dated a year before the days
  * it says it covers, which the AI's reading says to take another look at.
@@ -98,9 +95,9 @@ async function expectAccessibleOverlays(
   }
 }
 
-/** A viewer is told what they can't change, where there is something they can't. */
-async function expectReadOnlyNotice(page: Page, path: string): Promise<void> {
-  if (!OPEN_TO_VIEWERS.has(path)) await expect(page.getByTestId('read-only-notice')).toBeVisible()
+/** A viewer is told what they can't change. */
+async function expectReadOnlyNotice(page: Page): Promise<void> {
+  await expect(page.getByTestId('read-only-notice')).toBeVisible()
 }
 
 async function expectLoaded(page: Page, path: string): Promise<void> {
@@ -170,16 +167,13 @@ test.describe('Accessibility', () => {
           '/bills',
           '/categories',
           '/automations',
-          '/ai',
-          '/ai/recommendations',
-          '/ai/usage',
           '/settings/general',
           '/settings/users',
           '/settings/ai',
         ]) {
           await test.step(path, async () => {
             await page.goto(path)
-            await expectReadOnlyNotice(page, path)
+            await expectReadOnlyNotice(page)
             await expectLoaded(page, path)
 
             await expectAccessible(page)
@@ -585,24 +579,12 @@ test.describe('Accessibility', () => {
         await expectAccessible(page, { include: OVERLAY })
       })
 
-      test('a PDF that needs AI, and the AI chat for someone who can’t import one', async ({
-        page,
-        signInAs,
-        apiAs,
-        aiPage,
-        importPage,
-      }) => {
+      test('a PDF that needs AI', async ({ page, signInAs, importPage }) => {
         await signInAs('admin')
         await importPage.goto()
         await expectAccessibleOverlays(page, {
           'a PDF chosen with AI off': () => importPage.chooseFile(pdfStatement()),
         })
-
-        await setUpAi(await apiAs('admin'))
-        await signInAs('viewer')
-        await aiPage.goto('ask')
-        await expect(aiPage.statementViewer).toBeVisible()
-        await expectAccessible(page)
       })
 
       test('finding transactions in plain words, while the AI works and once it has', async ({

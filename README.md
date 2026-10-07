@@ -307,12 +307,13 @@ them.
 ### AI (optional)
 
 AI is **off until an admin turns it on**, and Cashcove works exactly the same without it. With
-it, the **AI** tab answers questions about your money, reads a PDF bank statement into
-transactions for you to check, gives a second opinion on how your transactions are sorted, and
-shows what it all cost, an import can end with that second opinion, transactions can be found by
-describing them, and automations can be suggested from what you keep choosing by hand. Until AI
-is set up, each of its pages says what to do first (and that these can only be used with AI),
-and nothing else in Cashcove depends on it, or shows any sign of it.
+it, the **AI** tab (which only admins can open) answers questions about your money, reads a PDF
+bank statement into transactions for you to check, gives a second opinion on how your
+transactions are sorted, and shows what it all cost, an import can end with that second opinion,
+transactions can be found by describing them, and automations can be suggested from what you
+keep choosing by hand. Until AI is set up, each of its pages says what to do first (and that
+these can only be used with AI), and nothing else in Cashcove depends on it, or shows any sign
+of it.
 
 **Settings > AI** (admins only) chooses where the AI runs:
 
@@ -335,7 +336,10 @@ makes that name work on Linux too) and let Ollama listen beyond loopback with
 `OLLAMA_HOST=0.0.0.0`. The browser never talks to an AI provider, only Cashcove's server does, so
 the Content Security Policy is unchanged, and the API waits up to five minutes for a slow model.
 
-What the **AI** tab does:
+What the **AI** tab does. It is **for admins**: it isn't in anyone else's navigation, its address
+sends them to the Dashboard, and the API behind it (the chat, what the AI suggested, the cost)
+refuses them. Viewers can still see whether AI is set up, and find transactions in plain words
+on the Transactions tab, which only picks filters.
 
 - **Ask**: a chat about your finances. It answers from a fresh summary of your records (spending
   by month and category, the payees you spent most with, budgets, subscriptions and bills, and the

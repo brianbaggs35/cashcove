@@ -66,7 +66,7 @@ export const routes: RouteRecordRaw[] = [
     alias: item.name === 'connect' ? [CONNECT_OAUTH] : [],
     name: item.name,
     component: views[item.name],
-    meta: { title: item.title },
+    meta: { title: item.title, access: item.admin ? 'admin' : 'member' },
   })),
   {
     path: '/:pathMatch(.*)*',
@@ -92,8 +92,10 @@ export function checkAccess(to: RouteLocationNormalized): true | RouteLocationRa
   }
   if (access === 'public') return true
   if (access === 'guest') return auth.signedIn ? safeRedirect(to.query.redirect) : true
-  if (auth.signedIn) return true
-  return { name: 'sign-in', query: to.fullPath === HOME ? {} : { redirect: to.fullPath } }
+  if (!auth.signedIn) {
+    return { name: 'sign-in', query: to.fullPath === HOME ? {} : { redirect: to.fullPath } }
+  }
+  return access === 'admin' && !auth.isAdmin ? HOME : true
 }
 
 export function buildRouter(history = createWebHistory()): Router {
@@ -117,10 +119,11 @@ declare module 'vue-router' {
   interface RouteMeta {
     title?: string
     /**
-     * Who may open the page: `member` (the default) needs someone signed in, `guest` is for
-     * the signed-out (sign-in), `setup` is the first-run wizard and `public` is for anyone.
+     * Who may open the page: `member` (the default) needs someone signed in, `admin` needs an
+     * admin (anyone else is sent home), `guest` is for the signed-out (sign-in), `setup` is the
+     * first-run wizard and `public` is for anyone.
      */
-    access?: 'member' | 'guest' | 'setup' | 'public'
+    access?: 'member' | 'admin' | 'guest' | 'setup' | 'public'
     /** Drawn without the app's navigation, e.g. the sign-in page. */
     bare?: boolean
   }

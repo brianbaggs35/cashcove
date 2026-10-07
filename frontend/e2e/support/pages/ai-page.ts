@@ -31,8 +31,6 @@ export class AiPage {
   /** What the Ask page shows until AI is set up. */
   readonly setup: Locator
   readonly setupLink: Locator
-  /** What it says to a viewer, who can't set AI up. */
-  readonly setupViewer: Locator
   /** What the AI is and isn't told, where a question is asked. */
   readonly privacy: Locator
 
@@ -53,7 +51,6 @@ export class AiPage {
    */
   readonly statementOffer: Locator
   readonly statementChoose: Locator
-  readonly statementViewer: Locator
   readonly attach: Locator
   readonly attachProblem: Locator
   readonly statementCards: Locator
@@ -83,7 +80,6 @@ export class AiPage {
     this.waiting = page.getByTestId('ai-tab-waiting')
     this.setup = page.getByTestId('ai-setup')
     this.setupLink = page.getByTestId('ai-setup-link')
-    this.setupViewer = page.getByTestId('ai-setup-viewer')
     this.privacy = page.getByTestId('ai-privacy')
 
     this.welcome = page.getByTestId('chat-welcome')
@@ -98,7 +94,6 @@ export class AiPage {
 
     this.statementOffer = page.getByTestId('chat-statement-offer')
     this.statementChoose = page.getByTestId('chat-statement-choose')
-    this.statementViewer = page.getByTestId('chat-statement-viewer')
     this.attach = page.getByTestId('chat-attach')
     this.attachProblem = page.getByTestId('chat-attach-problem')
     this.statementCards = page.getByTestId('statement-card')

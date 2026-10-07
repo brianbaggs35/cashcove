@@ -5,7 +5,6 @@ import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type { StatementReading } from '@/api/ai'
 import { useAccountsStore } from '@/stores/accounts'
 import { MAX_LENGTH, useAiChat, type StatementMessage } from '@/stores/aiChat'
-import { useAuthStore } from '@/stores/auth'
 import { useImportWizard } from '@/stores/importWizard'
 import AiPrivacyNotice from '@/views/ai/AiPrivacyNotice.vue'
 import AiText from '@/views/ai/AiText.vue'
@@ -20,7 +19,6 @@ import { isPdf } from '@/views/import/statement'
  * imported. Both say what they're doing while the AI works.
  */
 const chat = useAiChat()
-const auth = useAuthStore()
 const accounts = useAccountsStore()
 const wizard = useImportWizard()
 const draft = ref('')
@@ -96,9 +94,9 @@ function chosen(event: Event) {
   if (file) attach(file)
 }
 
-/** Whether a drag is carrying a file, which only an admin who isn't waiting on the AI can use. */
+/** Whether a drag is carrying a file, which can't be used while the AI is answering. */
 const accepts = (event: DragEvent) =>
-  auth.isAdmin && !chat.busy && (event.dataTransfer?.types.includes('Files') ?? false)
+  !chat.busy && (event.dataTransfer?.types.includes('Files') ?? false)
 
 function enter(event: DragEvent) {
   if (!accepts(event)) return
@@ -115,7 +113,7 @@ function drop(event: DragEvent) {
   depth = 0
   over.value = false
   const file = event.dataTransfer?.files[0]
-  if (file && auth.isAdmin && !chat.busy) attach(file)
+  if (file && !chat.busy) attach(file)
 }
 
 /** Opens what the AI found for review, once the preview of it is ready. */
@@ -276,7 +274,6 @@ watch(
                 </div>
               </div>
               <v-btn
-                v-if="auth.isAdmin"
                 color="primary"
                 variant="flat"
                 :prepend-icon="Upload"
@@ -287,13 +284,6 @@ watch(
               >
                 Choose a PDF
               </v-btn>
-              <p
-                v-else
-                class="text-body-small text-medium-emphasis mb-0"
-                data-test="chat-statement-viewer"
-              >
-                Only an admin can import a statement.
-              </p>
             </v-sheet>
           </div>
         </div>
@@ -395,7 +385,7 @@ watch(
         data-test="chat-input"
         @keydown.enter.exact.prevent="submit"
       >
-        <template v-if="auth.isAdmin" #prepend-inner>
+        <template #prepend-inner>
           <v-btn
             :icon="Paperclip"
             variant="text"
@@ -434,7 +424,7 @@ watch(
       @change="chosen"
     />
 
-    <ImportDialog v-if="auth.isAdmin" v-model="importing" @choose-file="chooseAgain" />
+    <ImportDialog v-model="importing" @choose-file="chooseAgain" />
   </section>
 </template>
 

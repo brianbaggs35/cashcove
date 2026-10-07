@@ -1,7 +1,6 @@
 import { flushPromises } from '@vue/test-utils'
 
 import * as api from '@/api/ai'
-import type { SessionState } from '@/api/auth'
 import { ApiError } from '@/api/client'
 import * as importsApi from '@/api/imports'
 import type { ImportPreview } from '@/api/imports'
@@ -10,7 +9,6 @@ import { MAX_LENGTH } from '@/stores/aiChat'
 import { useImportWizard } from '@/stores/importWizard'
 import { makeAiSettings, makeProviders, makeStatementReading } from '@/test/ai'
 import { page } from '@/test/dom'
-import { makeSessionState, makeUser } from '@/test/fixtures'
 import { seedFinance } from '@/test/finance'
 import { later, makeImport, makeOptions, makePreview, seedImports } from '@/test/imports'
 import { mountWithPlugins } from '@/test/mount'
@@ -251,11 +249,10 @@ describe('ChatPanel with a PDF statement', () => {
     window.HTMLElement.prototype.scrollIntoView = scroll
   })
 
-  async function renderStatements(session?: SessionState) {
+  async function renderStatements() {
     vi.spyOn(dates, 'todayIso').mockReturnValue('2026-09-20')
     const mounted = await mountWithPlugins(ChatPanel, {
       width: 1280,
-      session,
       beforeMount: () => {
         seedFinance()
         seedImports()
@@ -297,7 +294,7 @@ describe('ChatPanel with a PDF statement', () => {
     await flushPromises()
   }
 
-  describe('as an admin', () => {
+  describe('reading a statement', () => {
     it('offers to read one when there’s nothing said yet, with what stays private', async () => {
       const { find, picker } = await renderStatements()
 
@@ -305,7 +302,6 @@ describe('ChatPanel with a PDF statement', () => {
       expect(find('chat-statement-offer').text()).toContain(
         'Your account numbers, name and address stay on this computer.',
       )
-      expect(find('chat-statement-viewer').exists()).toBe(false)
 
       await find('chat-statement-choose').trigger('click')
       await find('chat-attach').trigger('click')
@@ -609,31 +605,6 @@ describe('ChatPanel with a PDF statement', () => {
       wrapper.find('.chat__card').element.dispatchEvent(over)
 
       expect(over.defaultPrevented).toBe(true)
-    })
-  })
-
-  describe('as a viewer', () => {
-    const viewer = makeSessionState({ user: makeUser({ role: 'viewer' }) })
-
-    it('says only an admin can import one, and offers no way to', async () => {
-      const { wrapper, find } = await renderStatements(viewer)
-
-      expect(find('chat-statement-viewer').text()).toBe('Only an admin can import a statement.')
-      expect(find('chat-statement-choose').exists()).toBe(false)
-      expect(find('chat-attach').exists()).toBe(false)
-      expect(wrapper.findComponent({ name: 'ImportDialog' }).exists()).toBe(false)
-    })
-
-    it('takes no statement dropped on it', async () => {
-      const read = reads(makeStatementReading())
-      const { find, drag } = await renderStatements(viewer)
-
-      await drag('dragenter')
-      expect(find('chat-drop').exists()).toBe(false)
-      await drag('drop')
-
-      expect(read).not.toHaveBeenCalled()
-      expect(find('chat-attach-problem').exists()).toBe(false)
     })
   })
 })
