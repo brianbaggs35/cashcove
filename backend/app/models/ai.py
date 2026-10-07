@@ -39,6 +39,10 @@ class AIPurpose(StrEnum):
     TEST = "test"
     # Reading the transactions off a PDF statement.
     STATEMENT = "statement"
+    # Turning what someone typed into filters for the Transactions tab.
+    SEARCH = "search"
+    # Suggesting an automation from the categories someone chose by hand.
+    AUTOMATION = "automation"
 
 
 class ReviewSource(StrEnum):
