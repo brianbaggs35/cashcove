@@ -15,6 +15,7 @@ import datetime as dt
 import re
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
@@ -149,48 +150,74 @@ def _institutions(name: str) -> list[str]:
     return [name, short] if short and short != name else [name]
 
 
-def accounts_in(db: Session, question: str) -> tuple[str, list[uuid.UUID]]:
-    """The accounts a question names, and the question without the words that named them. An
-    account is named by its name, its bank's, or a word of its name that no other account's has."""
-    accounts = list(db.scalars(select(Account).order_by(Account.created_at, Account.id)))
+def _names(
+    accounts: Sequence[Account],
+) -> tuple[dict[str, set[uuid.UUID]], dict[str, set[uuid.UUID]]]:
+    """What accounts are called, whole (their name, their bank's) and by a word of their name,
+    each with the accounts that have it."""
     whole: dict[str, set[uuid.UUID]] = defaultdict(set)
     words: dict[str, set[uuid.UUID]] = defaultdict(set)
     for account in accounts:
-        names = [account.name, account.official_name or ""]
-        for institution in _institutions(account.institution or ""):
-            names.append(institution)
+        names = [
+            account.name,
+            account.official_name or "",
+            *_institutions(account.institution or ""),
+        ]
         for name in names:
             if len(text_key(name)) >= MIN_NAME:
                 whole[text_key(name)].add(account.id)
         for word in set(_WORD.findall(text_key(account.name))):
             if len(word) >= MIN_WORD and word not in GENERIC and not word.isdigit():
                 words[word].add(account.id)
-    found: list[uuid.UUID] = []
+    return whole, words
 
-    def take(ids: set[uuid.UUID]) -> None:
-        found.extend(sorted(ids - set(found), key=str))
 
-    remaining = question
-    if whole:
-        spelled = [re.escape(key).replace(r"\ ", r"\s+") for key in sorted(whole, key=len)[::-1]]
-        pattern = re.compile(
-            r"(?<![A-Za-z0-9])(?:" + "|".join(spelled) + r")(?![A-Za-z0-9])", re.IGNORECASE
-        )
+def _take(found: list[uuid.UUID], ids: set[uuid.UUID]) -> None:
+    """Adds the accounts not found yet, in a steady order."""
+    found.extend(sorted(ids - set(found), key=str))
 
-        def whole_name(match: re.Match[str]) -> str:
-            take(whole[text_key(match.group())])
-            return " "
 
-        remaining = pattern.sub(whole_name, remaining)
+def _without_whole_names(
+    whole: dict[str, set[uuid.UUID]], text: str, found: list[uuid.UUID]
+) -> str:
+    """The text without the names of accounts and banks in it, which are found."""
+    if not whole:
+        return text
+    spelled = [re.escape(key).replace(r"\ ", r"\s+") for key in sorted(whole, key=len)[::-1]]
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9])(?:" + "|".join(spelled) + r")(?![A-Za-z0-9])", re.IGNORECASE
+    )
 
-    def one_word(match: re.Match[str]) -> str:
+    def name(match: re.Match[str]) -> str:
+        _take(found, whole[text_key(match.group())])
+        return " "
+
+    return pattern.sub(name, text)
+
+
+def _without_account_words(
+    words: dict[str, set[uuid.UUID]], text: str, found: list[uuid.UUID]
+) -> str:
+    """The text without the words that only one account's name has, which are found."""
+
+    def word(match: re.Match[str]) -> str:
         ids = words.get(match.group().lower(), set())
         if len(ids) != 1:
             return match.group()
-        take(ids)
+        _take(found, ids)
         return " "
 
-    remaining = _WORD.sub(one_word, remaining)
+    return _WORD.sub(word, text)
+
+
+def accounts_in(db: Session, question: str) -> tuple[str, list[uuid.UUID]]:
+    """The accounts a question names, and the question without the words that named them. An
+    account is named by its name, its bank's, or a word of its name that no other account's has."""
+    whole, words = _names(
+        list(db.scalars(select(Account).order_by(Account.created_at, Account.id)))
+    )
+    found: list[uuid.UUID] = []
+    remaining = _without_account_words(words, _without_whole_names(whole, question, found), found)
     return " ".join(remaining.split()), found
 
 

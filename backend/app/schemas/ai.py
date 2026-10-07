@@ -16,12 +16,16 @@ from app.ai.providers import normalize_url
 from app.models import (
     AIProvider,
     AIPurpose,
+    AutomationDirection,
+    AutomationMatch,
+    AutomationScope,
     Confidence,
     RecommendationStatus,
     ReviewSource,
     ReviewStatus,
     TransactionSource,
 )
+from app.schemas.automations import OverlappingAutomation
 from app.schemas.budget import Day
 from app.schemas.fields import STRICT, AmountOut
 from app.schemas.transactions import Sort
@@ -240,6 +244,43 @@ class SearchOut(BaseModel):
     filters: SearchFilters
     # Parts of the question that couldn't be used, in words for people.
     ignored: list[str]
+
+
+class AutomationSuggestionOut(BaseModel):
+    """An automation the AI suggests, from a category someone chose for the same payee again and
+    again, to be checked, changed and created: nothing has been. It is what an automation is made
+    of, which the form for a new one takes as it stands."""
+
+    # Which of the suggestions it is, for as long as the answer is on the screen.
+    ref: str
+    name: str
+    payees: list[str]
+    match: AutomationMatch
+    direction: AutomationDirection
+    category_id: uuid.UUID
+    apply_to: AutomationScope
+    # The AI's reason for wording it so, in a sentence.
+    reason: str
+    # What it's drawn from, worked out here: how many times that category was chosen for what it
+    # matches, and the last time.
+    choices: int
+    last_chosen: dt.date
+    # A few of the payees it matches, as the household's transactions have them.
+    examples: list[str]
+    # How many transactions with no category it would sort now, and how many it matches that
+    # were put in some other category, which it leaves alone.
+    sorts_now: int
+    elsewhere: int
+    # Other automations that give some of the same transactions a category, and win since they
+    # are older.
+    overlaps: list[OverlappingAutomation]
+
+
+class AutomationSuggestions(BaseModel):
+    suggestions: list[AutomationSuggestionOut]
+    # How many payees had a category chosen for them often enough to be looked at. With none,
+    # there was nothing to ask the AI.
+    considered: int
 
 
 class ReviewIn(BaseModel):

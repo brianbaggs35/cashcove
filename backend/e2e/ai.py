@@ -10,6 +10,8 @@ provider checks its key, and what it is asked is answered by rules rather than b
 - the lines of a bank statement are answered with the transaction each one is: its date, its
   payee tidied up, and its amount, which is money in for a payroll, a deposit, a refund or a
   payment to a card and money out for anything else;
+- the payees a household put in one category again and again are worded as automations: the
+  words they all begin with, before any store number (see _automations);
 - what someone typed to find transactions is turned into filters from the words it recognizes
   (see _search), and a question is answered with how many recent transactions it was given and
   what was asked;
@@ -227,9 +229,43 @@ def _search(system: str, question: str) -> str:
     )
 
 
+_GROUP = re.compile(r"^(g\d+) \| .*? \| written: (.*)$", re.MULTILINE)
+
+
+def _before_a_number(payee: str) -> list[str]:
+    """A payee's words up to the first with a digit, a #, a * or something hidden in it."""
+    words: list[str] = []
+    for word in payee.split():
+        if re.search(r"[\d#*\[]", word):
+            break
+        words.append(word)
+    return words
+
+
+def _automations(system: str) -> str:
+    """An automation for each group of payees, which look for the words they begin with before
+    any number. They all share those words, since that is what makes them a group."""
+    worded: list[dict[str, str]] = []
+    for ref, written in _GROUP.findall(system):
+        text = " ".join(_before_a_number(written.split(" ; ")[0]))
+        if len(text) >= 3:
+            worded.append(
+                {
+                    "id": ref,
+                    "text": text,
+                    "match": "starts_with",
+                    "name": text.title(),
+                    "reason": f"Every one begins with {text}.",
+                }
+            )
+    return json.dumps({"automations": worded})
+
+
 def _answer(system: str, question: str) -> str:
     if "second opinion on how a household's transactions" in system:
         return _review(system)
+    if system.startswith("You suggest automations for a household's transactions"):
+        return _automations(system)
     if system.startswith("You turn what someone typed into filters"):
         return _search(system, question)
     if system.startswith("You read lines from a bank statement"):
