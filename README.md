@@ -309,9 +309,10 @@ them.
 AI is **off until an admin turns it on**, and Cashcove works exactly the same without it. With
 it, the **AI** tab answers questions about your money, reads a PDF bank statement into
 transactions for you to check, gives a second opinion on how your transactions are sorted, and
-shows what it all cost, and an import can end with that second opinion. Until AI is set up, each
-of its pages says what to do first (and that a statement can only be read with AI), and nothing
-else in Cashcove depends on it.
+shows what it all cost, an import can end with that second opinion, transactions can be found by
+describing them, and automations can be suggested from what you keep choosing by hand. Until AI
+is set up, each of its pages says what to do first (and that these can only be used with AI),
+and nothing else in Cashcove depends on it, or shows any sign of it.
 
 **Settings > AI** (admins only) chooses where the AI runs:
 
@@ -364,6 +365,25 @@ What the **AI** tab does:
   list price (Anthropic, OpenAI and Ollama Cloud; Ollama on your computer costs nothing). It's an
   estimate: your provider's bill is what counts.
 
+Two more things AI does are where the work is, and only show once AI is set up:
+
+- **Find transactions in your own words** (the Transactions tab): **Find with AI** beside the
+  filters opens a box to describe what you're after, like "groceries over $50 last month". The AI
+  turns the words into the tab's own filters (words to look for, categories, dates, how big, which
+  way the money went, where it came from, and the order), which replace the ones that were on and
+  show as the chips the tab already has, to take off or change, and are kept in the address like
+  any others. It finds no transaction itself, each filter is checked before it's used, and
+  anything it couldn't use is said rather than guessed at. Anyone who can see transactions can use
+  it. The accounts and banks you name ("my Visa") are found by Cashcove, not the AI.
+- **Suggest automations** (the Automations tab, admins): **Suggest with AI** looks for payees you
+  put in the same category by hand at least three times, nearly always the same one, that no
+  automation sorts already, and has the AI word each as a rule: the text to look for, how to
+  compare it, and a name. Each suggestion shows how many times you chose it, how many
+  transactions with no category it would sort now, how many it matches that you put elsewhere (and
+  would leave alone), and any older automation that already gives some of them a category.
+  **Review and create** opens the form for a new automation with it filled in, so **nothing is
+  created until you save it**.
+
 #### What never reaches an AI
 
 **Account numbers and bank names never leave Cashcove.** Everything above works without telling an
@@ -384,6 +404,20 @@ AI which account or bank anything came from, and four guardrails keep it that wa
 4. **It only suggests.** An AI never changes anything itself. Suggestions wait in the database for
    an admin to apply or dismiss, and a key never goes anywhere but the provider it belongs to, in
    a header, never in what is asked.
+
+#### Finding transactions and suggesting automations
+
+- **A search** sends the words you typed, with the same things taken out as anywhere else, and the
+  names of your categories. The accounts and banks a question names are found here, by the name of
+  an account or of its bank, or a word only that account's name has, and those words are left out
+  of what is sent. A question that only names accounts isn't sent at all. What comes back is only
+  filters: a category has to be one you have, a day one that makes sense, and nothing in it finds
+  or changes a transaction.
+- **A suggestion** sends each payee as written, with the same things taken out, the name of the
+  category you put it in, how many times and for how much. The category and the way the money went
+  are yours, never the AI's: it only words what to look for, which is tried on your transactions
+  before it's offered and dropped unless it covers what you chose and little you chose otherwise.
+  Nothing is asked of the AI when no payee has been chosen for often enough.
 
 #### Reading a PDF statement
 
