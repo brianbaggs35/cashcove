@@ -18,6 +18,9 @@ and give it a version and a date when you cut a release (see Releases in the
 - Migration `0015` lets an import be of a PDF statement and a usage row be for reading one, by
   adding `pdf` and `statement` to the two lists of values the database allows. It can be run again
   too, and nothing is changed for what is already there.
+- Migration `0016` lets the AI's usage be for finding transactions and for suggesting automations,
+  by adding `search` and `automation` to the list of purposes the database allows. It can be run
+  again as well.
 - If you run Cashcove from your own compose file and want Ollama on the same computer for AI, add
   `extra_hosts: ["host.docker.internal:host-gateway"]` to the service, as `docker-compose.yml` now
   does, and use `http://host.docker.internal:11434` as Ollama's address. `/api/ai/` also waits up to
@@ -50,6 +53,19 @@ and give it a version and a date when you cut a release (see Releases in the
     the money went, **Flip money in and out** mends a statement read the wrong way round, and
     nothing is added until you tick it, so duplicates, automations, balances and undo work as for
     a CSV file. Without AI, a PDF says it can only be read with AI, and the AI tab says so too.
+  - **Find transactions in your own words.** Once AI is set up, **Find with AI** beside the
+    Transactions tab's filters opens a box: "groceries over $50 last month". The AI turns it into
+    the tab's own filters (words, categories, dates, amounts, which way the money went, where it
+    came from, the order), which are checked here, replace the ones that were on and show as the
+    chips the tab has, to take off or change, and what it couldn't use is said. Anyone who can see
+    transactions can use it. The accounts and banks a question names are found here, so no account
+    or bank name is sent to find them.
+  - **Suggest automations.** On the Automations tab an admin can have the AI look at the payees
+    they put in the same category by hand again and again, which no automation sorts. It words
+    each as a rule, which is tried on the transactions before it's offered, and each suggestion
+    says how many times it was chosen, what it would sort now, what it would leave alone and
+    which older automation overlaps it. **Review and create** opens the form for a new automation
+    with it in, and nothing is created until it's saved.
   - **The PDF never leaves the server, and neither does anything that names you.** Cashcove takes
     the text out of the PDF itself and sends the AI only the transaction lines: no header, bank,
     holder, address, account number, summary or balance, and each line has account and card
@@ -71,7 +87,9 @@ and give it a version and a date when you cut a release (see Releases in the
     `DELETE /api/ai/settings`, and `POST /api/ai/models`, `/test`, `/chat`, `/reviews`,
     `/recommendations/apply` and `/recommendations/dismiss`. Reads are open to every signed-in
     person; changing anything needs an admin. `POST /api/ai/statements` reads a PDF and is an
-    admin's, like importing.
+    admin's, like importing. `POST /api/ai/search` turns what someone typed into filters and
+    anyone who is signed in can ask, since it only picks filters, and
+    `POST /api/ai/automation-suggestions` is an admin's, since it leads to making an automation.
 
 ### Changed
 
