@@ -94,7 +94,7 @@ function stop() {
             maxlength="300"
             density="comfortable"
             :prepend-inner-icon="Search"
-            :disabled="working"
+            :readonly="working"
             data-test="ai-search-input"
           />
           <v-btn
@@ -108,6 +108,9 @@ function stop() {
             data-test="ai-search-find"
           >
             Find
+            <template #loader>
+              <v-progress-circular indeterminate size="20" width="2" aria-hidden="true" />
+            </template>
           </v-btn>
         </form>
 

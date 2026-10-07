@@ -62,11 +62,13 @@ const overlapping = computed(() => {
         <h3 class="text-title-small font-weight-bold ma-0 text-break" data-test="suggestion-name">
           {{ suggestion.name }}
         </h3>
-        <p class="text-body-medium mt-1 mb-0" data-test="suggestion-rule">
-          {{ looksFor }}
-          <span class="text-medium-emphasis">puts them in</span>
-          <CategoryChip :category-id="suggestion.category_id" class="ms-1 align-middle" />
-        </p>
+        <div class="mt-1" data-test="suggestion-rule">
+          <p class="text-body-medium mb-1">{{ looksFor }}</p>
+          <p class="d-flex align-center flex-wrap ga-2 text-body-small text-medium-emphasis mb-0">
+            Puts them in
+            <CategoryChip :category-id="suggestion.category_id" />
+          </p>
+        </div>
       </div>
     </div>
 

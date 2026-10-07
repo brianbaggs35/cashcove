@@ -140,6 +140,9 @@ const imported = computed(() => {
           @click="emit('review')"
         >
           Review and import
+          <template #loader>
+            <v-progress-circular indeterminate size="20" width="2" aria-hidden="true" />
+          </template>
         </v-btn>
         <p class="text-body-small text-medium-emphasis mt-2 mb-0">
           Nothing is added until you’ve checked it.

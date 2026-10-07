@@ -21,7 +21,7 @@ describe('AutomationSuggestionCard', () => {
 
     expect(find('suggestion-name').text()).toBe('Whole Foods')
     expect(find('suggestion-rule').text()).toContain('Payee starts with “WHOLEFDS MKT”, money out')
-    expect(find('suggestion-rule').text()).toContain('puts them in')
+    expect(find('suggestion-rule').text()).toContain('Puts them in')
     expect(find('suggestion-rule').find('[data-test="category-chip"]').text()).toContain(
       'Groceries',
     )
@@ -34,7 +34,7 @@ describe('AutomationSuggestionCard', () => {
       payees: ['Netflix', 'Hulu'],
     })
 
-    expect(find('suggestion-rule').text()).toContain('Payee contains “Netflix”, “Hulu” puts them')
+    expect(find('suggestion-rule').text()).toContain('Payee contains “Netflix”, “Hulu”')
     expect(find('suggestion-rule').text()).not.toContain('money')
   })
 
