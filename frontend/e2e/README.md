@@ -24,7 +24,10 @@ specced from the AI tab's chat and the Import tab: the chat says it is reading w
 and the reading can be stopped, a row can be corrected, flipped or flagged, and what is imported
 is the person's to tick. The privacy spec reads a statement full of what must stay at home (the
 account number, the holder's name and address, a phone number, a Zelle payment to a person and
-every balance) and checks that none of it is in what the AI received.
+every balance) and checks that none of it is in what the AI received. Finding transactions in
+plain words and suggesting automations are specced the same way: what is typed or chosen becomes
+filters or a suggestion, nothing is created until it's saved, and no account or bank name is in
+what the AI received.
 
 ## Running them
 
@@ -393,9 +396,13 @@ transactions it was given and what was asked.
 - `setUpAi(api, 'anthropic', { reviewImports })` sets AI up through the API, as an admin would in
   Settings, so a spec can start from there.
 - `addPayment(api, baseline, 'Starbucks', { amount, daysAgo })` enters a payment with no category,
-  for the AI to have a view on.
-- `holdAi(page, 'chat' | 'statements')` holds the AI's answer to a question, or its reading of a
-  PDF, until `release()` is called, so a spec can look at what the page says while the AI works
+  for the AI to have a view on, and `addChosen(api, baseline, payee, 'Home goods', …)` one put in a
+  category by hand, which is what the AI looks for a pattern in to suggest an automation.
+- `transactionsPage.findWithAi(question)` describes what to find, and `automationsPage.suggest()` and
+  `makeFromSuggestion(name)` ask for suggestions and open the form for one.
+- `holdAi(page, 'chat' | 'statements' | 'search' | 'automation-suggestions')` holds the AI's
+  answer to a question, its reading of a PDF, its filters for a search or its suggestions for
+  automations until `release()` is called, so a spec can look at what the page says while the AI works
   (the progress, the button that stops it, the accessibility of the busy state), which is over in a
   moment otherwise.
 - `aiPage.attachStatement(file)`, `aiPage.dropStatement(file)` and `aiPage.reviewStatement()` give

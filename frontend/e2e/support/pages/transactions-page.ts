@@ -42,6 +42,14 @@ export class TransactionsPage {
   readonly bulkBar: Locator
   /** Shown instead of the list when nothing matches the filters. */
   readonly noneMatch: Locator
+  /** The button that opens the box for finding transactions by describing them, once AI is set up. */
+  readonly aiButton: Locator
+  /** That box, what it said of what the AI found, and what it couldn't use. */
+  readonly aiSearch: Locator
+  readonly aiResult: Locator
+  readonly aiNothing: Locator
+  readonly aiIgnored: Locator
+  readonly aiError: Locator
 
   constructor(readonly page: Page) {
     this.addButton = page
@@ -58,6 +66,12 @@ export class TransactionsPage {
     this.filterDialog = page.getByRole('dialog').filter({ has: page.getByTestId('filter-apply') })
     this.bulkBar = page.getByTestId('bulk-bar')
     this.noneMatch = page.getByTestId('transactions-none-match')
+    this.aiButton = page.getByTestId('transaction-ai')
+    this.aiSearch = page.getByTestId('ai-search')
+    this.aiResult = page.getByTestId('ai-search-result')
+    this.aiNothing = page.getByTestId('ai-search-nothing')
+    this.aiIgnored = page.getByTestId('ai-search-ignored')
+    this.aiError = page.getByTestId('ai-search-error')
   }
 
   /**
@@ -109,6 +123,20 @@ export class TransactionsPage {
   async searchFor(text: string): Promise<void> {
     await this.search.fill(text)
     await this.search.press('Enter')
+  }
+
+  /**
+   * Describes what to find to the AI, opening the box if it isn't, and waits until it has said
+   * what it made of it: the filters are on the tab, or it couldn't use it, or it failed.
+   */
+  async findWithAi(question: string): Promise<void> {
+    if (!(await this.aiSearch.isVisible())) {
+      await this.aiButton.click()
+      await expect(this.aiSearch).toBeVisible()
+    }
+    await this.aiSearch.getByTestId('ai-search-input').getByRole('textbox').fill(question)
+    await this.aiSearch.getByTestId('ai-search-find').click()
+    await expect(this.aiResult.or(this.aiNothing).or(this.aiError)).toBeVisible()
   }
 
   /** Picks a period by its title, e.g. `'This month'`. */

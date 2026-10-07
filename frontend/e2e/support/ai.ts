@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test'
 
 import type { ApiClient } from './api'
-import { dateOf, type BaselineData } from './harness'
+import { dateOf, type BaselineCategoryName, type BaselineData } from './harness'
 
 /** Where an AI runs: the four providers Settings > AI offers. */
 export type AiProviderKey = 'ollama_local' | 'ollama_cloud' | 'anthropic' | 'openai'
@@ -59,13 +59,35 @@ export async function setUpAi(
 }
 
 /**
- * Holds the AI's answer to a question (`chat`), or its reading of a PDF statement (`statements`),
+ * A payment someone puts in a category by hand, which is what the AI looks for a pattern in when
+ * it suggests an automation: a category chosen for the same payee again and again.
+ */
+export async function addChosen(
+  api: ApiClient,
+  baseline: BaselineData,
+  payee: string,
+  category: BaselineCategoryName,
+  { amount = '-12.00', daysAgo = 0 }: { amount?: string; daysAgo?: number } = {},
+): Promise<{ id: string; category_id: string | null }> {
+  return api.post('/transactions', {
+    account_id: baseline.accounts.checking.id,
+    date: dateOf({ days_ago: daysAgo }),
+    amount,
+    payee,
+    category_id: baseline.categories[category].id,
+    notes: null,
+  })
+}
+
+/**
+ * Holds the AI's answer to a question (`chat`), its reading of a PDF statement (`statements`), its
+ * filters for a search (`search`) or its suggestions for automations (`automation-suggestions`),
  * until `release()` is called, so a test can look at what the page says while the AI works,
  * which is over in a moment otherwise.
  */
 export async function holdAi(
   page: Page,
-  what: 'chat' | 'statements',
+  what: 'chat' | 'statements' | 'search' | 'automation-suggestions',
 ): Promise<{ release: () => void }> {
   let release = () => {}
   const held = new Promise<void>((resolve) => {
