@@ -13,7 +13,9 @@ const open = ref(false)
 const shared = [
   'Dates, amounts and payees, with anything that looks like an account number, an email address or a key taken out of the payee.',
   'Category names, budgets, and the names of your subscriptions and bills.',
-  'What you type, with the same things taken out.',
+  'What you type, with the same things taken out. To find transactions that is the words you typed: the accounts you name are found by Cashcove, and those words are left out.',
+  'For a PDF statement, only its transaction lines: the bank, your name and address, account numbers and balances are never sent.',
+  'To suggest an automation, the payees you put in the same category again and again, and that category’s name.',
 ]
 const never = [
   'Account numbers, card numbers or the last digits of either.',

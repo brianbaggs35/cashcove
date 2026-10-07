@@ -3,8 +3,10 @@ import {
   FileText,
   ListChecks,
   MessageCircleQuestion,
+  Search,
   Settings,
   Sparkles,
+  WandSparkles,
   type LucideIcon,
 } from '@lucide/vue'
 
@@ -31,6 +33,16 @@ const features: { icon: LucideIcon; title: string; text: string }[] = [
     icon: ListChecks,
     title: 'A second opinion on sorting',
     text: 'It looks over how your transactions are sorted and suggests changes. Nothing changes until you apply one.',
+  },
+  {
+    icon: Search,
+    title: 'Find transactions in your own words',
+    text: 'Describe what you’re after, like “groceries over $50 last month”, and it becomes filters you can change.',
+  },
+  {
+    icon: WandSparkles,
+    title: 'Suggest automations',
+    text: 'It notices the categories you keep choosing by hand and suggests automations for them, which you check before they’re made.',
   },
 ]
 </script>

@@ -1,10 +1,13 @@
 import { flushPromises } from '@vue/test-utils'
 
+import * as aiApi from '@/api/ai'
 import * as automationsApi from '@/api/automations'
 import type { Automation, AutomationSaved } from '@/api/automations'
 import * as subscriptionsApi from '@/api/subscriptions'
 import { confirmRequest } from '@/composables/confirm'
 import { notices } from '@/composables/notify'
+import { useAiStore } from '@/stores/ai'
+import { aiOff, makeAiSettings, makeAutomationSuggestion, makeProviders } from '@/test/ai'
 import { makeAutomation } from '@/test/automations'
 import { answer } from '@/test/confirm'
 import { seedFinance } from '@/test/finance'
@@ -18,6 +21,8 @@ interface Options {
   items?: Automation[]
   fail?: boolean
   pending?: boolean
+  /** AI is set up, as Settings > AI does. It's off unless a test says. */
+  ai?: boolean
   deferred?: {
     requests: {
       resolve: (automations: Automation[]) => void
@@ -31,6 +36,7 @@ async function render({
   items = [],
   fail = false,
   pending = false,
+  ai = false,
   deferred,
 }: Options = {}) {
   const fetch = vi.spyOn(automationsApi, 'fetchAutomations')
@@ -54,6 +60,9 @@ async function render({
     session: makeSessionState({ user: makeUser({ role }) }),
     beforeMount: () => {
       seedFinance()
+      const store = useAiStore()
+      store.providers = makeProviders()
+      store.settings = ai ? makeAiSettings() : aiOff
     },
   })
   await flushPromises()
@@ -270,5 +279,71 @@ describe('AutomationsView', () => {
 
     expect(find('empty-state').text()).toContain('Let Cashcove do the sorting')
     expect(find('empty-state').find('button').exists()).toBe(false)
+  })
+})
+
+describe('AutomationsView, suggesting automations with AI', () => {
+  const one = makeAutomation()
+
+  it('has no way to, and says nothing of AI, until AI is set up', async () => {
+    const { find } = await render({ items: [one] })
+
+    expect(find('automation-suggest').exists()).toBe(false)
+    const empty = await render()
+    expect(empty.find('automation-suggest-first').exists()).toBe(false)
+  })
+
+  it('has no way to for a viewer, who can’t make an automation from it', async () => {
+    const { find, component } = await render({ items: [one], ai: true, role: 'viewer' })
+
+    expect(find('automation-suggest').exists()).toBe(false)
+    expect(component('AutomationSuggestions').exists()).toBe(false)
+  })
+
+  it('offers it beside making an automation, and opens what the AI suggests', async () => {
+    const ask = vi
+      .spyOn(aiApi, 'suggestAutomationsWithAi')
+      .mockResolvedValue({ suggestions: [makeAutomationSuggestion()], considered: 1 })
+    const { find, component } = await render({ items: [one], ai: true })
+
+    await find('automation-suggest').trigger('click')
+    await flushPromises()
+
+    expect(ask).toHaveBeenCalledOnce()
+    expect(component('AutomationSuggestions').props('modelValue')).toBe(true)
+
+    component('AutomationSuggestions').vm.$emit('update:modelValue', false)
+    await flushPromises()
+    expect(component('AutomationSuggestions').props('modelValue')).toBe(false)
+  })
+
+  it('offers it as a way to start when there are no automations yet', async () => {
+    vi.spyOn(aiApi, 'suggestAutomationsWithAi').mockResolvedValue({
+      suggestions: [],
+      considered: 0,
+    })
+    const { find, component } = await render({ ai: true })
+
+    expect(find('automation-add-first').exists()).toBe(true)
+    await find('automation-suggest-first').trigger('click')
+    await flushPromises()
+
+    expect(component('AutomationSuggestions').props('modelValue')).toBe(true)
+  })
+
+  it('loads the list again once one is made from a suggestion', async () => {
+    vi.spyOn(aiApi, 'suggestAutomationsWithAi').mockResolvedValue({
+      suggestions: [makeAutomationSuggestion()],
+      considered: 1,
+    })
+    const { fetch, find, component } = await render({ items: [one], ai: true })
+    await find('automation-suggest').trigger('click')
+    await flushPromises()
+    fetch.mockClear()
+
+    component('AutomationSuggestions').vm.$emit('created', { ...one, applied: 2 })
+    await flushPromises()
+
+    expect(fetch).toHaveBeenCalledOnce()
   })
 })
