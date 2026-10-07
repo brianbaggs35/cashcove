@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Search, WandSparkles } from '@lucide/vue'
+import { Plus, Search, Sparkles, WandSparkles } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 
 import {
@@ -16,6 +16,7 @@ import ReadOnlyNotice from '@/components/ui/ReadOnlyNotice.vue'
 import { confirmAndRun } from '@/composables/confirm'
 import { notify } from '@/composables/notify'
 import { useAccountsStore } from '@/stores/accounts'
+import { useAiStore } from '@/stores/ai'
 import { useAuthStore } from '@/stores/auth'
 import { useBudgetsStore } from '@/stores/budgets'
 import { useCategoriesStore } from '@/stores/categories'
@@ -23,9 +24,11 @@ import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { formatCount } from '@/utils/format'
 import AutomationCard from '@/views/automations/AutomationCard.vue'
 import AutomationDialog from '@/views/automations/AutomationDialog.vue'
+import AutomationSuggestions from '@/views/automations/AutomationSuggestions.vue'
 
 const auth = useAuthStore()
 const accounts = useAccountsStore()
+const ai = useAiStore()
 const categories = useCategoriesStore()
 const subscriptions = useSubscriptionsStore()
 const budgets = useBudgetsStore()
@@ -37,6 +40,8 @@ const search = ref('')
 const activeFilter = ref<'active' | 'paused'>('active')
 const dialog = ref(false)
 const editing = ref<Automation | null>(null)
+/** The automations the AI suggests, which only an admin with AI set up can ask for. */
+const suggesting = ref(false)
 let request = 0
 
 async function load() {
@@ -62,6 +67,8 @@ onMounted(() => {
   // Fresh each time, since an automation names the subscription or bill it links to.
   void subscriptions.load()
   void budgets.load()
+  // Whether AI is set up says whether it can suggest automations.
+  void ai.ensureLoaded()
   void load()
 })
 
@@ -127,6 +134,15 @@ async function toggle(automation: Automation) {
   <TabPage name="automations">
     <template v-if="auth.isAdmin && !noAutomations" #actions>
       <v-btn
+        v-if="ai.configured"
+        variant="tonal"
+        :prepend-icon="Sparkles"
+        data-test="automation-suggest"
+        @click="suggesting = true"
+      >
+        Suggest with AI
+      </v-btn>
+      <v-btn
         color="primary"
         variant="flat"
         :prepend-icon="Plus"
@@ -178,6 +194,15 @@ async function toggle(automation: Automation) {
         >
           Create your first automation
         </v-btn>
+        <v-btn
+          v-if="auth.isAdmin && ai.configured"
+          variant="outlined"
+          :prepend-icon="Sparkles"
+          data-test="automation-suggest-first"
+          @click="suggesting = true"
+        >
+          Suggest with AI
+        </v-btn>
       </EmptyState>
     </v-card>
 
@@ -228,6 +253,11 @@ async function toggle(automation: Automation) {
     </template>
 
     <AutomationDialog v-if="auth.isAdmin" v-model="dialog" :automation="editing" @saved="load" />
+    <AutomationSuggestions
+      v-if="auth.isAdmin && ai.configured"
+      v-model="suggesting"
+      @created="load"
+    />
   </TabPage>
 </template>
 

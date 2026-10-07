@@ -6,6 +6,7 @@ import * as billsApi from '@/api/bills'
 import * as budgetApi from '@/api/budget'
 import type {
   Automation,
+  AutomationDraft,
   AutomationPreview,
   AutomationSaved,
   PreviewRequest,
@@ -42,6 +43,8 @@ interface Options {
   accounts?: (typeof checking)[]
   preview?: AutomationPreview
   seed?: Transaction[]
+  /** What a new automation starts with, like one the AI suggested. */
+  draft?: AutomationDraft | null
   /** The transactions the list to tick from has. */
   found?: Transaction[]
 }
@@ -51,6 +54,7 @@ async function render({
   accounts = [checking, savings],
   preview = { matching: 4, overlaps: [] },
   seed = [],
+  draft = null,
   found = [wholeFoods, shouty, latte],
 }: Options = {}) {
   const open = ref(false)
@@ -60,6 +64,7 @@ async function render({
       h(AutomationDialog, {
         automation,
         seed,
+        draft,
         modelValue: open.value,
         'onUpdate:modelValue': (value: boolean) => (open.value = value),
         onSaved: saved,
@@ -291,6 +296,84 @@ describe('AutomationDialog', () => {
       })
 
       expect(chosen()).toEqual(['Netflix'])
+    })
+
+    describe('from a draft, such as one the AI suggested', () => {
+      const draft: AutomationDraft = {
+        name: 'Amazon',
+        payees: ['AMZN Mktp'],
+        match: 'starts_with',
+        direction: 'out',
+        category_id: groceries.id,
+        apply_to: 'all',
+      }
+
+      it('starts a new automation with what it looks for, how, and what it gives', async () => {
+        const { overlay, field, value, chosen, select, category, next } = await render({ draft })
+
+        expect(overlay().find('h2').text()).toBe('New automation')
+        expect(chosen()).toEqual(['AMZN Mktp'])
+        expect(value('name')).toBe('Amazon')
+        expect(select('match').props('modelValue')).toBe('starts_with')
+        expect(field('direction').find('.v-btn--active').text()).toBe('Money out')
+        expect(field('next').attributes('disabled')).toBeUndefined()
+
+        await next()
+        expect(category().props('modelValue')).toBe(groceries.id)
+        expect(field('apply-all').find('input').element).toHaveProperty('checked', true)
+      })
+
+      it('keeps its name when more is looked for, and saves a new automation, not a change', async () => {
+        const created: AutomationSaved = { ...makeAutomation(), applied: 2 }
+        const create = vi.spyOn(automationsApi, 'createAutomation').mockResolvedValue(created)
+        const update = vi.spyOn(automationsApi, 'updateAutomation')
+        const { wrapper, field, input, next, open, saved } = await render({ draft })
+        await input('text').setValue('Amazon Prime')
+        await field('text').find('input').trigger('keydown', { key: 'Enter' })
+        await next()
+        await makeFormValid(wrapper)
+
+        await field('save').trigger('click')
+        await flushPromises()
+
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'Amazon',
+            payees: ['AMZN Mktp', 'Amazon Prime'],
+            match: 'starts_with',
+            direction: 'out',
+            category_id: groceries.id,
+            apply_to: 'all',
+          }),
+        )
+        expect(update).not.toHaveBeenCalled()
+        expect(saved).toHaveBeenCalledWith(created)
+        expect(open.value).toBe(false)
+      })
+
+      it('is left out when an automation is being changed', async () => {
+        const { overlay, value, chosen } = await render({
+          draft,
+          automation: makeAutomation({ name: 'Streaming', payees: ['Netflix'] }),
+        })
+
+        expect(overlay().find('h2').text()).toBe('Edit automation')
+        expect(chosen()).toEqual(['Netflix'])
+        expect(value('name')).toBe('Streaming')
+      })
+
+      it('starts afresh at each opening', async () => {
+        const { chosen, open, value, input } = await render({ draft })
+        await input('name').setValue('Something else')
+
+        open.value = false
+        await flushPromises()
+        open.value = true
+        await flushPromises()
+
+        expect(chosen()).toEqual(['AMZN Mktp'])
+        expect(value('name')).toBe('Amazon')
+      })
     })
 
     it('carries on without a preview when it cannot be had', async () => {

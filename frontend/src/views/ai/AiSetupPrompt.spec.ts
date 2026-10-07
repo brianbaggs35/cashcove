@@ -20,13 +20,15 @@ describe('AiSetupPrompt', () => {
       'Ask about your money',
       'Read a PDF statement',
       'A second opinion on sorting',
+      'Find transactions in your own words',
+      'Suggest automations',
     ])
-    expect(features.map((feature) => feature.find('.v-chip').text())).toEqual([
-      'Needs AI',
-      'Needs AI',
-      'Needs AI',
-    ])
+    expect(features.map((feature) => feature.find('.v-chip').text())).toEqual(
+      Array.from({ length: 5 }, () => 'Needs AI'),
+    )
     expect(features[1]!.text()).toContain('you check them and choose the account')
+    expect(features[3]!.text()).toContain('“groceries over $50 last month”')
+    expect(features[4]!.text()).toContain('which you check before they’re made')
   })
 
   it('says plainly that these can only be used with AI, and that nothing private is sent', async () => {
