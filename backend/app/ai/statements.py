@@ -18,6 +18,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from time import monotonic
 from typing import Literal, cast
 
 import httpx2 as httpx
@@ -41,6 +42,11 @@ from app.schemas.ai import MAX_STATEMENT_BYTES
 MAX_PAGES = 60
 MAX_CHARS = 400_000
 MAX_LINES = 480
+# The API answers before nginx stops waiting for it (330 seconds), however slow the model is, so a
+# statement read a batch at a time is read until this much time has gone, and a batch is only
+# asked for when there is time for an answer.
+READING_BUDGET = 300.0
+MIN_ASK = 10.0
 # How many lines go to the AI at once, and room for it to think and then answer.
 BATCH = 80
 MAX_TOKENS = 8192
@@ -71,6 +77,10 @@ TOO_MANY = (
     "Download it in parts, or as a CSV, OFX or QFX file."
 )
 NOTHING_READ = "The AI didn't find any transactions in this statement."
+TOO_SLOW = (
+    "The AI took too long to read this statement, so nothing was read. Choose a faster model in "
+    "Settings > AI, or download the statement as a CSV, OFX or QFX file."
+)
 
 INSTRUCTIONS = """\
 You read lines from a bank statement and say what transaction each one is. Reply with only \
@@ -592,6 +602,7 @@ def read(
 ) -> Reading:
     """The transactions on a PDF statement. What the AI is told has nothing in it that names an
     account, a bank or a person, and whatever it answers is checked against the statement."""
+    deadline = monotonic() + READING_BUDGET
     protected = Protected.load(db)
     accounts = list(db.scalars(select(Account).where(Account.closed_at.is_(None))))
     layout = lay_out(pdf_text(data), protected, accounts, utcnow().date())
@@ -600,6 +611,9 @@ def read(
     gateway = Gateway(db, settings, config, protected, transport=transport, user_id=user.id)
     rows: list[Row] = []
     for start in range(0, len(layout.lines), BATCH):
+        left = deadline - monotonic()
+        if left < MIN_ASK:
+            raise AIError(errors.UNREACHABLE, TOO_SLOW)
         lines = layout.lines[start : start + BATCH]
         by_number = {line.number: line for line in lines}
         answer = gateway.ask(
@@ -608,6 +622,7 @@ def read(
             _data(layout, lines),
             [Message("user", "Read these lines.")],
             max_tokens=MAX_TOKENS,
+            timeout=left,
         )
         for item in _answers(answer):
             line = by_number.pop(item.line, None)
