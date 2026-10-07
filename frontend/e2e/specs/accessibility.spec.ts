@@ -155,6 +155,8 @@ test.describe('Accessibility', () => {
       })
 
       test('the pages a viewer sees', async ({ page, signInAs }) => {
+        // It visits a dozen pages and checks each, which takes a slow runner past the usual limit.
+        test.slow()
         await signInAs('viewer')
 
         for (const path of [
