@@ -13,6 +13,10 @@ or a transaction's raw bank description. Two guardrails sit on top of that:
    data is checked again, and if any of that is still there the request is refused and nothing
    is sent. This is what catches a mistake made anywhere else.
 
+Where an AI answers in words people read, as the chat does, an account, a bank or a person is
+replaced by a code that lasts one request instead, and Cashcove puts the name back into what the AI
+says (see ``vault``). Everything else above is taken out for good.
+
 Names the household uses as labels (a category, budget, subscription, bill or automation) aren't
 account information even when an account has the same name, like "Savings", so they pass.
 
@@ -21,14 +25,15 @@ other bank is treated as the payee it is.
 """
 
 import re
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field
 from enum import Enum, auto
 
 from sqlalchemy import select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.ai.errors import PrivacyError
+from app.ai.vault import Entity, Subject, Vault
 from app.finance.text import text_key
 from app.models import (
     Account,
@@ -132,20 +137,53 @@ def _column(
     return [value for value in db.scalars(select(column)) if value]
 
 
-def _shared_accounts(db: Session) -> tuple[list[str], list[str]]:
-    """The names and the masks of the accounts banks share, imported or not."""
-    names: list[str] = []
-    masks: list[str] = []
+def _shared_accounts(db: Session) -> list[tuple[list[str], str | None]]:
+    """The names and the mask of each account banks share, imported or not."""
+    found: list[tuple[list[str], str | None]] = []
     for (shared,) in db.execute(select(Connection.available_accounts)):
         for account in shared:
-            names += [
+            names = [
                 value
                 for value in (account.get("name"), account.get("official_name"))
                 if isinstance(value, str)
             ]
-            if isinstance(account.get("mask"), str):
-                masks.append(account["mask"])
-    return names, masks
+            mask = account.get("mask")
+            found.append((names, mask if isinstance(mask, str) else None))
+    return found
+
+
+def _usable(mask: str | None) -> str | None:
+    """A mask that can be told from a year, or from a number in ordinary text."""
+    return mask if mask and len(mask) >= MIN_MASK and not _YEAR.fullmatch(mask) else None
+
+
+def _claim(entities: dict[str, Entity], entity: Entity, *values: str | None) -> None:
+    """Makes each value, as it is compared, stand for the entity. One that already stands for
+    something else keeps standing for it, unless both are accounts, and then for an account
+    no one in particular."""
+    for value in values:
+        key = text_key(value or "")
+        if not key:
+            continue
+        current = entities.get(key)
+        if current is None:
+            entities[key] = entity
+        elif current != entity and current.subject == entity.subject == Subject.ACCOUNT:
+            entities[key] = Entity(Subject.ACCOUNT, current.shown)
+
+
+def _replacing(
+    placeholder: str, known: Mapping[str, Entity], subject: Subject, vault: Vault | None
+) -> str | Callable[[re.Match[str]], str]:
+    """What takes a name's place: the placeholder, or with a vault the code that stands for it."""
+    if vault is None:
+        return placeholder
+
+    def code(match: re.Match[str]) -> str:
+        name = match.group()
+        return vault.code_for(known.get(text_key(name)) or Entity(subject, name))
+
+    return code
 
 
 @dataclass(frozen=True)
@@ -155,32 +193,63 @@ class Protected:
     names: re.Pattern[str] | None
     # The people in the household, who a payee may name.
     people: re.Pattern[str] | None = None
+    # What each of those names stands for, by what it is compared by, for the code that takes
+    # its place when there is one (see ``vault``).
+    named: Mapping[str, Entity] = field(default_factory=dict[str, Entity])
+    members: Mapping[str, Entity] = field(default_factory=dict[str, Entity])
+
+    @classmethod
+    def _build(
+        cls, named: dict[str, Entity], members: dict[str, Entity], labels: Iterable[str]
+    ) -> "Protected":
+        label_keys = {text_key(label) for label in labels}
+        accounts = {
+            key: entity
+            for key, entity in named.items()
+            if len(key) >= MIN_NAME and key not in label_keys
+        }
+        people = {key: entity for key, entity in members.items() if len(key) >= MIN_NAME}
+        return cls(_name_pattern(accounts), _name_pattern(people), accounts, people)
 
     @classmethod
     def of(
         cls, names: Iterable[str], labels: Iterable[str] = (), people: Iterable[str] = ()
     ) -> "Protected":
         """Protects the names, except any that is also one of the labels, and the people's."""
-        label_keys = {text_key(label) for label in labels}
-        keys = {text_key(name) for name in names}
-        return cls(
-            _name_pattern(key for key in keys if len(key) >= MIN_NAME and key not in label_keys),
-            _name_pattern(
-                text_key(person) for person in people if len(text_key(person)) >= MIN_NAME
-            ),
-        )
+        named: dict[str, Entity] = {}
+        for name in names:
+            _claim(named, Entity(Subject.ACCOUNT, name), name)
+        members: dict[str, Entity] = {}
+        for person in people:
+            _claim(members, Entity(Subject.PERSON, person), person)
+        return cls._build(named, members, labels)
 
     @classmethod
     def load(cls, db: Session) -> "Protected":
         """The names of every account and bank in Cashcove, including the accounts a bank
-        shares that haven't been imported."""
-        shared_names, shared_masks = _shared_accounts(db)
-        names = _column(db, Account.name) + _column(db, Account.official_name) + shared_names
-        # The last digits of the household's own accounts are protected wherever they appear,
-        # not only after a word like "ending in".
-        masks = _column(db, Account.mask) + shared_masks
-        names += [mask for mask in masks if len(mask) >= MIN_MASK and not _YEAR.fullmatch(mask)]
-        institutions = _column(db, Account.institution) + _column(db, Connection.institution_name)
+        shares that haven't been imported, and of every person in it."""
+        named: dict[str, Entity] = {}
+        institutions = _column(db, Connection.institution_name)
+        accounts = db.execute(
+            select(
+                Account.id, Account.name, Account.official_name, Account.mask, Account.institution
+            )
+        )
+        for account in accounts:
+            # The last digits of the household's own accounts are protected wherever they
+            # appear, not only after a word like "ending in".
+            who = Entity(Subject.ACCOUNT, account.name, account.id)
+            _claim(named, who, account.name, account.official_name, _usable(account.mask))
+            if account.institution:
+                institutions.append(account.institution)
+        for names, mask in _shared_accounts(db):
+            who = Entity(Subject.ACCOUNT, names[0] if names else "an account")
+            _claim(named, who, *names, _usable(mask))
+        for institution in institutions:
+            _claim(named, Entity(Subject.BANK, institution), *institution_names(institution))
+        members: dict[str, Entity] = {}
+        for person in _column(db, User.name):
+            _claim(members, Entity(Subject.PERSON, person), person)
         labels = [
             label
             for column in (
@@ -192,28 +261,41 @@ class Protected:
             )
             for label in _column(db, column)
         ]
-        return cls.of(
-            [*names, *(short for name in institutions for short in institution_names(name))],
-            labels,
-            _column(db, User.name),
-        )
+        return cls._build(named, members, labels)
 
-    def scrub(self, text: str, kind: Text = Text.BANK) -> str:
-        """The text without anything that must not be sent."""
+    def scrub(self, text: str, kind: Text = Text.BANK, vault: Vault | None = None) -> str:
+        """The text without anything that must not be sent. With a `vault`, an account, a bank
+        or a person takes the place of a code that stands for it for as long as the request
+        lasts, rather than of a word that doesn't say which; the rest is taken out for good."""
+        if vault is not None:
+            text = vault.neutralize(text, HIDDEN)
         text = _EMAIL.sub(HIDDEN, text)
         text = _TOKEN.sub(_hide_secret, text)
         if kind != Text.LABEL and self.names is not None:
-            text = self.names.sub(ACCOUNT, text)
+            text = self.names.sub(_replacing(ACCOUNT, self.named, Subject.ACCOUNT, vault), text)
         if kind != Text.LABEL:
             if self.people is not None:
-                text = self.people.sub(PERSON, text)
-            text = _PEER.sub(_hide_peer, text)
+                text = self.people.sub(
+                    _replacing(PERSON, self.members, Subject.PERSON, vault), text
+                )
+            text = _PEER.sub(_hide_peer(vault), text)
             text = _SSN.sub(HIDDEN, text)
             text = _PHONE.sub(HIDDEN, text)
             text = _STREET.sub(ADDRESS, text)
         text = _MASK.sub(ACCOUNT, text)
         text = _DIGITS.sub(_hide_digits(4 if kind == Text.BANK else 8), text)
         return _SPACES.sub(" ", text).strip()
+
+    def reveal(self, text: str, vault: Vault) -> str:
+        """What an AI wrote, safe to show and to keep. Each code of the request is put back as
+        what it stands for, and anything that looks like account information the AI wrote on its
+        own, such as a number it made up, is taken out like it is from anything else."""
+        return "\n".join(self._reveal_line(line, vault) for line in vault.plain(text).split("\n"))
+
+    def _reveal_line(self, line: str, vault: Vault) -> str:
+        guarded, held = vault.hold(line)
+        # A name the AI wrote out whole becomes a code here, and is put back straight away.
+        return vault.release(vault.restore(self.scrub(guarded, Text.ASKED, vault)), held)
 
     def leaks(self, text: str) -> list[str]:
         """What's in the text that must not be sent, in words for people."""
@@ -241,9 +323,17 @@ class Protected:
             raise PrivacyError(kinds)
 
 
-def _hide_peer(match: re.Match[str]) -> str:
-    """The payment's words, without the person's name at the end of them."""
-    return match.group()[: match.start(1) - match.start()] + PERSON
+def _hide_peer(vault: Vault | None) -> Callable[[re.Match[str]], str]:
+    """The payment's words, without the person's name at the end of them: a code that stands
+    for it, with a vault."""
+
+    def hide(match: re.Match[str]) -> str:
+        words = match.group()[: match.start(1) - match.start()]
+        if vault is None:
+            return words + PERSON
+        return words + vault.code_for(Entity(Subject.PERSON, match.group(1)))
+
+    return hide
 
 
 def _is_secret(token: str) -> bool:
