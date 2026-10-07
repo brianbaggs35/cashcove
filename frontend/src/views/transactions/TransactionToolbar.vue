@@ -189,6 +189,8 @@ function choosePeriod(value: PeriodKey | 'custom') {
 }
 
 .transaction-toolbar--stacked .transaction-toolbar__period {
-  flex-grow: 1;
+  /* It takes what the buttons beside it leave, so that however many there are they stay on one line. */
+  flex: 1 1 0;
+  min-width: 0;
 }
 </style>

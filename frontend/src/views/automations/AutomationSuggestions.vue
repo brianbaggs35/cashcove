@@ -134,7 +134,7 @@ function skip(suggestion: AutomationSuggestion) {
         {{ formatCount(found, 'suggestion') }} from {{ formatCount(considered, 'payee') }} you
         sorted by hand.
       </p>
-      <div class="d-grid ga-3">
+      <div class="d-flex flex-column ga-3">
         <AutomationSuggestionCard
           v-for="item in suggestions"
           :key="item.ref"

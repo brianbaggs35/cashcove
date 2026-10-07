@@ -137,8 +137,13 @@ describe('AiSearch', () => {
     expect(find('ai-progress-privacy').text()).toBe(
       'Only what you typed, with account details taken out, and your category names go to GPT-6 Luna. The accounts you name are found here.',
     )
-    expect(find('ai-search-input').find('input').attributes('disabled')).toBeDefined()
+    // Kept as it is rather than dimmed, which would leave its hint too faint to read.
+    expect(find('ai-search-input').find('input').attributes('readonly')).toBeDefined()
+    expect(find('ai-search-input').find('input').attributes('disabled')).toBeUndefined()
     expect(find('ai-search-find').classes()).toContain('v-btn--loading')
+    expect(find('ai-search-find').find('.v-progress-circular').attributes('aria-hidden')).toBe(
+      'true',
+    )
 
     answer.resolve(makeSearchResult())
     await flushPromises()

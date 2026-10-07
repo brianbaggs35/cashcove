@@ -77,6 +77,9 @@ describe('StatementCard', () => {
 
       await wrapper.setProps({ opening: true })
       expect(find('statement-review').classes()).toContain('v-btn--loading')
+      expect(find('statement-review').find('.v-progress-circular').attributes('aria-hidden')).toBe(
+        'true',
+      )
       expect(wrapper.text()).toContain('Nothing is added until you’ve checked it.')
     })
 
