@@ -1,6 +1,8 @@
 import type { Page } from '@playwright/test'
 
 import {
+  addChosen,
+  addPayment,
   bankDate,
   bankStatementPdf,
   csvFile,
@@ -601,6 +603,96 @@ test.describe('Accessibility', () => {
         await aiPage.goto('ask')
         await expect(aiPage.statementViewer).toBeVisible()
         await expectAccessible(page)
+      })
+
+      test('finding transactions in plain words, while the AI works and once it has', async ({
+        page,
+        signInAs,
+        apiAs,
+        transactionsPage,
+      }) => {
+        test.slow()
+        await setUpAi(await apiAs('admin'))
+        await signInAs('admin')
+        await transactionsPage.goto()
+        // The button beside the filters.
+        await expect(transactionsPage.aiButton).toBeVisible()
+        await expectAccessible(page)
+
+        await transactionsPage.aiButton.click()
+        await expect(transactionsPage.aiSearch).toBeVisible()
+        await expectAccessible(page)
+
+        // While the AI works out the filters.
+        const working = await holdAi(page, 'search')
+        await transactionsPage.aiSearch
+          .getByTestId('ai-search-input')
+          .getByRole('textbox')
+          .fill('uncategorized hobbies for a birthday')
+        await transactionsPage.aiSearch.getByTestId('ai-search-find').click()
+        await expect(transactionsPage.aiSearch.getByTestId('ai-search-working')).toBeVisible()
+        await expectAccessible(page)
+
+        // What it found, with what it couldn't use, and the chips for the filters.
+        working.release()
+        await expect(transactionsPage.aiResult).toBeVisible()
+        await expect(transactionsPage.aiIgnored).toBeVisible()
+        await expectAccessible(page)
+
+        // And when there was nothing in it to filter by.
+        await transactionsPage.findWithAi('something blue')
+        await expect(transactionsPage.aiNothing).toBeVisible()
+        await expectAccessible(page)
+      })
+
+      test('the automations the AI suggests, while it looks and once it has, and the form for one', async ({
+        page,
+        signInAs,
+        apiAs,
+        baseline,
+        automationsPage,
+      }) => {
+        test.slow()
+        const api = await apiAs('admin')
+        await setUpAi(api)
+        for (const number of [1, 2, 3, 4]) {
+          await addChosen(api, baseline, `ZEPHYR PET SUPPLY #330${number}`, 'Home goods', {
+            amount: '-23.50',
+            daysAgo: number,
+          })
+        }
+        await addPayment(api, baseline, 'ZEPHYR PET SUPPLY #3399', { amount: '-9.00', daysAgo: 6 })
+        for (const number of [1, 2, 3]) {
+          await addChosen(api, baseline, `HEARTH BAKERY #77${number}`, 'Coffee', {
+            amount: '-6.25',
+            daysAgo: 10 + number,
+          })
+        }
+        // An older automation that gives some of them another category, which is warned of.
+        await api.post('/automations', {
+          name: 'Everything is groceries',
+          payees: ['hearth'],
+          match: 'contains',
+          category_id: baseline.categories.Groceries.id,
+          apply_to: 'future',
+        })
+        await signInAs('admin')
+        await automationsPage.goto()
+        await expect(automationsPage.suggestButton).toBeVisible()
+        await expectAccessible(page)
+
+        const looking = await holdAi(page, 'automation-suggestions')
+        await automationsPage.suggestButton.click()
+        await expect(automationsPage.suggestions.getByTestId('suggestions-working')).toBeVisible()
+        await expectAccessible(page, { include: OVERLAY })
+
+        looking.release()
+        await expect(automationsPage.suggestionCards.first()).toBeVisible()
+        await expect(automationsPage.suggestions.getByTestId('suggestion-overlap')).toBeVisible()
+        await expectAccessible(page, { include: OVERLAY })
+
+        await automationsPage.makeFromSuggestion('Zephyr Pet Supply')
+        await expectAccessible(page, { include: OVERLAY })
       })
 
       test('the category dialogs', async ({ page, signInAs, categoriesPage }) => {

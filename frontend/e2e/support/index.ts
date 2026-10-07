@@ -37,6 +37,7 @@ export {
   OLLAMA_ADDRESS,
   OLLAMA_DOWN_ADDRESS,
   OLLAMA_MODELS,
+  addChosen,
   addPayment,
   holdAi,
   setUpAi,
