@@ -12,20 +12,19 @@ from app.auth.deps import AdminAuth, ApiError, CurrentAuth, Db
 from app.finance.automations import (
     Looks,
     apply_to_existing,
+    check_choices,
     distinct_payees,
     match_count,
+    new_automation,
     overlaps,
     payee_keys,
 )
 from app.finance.budget import automation_counts, set_automation_counts
-from app.finance.categories import find_category
 from app.models import (
-    Account,
     Automation,
     AutomationDirection,
     AutomationMatch,
     AutomationScope,
-    Subscription,
 )
 from app.schemas.automations import (
     MONEY_IN_LINK,
@@ -82,28 +81,6 @@ def _saved(db: Session, automation: Automation, applied: int) -> AutomationSaved
     )
 
 
-def _check_choices(
-    db: Session,
-    account_id: uuid.UUID | None,
-    category_id: uuid.UUID | None,
-    subscription_id: uuid.UUID | None,
-) -> None:
-    """What an automation points at has to exist."""
-    if account_id is not None and db.get(Account, account_id) is None:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "unknown_account",
-            "That account doesn't exist anymore. Choose another one.",
-        )
-    find_category(db, category_id)
-    if subscription_id is not None and db.get(Subscription, subscription_id) is None:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "unknown_subscription",
-            "That subscription or bill doesn't exist anymore. Choose another one.",
-        )
-
-
 @router.get("")
 def list_automations(auth: CurrentAuth, db: Db) -> list[AutomationOut]:
     automations = list(
@@ -153,22 +130,7 @@ def preview_automation(
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_automation(body: AutomationCreate, auth: AdminAuth, db: Db) -> AutomationSaved:
     """Adds an automation. One that covers the past sorts the transactions already there."""
-    _check_choices(db, body.account_id, body.category_id, body.subscription_id)
-    automation = Automation(
-        name=body.name,
-        payees=distinct_payees(body.payees),
-        match=body.match,
-        direction=body.direction,
-        account_id=body.account_id,
-        min_amount=body.min_amount,
-        max_amount=body.max_amount,
-        category_id=body.category_id,
-        subscription_id=body.subscription_id,
-        apply_to=body.apply_to,
-        active=True,
-    )
-    db.add(automation)
-    db.flush()
+    automation = new_automation(db, body)
     set_automation_counts(db, automation, body.counts)
     applied = apply_to_existing(db, automation) if body.apply_to == AutomationScope.ALL else 0
     db.commit()
@@ -255,7 +217,7 @@ def update_automation(
             "amount_range",
             "The smallest amount can't be more than the largest.",
         )
-    _check_choices(db, new.account_id, new.category_id, new.subscription_id)
+    check_choices(db, new.account_id, new.category_id, new.subscription_id)
 
     everything = _sorts_everything_again(automation, new)
     before = payee_keys(automation.payees)

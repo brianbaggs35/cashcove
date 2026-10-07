@@ -1,11 +1,15 @@
 """Finding transactions: filters, search and sort orders for the Transactions tab."""
 
 import re
+import uuid
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ColumnElement, UnaryExpression, func, or_, select
+from sqlalchemy import ColumnElement, UnaryExpression, func, or_, select, update
+from sqlalchemy.orm import Session
 
+from app.finance.categories import find_category
 from app.models import Category, Transaction
 from app.schemas.transactions import Sort, TransactionQuery
 
@@ -103,3 +107,17 @@ SORT_ORDERS: dict[Sort, tuple[UnaryExpression[Any], ...]] = {
     "-payee": (func.lower(Transaction.payee).desc(), *_NEWEST_FIRST),
     "payee": (func.lower(Transaction.payee).asc(), *_NEWEST_FIRST),
 }
+
+
+def categorize(db: Session, ids: Sequence[uuid.UUID], category_id: uuid.UUID | None) -> int:
+    """Gives several transactions the same category, or takes theirs away. Automations leave a
+    category given as it is from then on; taking it away hands it back to them. Doesn't commit.
+    Returns how many transactions there were."""
+    find_category(db, category_id)
+    updated = db.scalars(
+        update(Transaction)
+        .where(Transaction.id.in_(ids))
+        .values(category_id=category_id, category_chosen=category_id is not None)
+        .returning(Transaction.id)
+    ).all()
+    return len(updated)

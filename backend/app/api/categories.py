@@ -13,7 +13,12 @@ from app.finance.categories import (
     add_suggested_categories,
     category_groups_out,
     category_out,
+    ensure_unique_name,
     find_category,
+    find_group,
+    name_taken,
+    new_category,
+    new_group,
 )
 from app.models import Automation, Category, CategoryGroup, Subscription, Transaction
 from app.schemas.categories import (
@@ -38,33 +43,13 @@ def _category(db: Session, category_id: uuid.UUID) -> Category:
     return category
 
 
-def _group(db: Session, group_id: uuid.UUID) -> CategoryGroup:
-    group = db.get(CategoryGroup, group_id)
-    if group is None:
-        raise ApiError(status.HTTP_404_NOT_FOUND, "not_found", "That group doesn't exist anymore.")
-    return group
-
-
-def _name_taken(what: str, name: str) -> ApiError:
-    return ApiError(
-        status.HTTP_409_CONFLICT, "name_taken", f"There's already a {what} called {name}."
-    )
-
-
-def _ensure_unique(db: Session, model: type[Category] | type[CategoryGroup], name: str) -> None:
-    """Names are unique whatever their case, so "groceries" can't sit beside "Groceries"."""
-    clash = db.scalar(select(model.name).where(func.lower(model.name) == name.lower()).limit(1))
-    if clash is not None:
-        raise _name_taken("category" if model is Category else "group", clash)
-
-
 def _commit(db: Session, what: str, name: str) -> None:
     # Two admins naming things at the same moment can still collide in the database.
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise _name_taken(what, name) from None
+        raise name_taken(what, name) from None
 
 
 def _count(db: Session, category_id: uuid.UUID) -> int:
@@ -100,9 +85,7 @@ def _group_out(db: Session, group: CategoryGroup) -> CategoryGroupOut:
 
 @router.post("/groups", status_code=status.HTTP_201_CREATED)
 def create_group(body: CategoryGroupCreate, auth: AdminAuth, db: Db) -> CategoryGroupOut:
-    _ensure_unique(db, CategoryGroup, body.name)
-    group = CategoryGroup(name=body.name, kind=body.kind)
-    db.add(group)
+    group = new_group(db, body.name, body.kind)
     _commit(db, "group", body.name)
     return _group_out(db, group)
 
@@ -111,10 +94,10 @@ def create_group(body: CategoryGroupCreate, auth: AdminAuth, db: Db) -> Category
 def update_group(
     group_id: uuid.UUID, body: CategoryGroupUpdate, auth: AdminAuth, db: Db
 ) -> CategoryGroupOut:
-    group = _group(db, group_id)
+    group = find_group(db, group_id)
     if body.name is not None and body.name != group.name:
         if body.name.lower() != group.name.lower():
-            _ensure_unique(db, CategoryGroup, body.name)
+            ensure_unique_name(db, CategoryGroup, body.name)
         group.name = body.name
     if body.kind is not None:
         group.kind = body.kind
@@ -125,7 +108,7 @@ def update_group(
 @router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_group(group_id: uuid.UUID, auth: AdminAuth, db: Db) -> None:
     """Removes the group and its categories; their transactions become uncategorized."""
-    db.delete(_group(db, group_id))
+    db.delete(find_group(db, group_id))
     db.commit()
 
 
@@ -134,10 +117,7 @@ def delete_group(group_id: uuid.UUID, auth: AdminAuth, db: Db) -> None:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_category(body: CategoryCreate, auth: AdminAuth, db: Db) -> CategoryOut:
-    group = _group(db, body.group_id)
-    _ensure_unique(db, Category, body.name)
-    category = Category(group=group, name=body.name, emoji=body.emoji)
-    db.add(category)
+    category = new_category(db, find_group(db, body.group_id), body.name, body.emoji)
     _commit(db, "category", body.name)
     return category_out(category, 0)
 
@@ -148,10 +128,10 @@ def update_category(
 ) -> CategoryOut:
     category = _category(db, category_id)
     if body.group_id is not None:
-        category.group = _group(db, body.group_id)
+        category.group = find_group(db, body.group_id)
     if body.name is not None and body.name != category.name:
         if body.name.lower() != category.name.lower():
-            _ensure_unique(db, Category, body.name)
+            ensure_unique_name(db, Category, body.name)
         category.name = body.name
     if body.emoji is not None:
         category.emoji = body.emoji

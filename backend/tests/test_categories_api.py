@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import categories as categories_api
+from app.finance import categories as finance_categories
 from app.finance.categories import SUGGESTED
 from app.models import Automation, Category, CategoryGroup, CategoryKind, Subscription, Transaction
 from tests.finance import add_account, add_category, add_group, add_transaction
@@ -326,7 +326,7 @@ def test_two_admins_naming_things_at_once_get_a_clear_answer(
     def no_check(*args: object) -> None:
         return None
 
-    monkeypatch.setattr(categories_api, "_ensure_unique", no_check)
+    monkeypatch.setattr(finance_categories, "ensure_unique_name", no_check)
     group = add_group(session, "Food & drink")
     add_category(session, "Groceries", group)
 
