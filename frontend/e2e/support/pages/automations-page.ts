@@ -56,7 +56,18 @@ export class AutomationsPage {
   /** The add or edit dialog, while it's open. */
   readonly dialog: Locator
 
+  /** Suggest with AI, in the header or on the empty page, once AI is set up. Admins only. */
+  readonly suggestButton: Locator
+  /** The dialog that lists what the AI suggests, while it's open, and each suggestion in it. */
+  readonly suggestions: Locator
+  readonly suggestionCards: Locator
+
   constructor(readonly page: Page) {
+    this.suggestButton = page
+      .getByTestId('automation-suggest')
+      .or(page.getByTestId('automation-suggest-first'))
+    this.suggestions = page.getByRole('dialog', { name: 'Suggested automations' })
+    this.suggestionCards = this.suggestions.getByTestId('automation-suggestion')
     this.addButton = page.getByTestId('automation-add').or(page.getByTestId('automation-add-first'))
     this.cards = page.getByTestId('automation-card')
     this.dialog = page.getByRole('dialog').filter({ has: page.getByTestId('automation-text') })
@@ -65,6 +76,26 @@ export class AutomationsPage {
   async goto(): Promise<void> {
     await this.page.goto('/automations')
     await expect(this.page.getByTestId('automations-loading')).toHaveCount(0)
+  }
+
+  /** Asks the AI for suggestions, and waits until it has said what it found, or why it couldn't. */
+  async suggest(): Promise<void> {
+    await this.suggestButton.click()
+    await expect(this.suggestions).toBeVisible()
+    await expect(this.suggestions.getByTestId('suggestions-working')).toHaveCount(0)
+  }
+
+  /** A suggestion, by the name it was given. */
+  suggestion(name: string): Locator {
+    return this.suggestionCards.filter({
+      has: this.page.getByTestId('suggestion-name').filter({ hasText: exactly(name) }),
+    })
+  }
+
+  /** Opens the form for a new automation, with a suggestion filled in. */
+  async makeFromSuggestion(name: string): Promise<void> {
+    await this.suggestion(name).getByTestId('suggestion-create').click()
+    await expect(this.dialog).toBeVisible()
   }
 
   /** An automation's card, by name. */
