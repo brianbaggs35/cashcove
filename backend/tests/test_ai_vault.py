@@ -484,3 +484,15 @@ def test_names_without_a_stored_entity_still_get_a_code() -> None:
     [code] = ANY_CODE.findall(protected.scrub("Everyday checking", vault=vault))
 
     assert vault.restore(code) == "Everyday checking"
+
+
+def test_text_can_be_cleaned_without_the_cleaning_touching_its_codes() -> None:
+    vault = Vault()
+    code = vault.code_for(CHECKING)
+    other = vault.code_for(ALEX)
+
+    kept = vault.keeping(f"from {code} to {other}\x01, ref 12345678!", lambda text: text.upper())
+
+    # The cleaning saw only the text between the codes, and the codes are as they were written.
+    assert kept == f"FROM {code} TO {other}, REF 12345678!"
+    assert vault.keeping("no codes", str.upper) == "NO CODES"

@@ -1,6 +1,7 @@
 """Settings > AI and the AI tab's chat: who can do what, and what is and isn't sent."""
 
 import json
+import re
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -642,8 +643,16 @@ def test_what_is_sent_has_the_payees_with_the_account_information_taken_out(
 
     sent = json.loads(fake_ai.requests[0].body)
     system, asked = sent["instructions"], sent["input"][-1]["content"]
-    assert asked == "What did I pay [account]?"
-    assert "Payment to [account] card ending in [account] from [account]" in system
+    # The bank is a code, which lasts this request and stands for it only to Cashcove.
+    assert re.fullmatch(r"What did I pay <BANK_[b-z]{10}>\?", asked)
+    payment = re.search(r"Payment to (\S+) card ending in (\S+) from (\S+)", system)
+    assert payment is not None
+    bank, mask, account = payment.groups()
+    assert re.fullmatch(r"<BANK_[b-z]{10}>", bank)
+    # The card is the checking account's last digits, and the money came from that account.
+    assert re.fullmatch(r"<ACCOUNT_[b-z]{10}>", account)
+    assert mask == account
+    assert bank in asked
     assert "Starbucks #" in system
     # Nothing the bank wrote beside the payee, and no notes.
     assert "STARBUCKS ACH" not in system
@@ -701,7 +710,7 @@ def test_a_conversation_keeps_its_turns(
     sent = json.loads(fake_ai.requests[0].body)["messages"]
     assert [turn["role"] for turn in sent] == ["user", "assistant", "user"]
     # Even what the AI said earlier is checked before it's sent back.
-    assert sent[1]["content"] == "About 84.12 on [account] groceries."
+    assert re.fullmatch(r"About 84.12 on <BANK_[b-z]{10}> groceries\.", sent[1]["content"])
 
 
 def test_a_message_that_is_only_account_information_is_replaced(

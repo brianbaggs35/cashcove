@@ -15,7 +15,13 @@ provider checks its key, and what it is asked is answered by rules rather than b
 - what someone typed to find transactions is turned into filters from the words it recognizes
   (see _search), and a question is answered with how many recent transactions it was given and
   what was asked;
+- what is said in the chat is answered with how many recent transactions it was given and what
+  was asked, or, for the few things people ask it to do (see assistant.py), by using the tools:
+  looking things up and proposing changes, in the JSON the chat expects;
 - "Reply with OK" is answered with OK.
+
+A test can also say exactly what the next answers are (``script``), as text or as a function of
+what was sent, to try what Cashcove does with answers a model might give.
 
 Every request is kept, as the provider received it, so tests can check what was and wasn't sent.
 """
@@ -24,10 +30,13 @@ import calendar
 import datetime as dt
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import httpx2 as httpx
+
+from e2e import assistant
 
 # The made-up keys the fake accepts.
 KEYS = {
@@ -261,7 +270,24 @@ def _automations(system: str) -> str:
     return json.dumps({"automations": worded})
 
 
-def _answer(system: str, question: str) -> str:
+@dataclass(frozen=True)
+class Asked:
+    """What a provider was sent, for an answer that is worked out from it."""
+
+    system: str
+    # The conversation, without the system message: each turn's role and content.
+    turns: list[dict[str, str]]
+
+    @property
+    def question(self) -> str:
+        return self.turns[-1]["content"]
+
+
+def _answer(system: str, turns: list[dict[str, str]]) -> str:
+    question = turns[-1]["content"]
+    used = assistant.reply(system, turns)
+    if used is not None:
+        return used
     if "second opinion on how a household's transactions" in system:
         return _review(system)
     if system.startswith("You suggest automations for a household's transactions"):
@@ -284,13 +310,22 @@ class FakeAI:
         self.requests: list[Seen] = []
         # Set to have every answer be this, like a model that doesn't do as it's told.
         self.say: str | None = None
+        # Answers to give, in order, whatever is asked, each the text or a function of what was
+        # sent; once they are used up it answers by its rules again.
+        self.script: list[str | Callable[[Asked], str]] = []
 
     def reset(self) -> None:
         self.requests.clear()
         self.say = None
+        self.script.clear()
 
-    def _reply(self, system: str, question: str) -> str:
-        return _answer(system, question) if self.say is None else self.say
+    def answer(self, system: str, turns: list[dict[str, str]]) -> str:
+        if self.say is not None:
+            return self.say
+        if self.script:
+            scripted = self.script.pop(0)
+            return scripted(Asked(system, turns)) if callable(scripted) else scripted
+        return _answer(system, turns)
 
     @property
     def transport(self) -> httpx.MockTransport:
@@ -331,7 +366,7 @@ class FakeAI:
             return _anthropic_error(404, "not_found_error", f"model: {body.get('model')}")
         system = str(body["system"])
         messages: list[dict[str, str]] = body["messages"]
-        reply = self._reply(system, messages[-1]["content"])
+        reply = self.answer(system, messages)
         return httpx.Response(
             200,
             json={
@@ -367,7 +402,7 @@ class FakeAI:
             )
         system = str(body["instructions"])
         messages: list[dict[str, str]] = body["input"]
-        reply = self._reply(system, messages[-1]["content"])
+        reply = self.answer(system, messages)
         return httpx.Response(
             200,
             json={
@@ -407,7 +442,7 @@ class FakeAI:
             return httpx.Response(404, json={"error": f"model '{body.get('model')}' not found"})
         messages: list[dict[str, str]] = body["messages"]
         system = messages[0]["content"]
-        reply = self._reply(system, messages[-1]["content"])
+        reply = self.answer(system, messages[1:])
         return httpx.Response(
             200,
             json={

@@ -2,6 +2,7 @@
 
 from app.models.account import LIABILITY_TYPES, Account, AccountSource, AccountType
 from app.models.ai import (
+    AIProposal,
     AIProvider,
     AIPurpose,
     AIRecommendation,
@@ -9,6 +10,7 @@ from app.models.ai import (
     AISettings,
     AIUsage,
     Confidence,
+    ProposalStatus,
     RecommendationStatus,
     ReviewSource,
     ReviewStatus,
@@ -56,6 +58,7 @@ from app.models.user import Role, User
 
 __all__ = [
     "LIABILITY_TYPES",
+    "AIProposal",
     "AIProvider",
     "AIPurpose",
     "AIRecommendation",
@@ -98,6 +101,7 @@ __all__ = [
     "Passkey",
     "PasswordReset",
     "PaymentFrequency",
+    "ProposalStatus",
     "RecommendationStatus",
     "RecoveryCode",
     "RecurringKind",
