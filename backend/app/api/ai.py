@@ -14,9 +14,9 @@ import binascii
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Query, status
+from fastapi import APIRouter, BackgroundTasks, Query, Request, status
 
-from app.ai import automations, chat, errors, reviews, search, service, statements
+from app.ai import automations, chat, errors, proposals, reviews, search, service, statements
 from app.ai.catalog import PROVIDERS, ModelChoice, Price, cloud_price, find_model, provider_info
 from app.ai.deps import AISessions, AITransport
 from app.ai.errors import AIError
@@ -37,6 +37,10 @@ from app.schemas.ai import (
     ConnectionTestOut,
     ModelOut,
     ModelsOut,
+    ProposalOut,
+    ProposalPage,
+    ProposalQuery,
+    ProposalReject,
     ProviderOut,
     RecommendationIds,
     RecommendationPage,
@@ -194,7 +198,9 @@ def ask(
     transport: AITransport,
 ) -> ChatOut:
     """Answers the last question in a conversation from the household's records, with account
-    numbers, account names and bank names kept out of everything sent."""
+    numbers, account names and bank names kept out of everything sent. The AI can look things up
+    and propose changes with its answer. It never makes them: they wait, in the reply, for the
+    admin to approve or turn down."""
     config = service.require(db, settings)
     try:
         reply = chat.answer(
@@ -209,7 +215,41 @@ def ask(
         )
     except AIError as error:
         raise _problem(error) from error
-    return ChatOut(reply=reply)
+    return ChatOut(
+        reply=reply.text,
+        proposal=None if reply.proposal is None else proposals.to_out(reply.proposal),
+    )
+
+
+@router.get("/proposals")
+def list_proposals(
+    query: Annotated[ProposalQuery, Query()], auth: AdminAuth, db: Db
+) -> ProposalPage:
+    """The changes the AI proposed to this admin, newest first, whether they are waiting, were
+    approved or turned down, or have gone stale."""
+    return proposals.listing(db, auth.user, query)
+
+
+@router.get("/proposals/{proposal_id}")
+def read_proposal(proposal_id: uuid.UUID, auth: AdminAuth, db: Db) -> ProposalOut:
+    return proposals.to_out(proposals.find(db, auth.user, proposal_id))
+
+
+@router.post("/proposals/{proposal_id}/approve")
+def approve_proposal(
+    proposal_id: uuid.UUID, request: Request, auth: AdminAuth, db: Db
+) -> ProposalOut:
+    """Makes the changes the AI proposed, all together or not at all, after checking them again.
+    Approving what was approved already changes nothing."""
+    return proposals.to_out(proposals.approve(db, auth.user, proposal_id, request))
+
+
+@router.post("/proposals/{proposal_id}/reject")
+def reject_proposal(
+    proposal_id: uuid.UUID, body: ProposalReject, request: Request, auth: AdminAuth, db: Db
+) -> ProposalOut:
+    """Turns the changes down, and records why, if the admin said, so the AI can be told."""
+    return proposals.to_out(proposals.reject(db, auth.user, proposal_id, body.note, request))
 
 
 @router.post("/search")

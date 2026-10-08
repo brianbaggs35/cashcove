@@ -20,6 +20,7 @@ answers, so the AI can talk about an account and only people ever see which one.
 import re
 import secrets
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -130,6 +131,16 @@ class Vault:
             return f"\x01{len(held) - 1}\x02"
 
         return _CODE.sub(take, line), held
+
+    def keeping(self, text: str, clean: Callable[[str], str]) -> str:
+        """The text cleaned by `clean`, with its codes left exactly as they were written."""
+        held: list[str] = []
+
+        def take(match: re.Match[str]) -> str:
+            held.append(match.group())
+            return f"\x01{len(held) - 1}\x02"
+
+        return self.release(clean(_CODE.sub(take, self.plain(text))), held)
 
     @staticmethod
     def release(line: str, held: list[str]) -> str:

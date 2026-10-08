@@ -39,6 +39,9 @@ class Event(StrEnum):
     # Bank connections give Cashcove access to a bank's data, so they're on record too.
     BANK_CONNECTED = auto()
     BANK_DISCONNECTED = auto()
+    # Changes to the household's records that an AI proposed, and an admin approved or turned down.
+    AI_CHANGES_APPROVED = auto()
+    AI_CHANGES_REJECTED = auto()
 
 
 def client_address(request: Request) -> str | None:
