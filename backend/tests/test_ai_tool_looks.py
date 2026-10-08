@@ -62,7 +62,10 @@ def test_a_code_is_the_same_whenever_a_row_is_shown_again_in_a_request(
     household(session).sorted_badly()
     ctx = context(session, admin)
 
-    assert codes(look(ctx, "find_transactions"), "T") == codes(look(ctx, "find_transactions"), "T")
+    first = codes(look(ctx, "find_transactions"), "T")
+    second = codes(look(ctx, "find_transactions"), "T")
+
+    assert first == second
 
 
 def test_a_row_is_shown_as_the_ai_may_see_it_and_nothing_else(

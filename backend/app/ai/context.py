@@ -45,6 +45,7 @@ TOP_PAYEES = 15
 KEYWORDS = 5
 ZERO = Decimal("0.00")
 UNCATEGORIZED = "Uncategorized"
+_NO_ITEMS = "None."
 
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9'&.-]{2,}")
 # Words in a question that say what's wanted rather than who it was with.
@@ -295,7 +296,7 @@ def build(
         _section(
             f"Payees most was spent with, last {PAYEE_DAYS} days",
             _payees(flows, protected, today - dt.timedelta(days=PAYEE_DAYS - 1), vault),
-            "None.",
+            _NO_ITEMS,
         ),
         _section("Budgets", _budgets(db, rates, today, protected), "No budgets."),
         _section("Subscriptions and bills", _recurring(db, protected), "None are tracked."),
@@ -303,7 +304,7 @@ def build(
             f"Latest transactions, newest first (last {RECENT_DAYS} days, up to {RECENT_ROWS}). "
             f"Date | Payee | Category | Amount (+ in, - out){column}",
             _transaction_lines(db, protected, names, recent, RECENT_ROWS, vault),
-            "None.",
+            _NO_ITEMS,
         ),
     ]
     if words:
@@ -320,7 +321,7 @@ def build(
         _section(
             "Accounts. The codes stand for the household's accounts, whose names are private",
             _accounts(db, vault),
-            "None.",
+            _NO_ITEMS,
         ),
     )
     unavailable = sorted(convert.unavailable)
