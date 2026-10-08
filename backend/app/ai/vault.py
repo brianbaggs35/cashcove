@@ -31,8 +31,8 @@ _LETTERS = "bcdfghjkmnpqrstvwxz"
 LENGTH = 10
 # The bracketed form is the one Cashcove writes. An AI may drop the brackets when it copies one,
 # and then it is only put back if it is a code of this request.
-_CODE = re.compile(r"<\s{0,2}(ACCOUNT|BANK|PERSON)_([A-Za-z]{10})\s{0,2}>", re.IGNORECASE)
-_BARE = re.compile(r"(?<![A-Za-z0-9_])(ACCOUNT|BANK|PERSON)_([A-Za-z]{10})(?![A-Za-z0-9_])", re.I)
+_CODE = re.compile(r"<\s{0,2}(ACCOUNT|BANK|PERSON)_([a-z]{10})\s{0,2}>", re.IGNORECASE | re.ASCII)
+_BARE = re.compile(r"(?<!\w)(ACCOUNT|BANK|PERSON)_([a-z]{10})(?!\w)", re.IGNORECASE | re.ASCII)
 # What stands in for a code while text is being cleaned, and the control characters that can't be
 # in text from an AI because they would be mistaken for it.
 _HELD = re.compile(r"\x01(\d{1,4})\x02")

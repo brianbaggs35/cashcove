@@ -1,4 +1,4 @@
-import { AI_KEYS, expect, setUpAi, signInFiles, test } from '../support'
+import { AI_KEYS, addChosen, expect, setUpAi, signInFiles, test } from '../support'
 
 test.describe('Asking the AI', () => {
   test.beforeEach(async ({ baseline }) => {
@@ -65,6 +65,91 @@ test.describe('Asking the AI', () => {
       await expect(aiPage.messages.last()).toContainText(
         'You asked: How much did I spend on groceries last month?',
       )
+    })
+
+    test('a chat change stays pending until the admin approves it', async ({ aiPage, apiAs }) => {
+      const api = await apiAs('admin')
+      await setUpAi(api)
+      await aiPage.goto()
+
+      await aiPage.ask('Create a Vacation budget of $200 a month')
+
+      const budgetsBefore = await api.get<{ name: string }[]>('/budgets')
+      expect(budgetsBefore.some((budget) => budget.name === 'Vacation')).toBe(false)
+      await expect(aiPage.proposal).toContainText('Vacation')
+      await expect(aiPage.proposal.getByTestId('proposal-status')).toHaveText('Pending approval')
+
+      await aiPage.approveProposal()
+
+      const budgetsAfter = await api.get<{ name: string }[]>('/budgets')
+      expect(budgetsAfter.some((budget) => budget.name === 'Vacation')).toBe(true)
+    })
+
+    test('asks for missing subscription details and keeps account names out of the AI request', async ({
+      aiPage,
+      apiAs,
+      baseline,
+      harness,
+    }) => {
+      const api = await apiAs('admin')
+      await setUpAi(api)
+      await aiPage.goto()
+
+      await aiPage.ask('Help me create a new subscription for Nebula Stream')
+      await expect(aiPage.messages.last()).toContainText(
+        "I couldn't find any payments to Nebula Stream",
+      )
+      await expect(aiPage.messages.last()).toContainText('How much is Nebula Stream')
+
+      const nextDue = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      await aiPage.ask(
+        `It's $9.99 monthly, next due ${nextDue}, from ${baseline.accounts.checking.name}.`,
+      )
+
+      await expect(aiPage.proposal).toContainText('Nebula Stream')
+      await expect(aiPage.proposal).toContainText(baseline.accounts.checking.name)
+      await expect(aiPage.proposal.getByTestId('proposal-status')).toHaveText('Pending approval')
+
+      const sent = (await harness.aiRequests()).map((request) => request.body).join('\n')
+      expect(sent).not.toContain(baseline.accounts.checking.name)
+      expect(sent).toMatch(/<ACCOUNT_[bcdfghjkmnpqrstvwxz]{10}>/)
+    })
+
+    test('rejecting with context keeps the card and asks the AI to revise it', async ({
+      aiPage,
+      apiAs,
+      baseline,
+      harness,
+    }) => {
+      const api = await apiAs('admin')
+      await addChosen(api, baseline, 'NETFLIX.COM', 'Subscriptions', {
+        amount: '-15.49',
+        daysAgo: 30,
+      })
+      await setUpAi(api)
+      await aiPage.goto()
+      await aiPage.ask('Create a new subscription for Netflix')
+      await expect(aiPage.proposal).toContainText('Netflix')
+
+      const nextDue = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const reason = `Make it $17.99 yearly, next due ${nextDue}, from ${baseline.accounts.checking.name}.`
+      await aiPage.rejectProposal(reason)
+      await expect(aiPage.busy).toHaveCount(0)
+      await expect(aiPage.messages).toHaveCount(4)
+      await expect(aiPage.proposals).toHaveCount(2)
+      await expect(aiPage.proposal.getByTestId('proposal-status')).toHaveText('Pending approval')
+      await expect(aiPage.proposal).toContainText('17.99 USD')
+      await expect(aiPage.proposal).toContainText('annual')
+
+      const history = await api.get<{
+        items: { state: string; note: string | null }[]
+      }>('/ai/proposals?state=rejected')
+      expect(history.items).toHaveLength(1)
+      expect(history.items[0]).toMatchObject({ state: 'rejected', note: reason })
+
+      const sent = (await harness.aiRequests()).map((request) => request.body).join('\n')
+      expect(sent).not.toContain(baseline.accounts.checking.name)
+      expect(sent).toMatch(/<ACCOUNT_[bcdfghjkmnpqrstvwxz]{10}>/)
     })
 
     test('nothing sent to an AI has an account number, an account name or a bank name in it', async ({

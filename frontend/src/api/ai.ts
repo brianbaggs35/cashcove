@@ -76,6 +76,34 @@ export interface ChatTurn {
   content: string
 }
 
+export type AiProposalState = 'pending' | 'approved' | 'rejected' | 'expired'
+
+export interface AiProposalStep {
+  tool: string
+  title: string
+  summary: string
+  details: string[]
+}
+
+/** A provider-independent set of changes, stored until the admin decides. */
+export interface AiProposal {
+  id: string
+  state: AiProposalState
+  title: string
+  message: string
+  steps: AiProposalStep[]
+  created_at: string
+  expires_at: string
+  decided_at: string | null
+  note: string | null
+  results: string[]
+}
+
+export interface AiChatReply {
+  reply: string
+  proposal?: AiProposal | null
+}
+
 /** The biggest PDF the API reads. */
 export const MAX_STATEMENT_BYTES = 10 * 1024 * 1024
 
@@ -293,7 +321,15 @@ export const testAiConnection = (input: AiConnectionInput) =>
   apiPost<AiTestResult>('/ai/test', input)
 /** The reply to the last turn, which has to be a question. `today` is where the person is. */
 export const askAi = (messages: ChatTurn[], today: string) =>
-  apiPost<{ reply: string }>('/ai/chat', { messages, today })
+  apiPost<AiChatReply>('/ai/chat', { messages, today })
+
+/** Applies a pending proposal after the server checks it again. */
+export const approveAiProposal = (id: string) =>
+  apiPost<AiProposal>(`/ai/proposals/${encodeURIComponent(id)}/approve`)
+
+/** Turns a proposal down, optionally with context for the next chat turn. */
+export const rejectAiProposal = (id: string, note: string | null) =>
+  apiPost<AiProposal>(`/ai/proposals/${encodeURIComponent(id)}/reject`, { note })
 
 /** Reads a PDF statement for its transactions. The PDF is read on the server, and the AI only
  * gets the lines that are transactions, with nothing in them that names an account or a person. */
