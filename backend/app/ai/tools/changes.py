@@ -78,6 +78,8 @@ from app.schemas.budget import BudgetCreate, BudgetSourceIn, BudgetUpdate
 from app.schemas.fields import MAX_AMOUNT, STRICT
 from app.schemas.subscriptions import SubscriptionCreate, SubscriptionUpdate
 
+AMOUNT_LABEL = "The amount"
+
 # The most transactions one change takes, and how many are listed for people to check.
 MAX_ROWS = 200
 LISTED = 8
@@ -438,7 +440,7 @@ def _resolve_recurring(ctx: Context, args: RecurringArgs) -> RecurringStep:
     return RecurringStep(
         kind=RecurringKind(args.kind),
         name=name,
-        amount=_amount(args.amount, "The amount"),
+        amount=_amount(args.amount, AMOUNT_LABEL),
         amount_varies=args.amount_varies,
         frequency=PaymentFrequency(args.frequency),
         next_due=when,
@@ -556,7 +558,7 @@ def _resolve_update_recurring(ctx: Context, args: UpdateRecurringArgs) -> Update
     step = UpdateRecurringStep(
         subscription_id=subscription_id,
         name=ctx.written(args.name, "The name", longest=120) if args.name else None,
-        amount=_amount(args.amount, "The amount") if args.amount is not None else None,
+        amount=_amount(args.amount, AMOUNT_LABEL) if args.amount is not None else None,
         frequency=PaymentFrequency(args.frequency) if args.frequency else None,
         next_due=args.next_due,
         set_category="category" in args.model_fields_set,
@@ -631,7 +633,7 @@ def _resolve_new_budget(ctx: Context, args: NewBudgetArgs) -> NewBudgetStep:
     return NewBudgetStep(
         name=ctx.written(args.name, "The budget's name", longest=120),
         period=BudgetPeriod(args.period),
-        amount=_amount(args.amount, "The amount"),
+        amount=_amount(args.amount, AMOUNT_LABEL),
         today=ctx.today,
     )
 
@@ -674,7 +676,7 @@ def _resolve_change_budget(ctx: Context, args: ChangeBudgetArgs) -> ChangeBudget
         raise ToolError("Say what to change: amount, name or period.")
     return ChangeBudgetStep(
         budget_id=budget_id,
-        amount=_amount(args.amount, "The amount") if args.amount is not None else None,
+        amount=_amount(args.amount, AMOUNT_LABEL) if args.amount is not None else None,
         name=ctx.written(args.name, "The budget's name", longest=120) if args.name else None,
         period=BudgetPeriod(args.period) if args.period else None,
         today=ctx.today,

@@ -241,6 +241,88 @@ def _context(
     )
 
 
+def _continue(
+    messages: list[Message], protected: Protected, vault: Vault, raw: str, note: str
+) -> None:
+    messages.extend((_replayed(protected, vault, raw), Message("user", note)))
+
+
+def _look_up_round(
+    ctx: Context,
+    protected: Protected,
+    vault: Vault,
+    raw: str,
+    messages: list[Message],
+    looks: list[_Call],
+    changes: list[_Call],
+    unknown: list[str],
+) -> None:
+    note = _look_up(ctx, looks)
+    if changes:
+        note += f"\n\n{STILL_LOOKING}"
+    if unknown:
+        note += f"\n\nThere is no tool called {echo(unknown[0])}."
+    _continue(messages, protected, vault, raw, note)
+
+
+def _change_round(
+    db: Session,
+    config: AIConfig,
+    user: User,
+    ctx: Context,
+    protected: Protected,
+    vault: Vault,
+    raw: str,
+    say: str,
+    messages: list[Message],
+    changes: list[_Call],
+    fixes: int,
+) -> tuple[Reply | None, int]:
+    prepared, problems = _prepare(ctx, changes)
+    if not problems:
+        words = protected.reveal(say, vault)
+        proposal = proposals.create(db, config, user, words, prepared)
+        db.commit()
+        return Reply(words or proposal.title, proposal), fixes
+
+    reason = "\n".join(f"- {problem}" for problem in problems)
+    if fixes >= FIXES:
+        return Reply(f"I couldn't set that up.\n{protected.reveal(reason, vault)}"), fixes
+
+    _continue(messages, protected, vault, raw, f"{COULDNT_SET_UP}\n{reason}\n{PUT_RIGHT}")
+    return None, fixes + 1
+
+
+def _handle_turn(
+    db: Session,
+    config: AIConfig,
+    user: User,
+    ctx: Context,
+    protected: Protected,
+    vault: Vault,
+    raw: str,
+    messages: list[Message],
+    fixes: int,
+) -> tuple[Reply | None, int]:
+    say, calls = parse_turn(raw)
+    looks = [call for call in calls if call.tool in LOOK_BY_NAME]
+    changes = [call for call in calls if call.tool in CHANGE_BY_NAME]
+    unknown = [call.tool for call in calls if call.tool not in LOOK_BY_NAME | CHANGE_BY_NAME]
+
+    if looks:
+        _look_up_round(ctx, protected, vault, raw, messages, looks, changes, unknown)
+        return None, fixes
+    if changes and not unknown:
+        return _change_round(
+            db, config, user, ctx, protected, vault, raw, say, messages, changes, fixes
+        )
+    if calls:
+        note = f"There is no tool called {echo(unknown[0])}. Use only the tools listed."
+        _continue(messages, protected, vault, raw, note)
+        return None, fixes
+    return Reply(protected.reveal(say, vault) or NOTHING_TO_SAY), fixes
+
+
 def answer(
     db: Session,
     settings: Settings,
@@ -283,33 +365,7 @@ def answer(
         raw = gateway.ask(
             AIPurpose.CHAT, instructions, data, messages, max_tokens=MAX_TOKENS, timeout=left
         )
-        say, calls = parse_turn(raw)
-        looks = [call for call in calls if call.tool in LOOK_BY_NAME]
-        changes = [call for call in calls if call.tool in CHANGE_BY_NAME]
-        unknown = [call.tool for call in calls if call.tool not in LOOK_BY_NAME | CHANGE_BY_NAME]
-        if looks:
-            note = _look_up(ctx, looks)
-            if changes:
-                note += f"\n\n{STILL_LOOKING}"
-            if unknown:
-                note += f"\n\nThere is no tool called {echo(unknown[0])}."
-            messages += [_replayed(protected, vault, raw), Message("user", note)]
-        elif changes and not unknown:
-            prepared, problems = _prepare(ctx, changes)
-            if not problems:
-                words = protected.reveal(say, vault)
-                proposal = proposals.create(db, config, user, words, prepared)
-                db.commit()
-                return Reply(words or proposal.title, proposal)
-            reason = "\n".join(f"- {problem}" for problem in problems)
-            if fixes >= FIXES:
-                return Reply(f"I couldn't set that up.\n{protected.reveal(reason, vault)}")
-            fixes += 1
-            note = f"{COULDNT_SET_UP}\n{reason}\n{PUT_RIGHT}"
-            messages += [_replayed(protected, vault, raw), Message("user", note)]
-        elif calls:
-            note = f"There is no tool called {echo(unknown[0])}. Use only the tools listed."
-            messages += [_replayed(protected, vault, raw), Message("user", note)]
-        else:
-            return Reply(protected.reveal(say, vault) or NOTHING_TO_SAY)
+        reply, fixes = _handle_turn(db, config, user, ctx, protected, vault, raw, messages, fixes)
+        if reply is not None:
+            return reply
     return Reply(GAVE_UP)

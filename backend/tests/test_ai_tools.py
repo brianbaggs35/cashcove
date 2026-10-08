@@ -19,8 +19,9 @@ from tests.assistant import context
 def test_a_row_has_the_same_code_whenever_it_is_shown_and_two_rows_never_do() -> None:
     codes = Codes()
     first, second = uuid.uuid4(), uuid.uuid4()
+    transaction_code = codes.issue(Row.TRANSACTION, first)
 
-    assert codes.issue(Row.TRANSACTION, first) == codes.issue(Row.TRANSACTION, first)
+    assert codes.issue(Row.TRANSACTION, first) == transaction_code
     assert codes.issue(Row.TRANSACTION, first) != codes.issue(Row.TRANSACTION, second)
     # The same row can be two kinds of thing without the codes clashing.
     assert codes.issue(Row.RECURRING, first)[0] == "S"
@@ -117,9 +118,10 @@ def test_text_that_holds_a_code_a_mark_for_something_hidden_or_account_details_i
     session: Session, admin: User, text: str
 ) -> None:
     household(session)
+    ctx = context(session, admin)
 
     with pytest.raises(ToolError, match="can't have a code"):
-        context(session, admin).written(text, "The name", longest=60)
+        ctx.written(text, "The name", longest=60)
 
 
 def test_text_to_look_for_has_to_survive_taking_out_what_an_ai_mustnt_know(
