@@ -6,6 +6,29 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
+## 0.2.5 - 2026-10-08
+
+### Upgrading
+
+- Migration `0017` adds persistent AI proposals, including their pending, approved or rejected
+  status and any context given when they were rejected.
+
+### Added
+
+- **Actions in AI chat.** One provider-independent JSON tool protocol works with local and cloud
+  Ollama, Anthropic and OpenAI. The AI can look up transactions, budgets and recurring payments,
+  then propose changes such as categorizing transactions, creating automations, changing budgets,
+  and setting up bills or subscriptions. Nothing changes until an admin approves the proposal.
+  Each proposal is kept with an ID and an expiry time, and the chat shows its status and results
+  after approval or rejection. Rejection can include context for the AI's next reply.
+- **Private references for AI actions.** Accounts, banks and people are represented by random
+  request-scoped codes when the AI needs to refer to them. Account numbers and other personal
+  information are removed rather than tokenized, and the server checks every provider request
+  before sending it.
+- **Admin-only AI access.** The AI page, chat, settings and proposal decisions are restricted to
+  admins; read-only settings and transaction search remain available to other signed-in users
+  where the rest of the app needs them.
+
 ## 0.2.4 - 2026-10-06
 
 ### Upgrading

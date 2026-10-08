@@ -7,7 +7,7 @@ import type { ImportPreview } from '@/api/imports'
 import { useAiStore } from '@/stores/ai'
 import { MAX_LENGTH } from '@/stores/aiChat'
 import { useImportWizard } from '@/stores/importWizard'
-import { makeAiSettings, makeProviders, makeStatementReading } from '@/test/ai'
+import { makeAiProposal, makeAiSettings, makeProviders, makeStatementReading } from '@/test/ai'
 import { page } from '@/test/dom'
 import { seedFinance } from '@/test/finance'
 import { later, makeImport, makeOptions, makePreview, seedImports } from '@/test/imports'
@@ -215,6 +215,70 @@ describe('ChatPanel', () => {
     expect(find('chat-error').text()).toContain('sent nothing')
     expect(find('chat-error').classes()).toContain('v-alert--variant-tonal')
     expect(find('chat-retry').exists()).toBe(false)
+  })
+
+  it('shows a proposal with its reply and keeps the approved result on the card', async () => {
+    const proposal = makeAiProposal()
+    const approved = makeAiProposal({
+      state: 'approved',
+      results: ['Added the Coffee budget.'],
+    })
+    vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Here is the change.', proposal })
+    vi.spyOn(api, 'approveAiProposal').mockResolvedValue(approved)
+    const { find, input } = await render()
+    await input().setValue('Add a Coffee budget.')
+
+    await input().trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(find('ai-proposal').text()).toContain('Add a monthly Coffee budget')
+    await find('proposal-approve').trigger('click')
+    await flushPromises()
+
+    expect(find('proposal-status').text()).toBe('Approved')
+    expect(find('proposal-results').text()).toContain('Added the Coffee budget.')
+  })
+
+  it('sends rejection context as the next user turn and retains both proposal cards', async () => {
+    const proposal = makeAiProposal()
+    const rejected = makeAiProposal({ state: 'rejected', note: 'Use a smaller amount.' })
+    const nextProposal = makeAiProposal({
+      id: 'proposal-2',
+      title: 'Add a smaller Coffee budget',
+    })
+    const ask = vi
+      .spyOn(api, 'askAi')
+      .mockResolvedValueOnce({ reply: 'Here is the change.', proposal })
+      .mockResolvedValueOnce({ reply: 'I changed the amount.', proposal: nextProposal })
+    vi.spyOn(api, 'rejectAiProposal').mockResolvedValue(rejected)
+    const { wrapper, find, input } = await render()
+    await input().setValue('Add a Coffee budget.')
+
+    await input().trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    await find('proposal-reject').trigger('click')
+    await find('proposal-reject-note').find('textarea').setValue('Use a smaller amount.')
+    await find('proposal-reject-confirm').trigger('click')
+    await flushPromises()
+
+    expect(ask).toHaveBeenCalledTimes(2)
+    expect(ask).toHaveBeenLastCalledWith(
+      [
+        { role: 'user', content: 'Add a Coffee budget.' },
+        { role: 'assistant', content: 'Here is the change.' },
+        {
+          role: 'user',
+          content:
+            'I turned that down. Proposed: Add the Coffee budget. Reason: Use a smaller amount.',
+        },
+      ],
+      '2026-09-20',
+    )
+    expect(wrapper.findAll('[data-test="ai-proposal"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-test="proposal-status"]').map((item) => item.text())).toEqual([
+      'Rejected',
+      'Pending approval',
+    ])
   })
 
   it('starts again with a new chat', async () => {

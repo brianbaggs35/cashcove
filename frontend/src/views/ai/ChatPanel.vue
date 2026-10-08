@@ -2,11 +2,12 @@
 import { Eraser, FileText, FileUp, Paperclip, SendHorizontal, Sparkles, Upload } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
 
-import type { StatementReading } from '@/api/ai'
+import type { AiProposal, StatementReading } from '@/api/ai'
 import { useAccountsStore } from '@/stores/accounts'
-import { MAX_LENGTH, useAiChat, type StatementMessage } from '@/stores/aiChat'
+import { MAX_LENGTH, useAiChat, type StatementMessage, type TextMessage } from '@/stores/aiChat'
 import { useImportWizard } from '@/stores/importWizard'
 import AiPrivacyNotice from '@/views/ai/AiPrivacyNotice.vue'
+import ProposalCard from '@/views/ai/ProposalCard.vue'
 import AiText from '@/views/ai/AiText.vue'
 import StatementCard from '@/views/ai/StatementCard.vue'
 import ImportDialog from '@/views/import/ImportDialog.vue'
@@ -60,6 +61,15 @@ function submit() {
       if (!sent && !draft.value) draft.value = text
     })
   }
+}
+
+function updateProposal(message: TextMessage, proposal: AiProposal) {
+  message.proposal = proposal
+}
+
+/** Rejection context is another user turn, so the AI can revise its proposal. */
+function explainRejection(note: string) {
+  void chat.send(note)
 }
 
 const NOT_A_PDF =
@@ -305,6 +315,13 @@ watch(
                 {{ message.content }}
               </p>
               <AiText v-else :text="message.content" />
+              <ProposalCard
+                v-if="message.role === 'assistant' && message.proposal"
+                :proposal="message.proposal"
+                :disabled="chat.busy"
+                @update:proposal="updateProposal(message, $event)"
+                @feedback="explainRejection"
+              />
             </template>
             <v-chip
               v-else-if="message.kind === 'file'"
