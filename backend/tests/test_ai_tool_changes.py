@@ -636,6 +636,7 @@ def test_a_payment_to_take_the_account_from_has_to_be_one(session: Session, admi
 def test_a_payee_already_tracked_from_an_account_is_said_so(session: Session, admin: User) -> None:
     made, ctx = ready(session, admin)
     add_item(session, made.checking.id, "Netflix", payee="Netflix")
+    account = account_code(ctx, made.checking)
 
     with pytest.raises(
         ToolError, match="A subscription already tracks this payee from this account"
@@ -648,7 +649,7 @@ def test_a_payee_already_tracked_from_an_account_is_said_so(session: Session, ad
             amount="7.99",
             frequency="monthly",
             next_due="2026-11-03",
-            account=account_code(ctx, made.checking),
+            account=account,
         )
 
 
@@ -958,9 +959,10 @@ def test_a_budget_change_that_makes_no_sense_is_refused(
 ) -> None:
     _, ctx = ready(session, admin)
     make_budget(session)
+    values = {"budget": budget_code(ctx, "Groceries"), **args}
 
     with pytest.raises(ToolError, match=message):
-        prepare(ctx, "change_budget", **{"budget": budget_code(ctx, "Groceries"), **args})
+        prepare(ctx, "change_budget", **values)
 
 
 def test_a_budget_that_has_gone_cant_be_changed(session: Session, admin: User) -> None:
@@ -1032,9 +1034,10 @@ def test_something_that_cant_count_toward_a_budget_is_refused(
 ) -> None:
     _, ctx = ready(session, admin)
     make_budget(session)
+    values = {"budget": budget_code(ctx, "Groceries"), **args}
 
     with pytest.raises(ToolError, match=message):
-        prepare(ctx, "add_budget_source", **{"budget": budget_code(ctx, "Groceries"), **args})
+        prepare(ctx, "add_budget_source", **values)
 
 
 def test_the_payments_of_a_subscription_count_as_spending_only(
@@ -1044,12 +1047,13 @@ def test_the_payments_of_a_subscription_count_as_spending_only(
     make_budget(session)
     add_item(session, made.checking.id, "Netflix")
     [item_code] = codes(look(ctx, "list_recurring"), "S")
+    budget = budget_code(ctx, "Groceries")
 
     with pytest.raises(ToolError, match="count as spending"):
         prepare(
             ctx,
             "add_budget_source",
-            budget=budget_code(ctx, "Groceries"),
+            budget=budget,
             recurring=item_code,
             kind="income",
         )
