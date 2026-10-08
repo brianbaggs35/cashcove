@@ -6,6 +6,10 @@ payees most was spent with, budgets, recurring payments, the latest transactions
 that mention what was asked about. It has no account in it: not a number, a name, a bank or a
 balance (see ``privacy``), and money moving between the household's own accounts is left out of
 income and spending as everywhere else in Cashcove.
+
+Each account is a code that lasts one request (see ``vault``), so the AI can say which payments
+are from the same account, and tell the person which one it means, without ever being told what
+it is called.
 """
 
 import datetime as dt
@@ -20,6 +24,7 @@ from sqlalchemy import ColumnElement, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.privacy import Protected, Text
+from app.ai.vault import Entity, Subject, Vault
 from app.finance.budget import Household, list_budgets
 from app.finance.categories import not_a_transfer
 from app.finance.dashboard import Converter
@@ -154,11 +159,11 @@ class _PayeeTotal:
     count: int = 0
 
 
-def _payees(flows: list[_Flow], protected: Protected, since: dt.date) -> list[str]:
+def _payees(flows: list[_Flow], protected: Protected, since: dt.date, vault: Vault) -> list[str]:
     totals: defaultdict[str, _PayeeTotal] = defaultdict(_PayeeTotal)
     for flow in flows:
         if flow.day >= since and flow.spent:
-            total = totals[protected.scrub(flow.payee) or "(unknown)"]
+            total = totals[protected.scrub(flow.payee, vault=vault) or "(unknown)"]
             total.amount += flow.spent
             total.count += flow.transactions
     ranked = sorted(totals.items(), key=lambda item: (-item[1].amount, item[0].casefold()))
@@ -200,6 +205,7 @@ def _transaction_lines(
     names: dict[uuid.UUID | None, str],
     where: ColumnElement[bool],
     limit: int,
+    vault: Vault,
 ) -> list[str]:
     rows = db.execute(
         select(
@@ -208,6 +214,8 @@ def _transaction_lines(
             Transaction.category_id,
             Transaction.amount,
             Account.currency,
+            Account.id,
+            Account.name,
         )
         .join(Account, Account.id == Transaction.account_id)
         .where(where)
@@ -215,10 +223,26 @@ def _transaction_lines(
         .limit(limit)
     )
     return [
-        f"{day} | {protected.scrub(payee) or '(unknown)'} | "
+        f"{day} | {protected.scrub(payee, vault=vault) or '(unknown)'} | "
         f"{protected.scrub(names.get(category_id, UNCATEGORIZED), Text.LABEL)} | "
-        f"{amount:+,.2f} {currency}"
-        for day, payee, category_id, amount, currency in rows
+        f"{amount:+,.2f} {currency} | {vault.code_for(Entity(Subject.ACCOUNT, name, account))}"
+        for day, payee, category_id, amount, currency, account, name in rows
+    ]
+
+
+def _accounts(db: Session, vault: Vault) -> list[str]:
+    """The accounts the household uses, as codes and what kind they are, which is all an AI
+    needs to ask which one something is paid from. They are listed in the order they were made,
+    which says nothing about what they are called."""
+    rows = db.execute(
+        select(Account.id, Account.name, Account.type, Account.currency)
+        .where(Account.closed_at.is_(None))
+        .order_by(Account.created_at, Account.id)
+    )
+    return [
+        f"{vault.code_for(Entity(Subject.ACCOUNT, name, account))}: "
+        f"{kind.value.replace('_', ' ')}, {currency}"
+        for account, name, kind, currency in rows
     ]
 
 
@@ -232,6 +256,7 @@ def build(
     today: dt.date,
     question: str,
     protected: Protected,
+    vault: Vault,
 ) -> str:
     """Everything the AI is given to answer from, as text."""
     household = Household.load(db)
@@ -250,10 +275,14 @@ def build(
             names,
             or_(*(Transaction.payee.ilike(like_pattern(word), escape="\\") for word in words)),
             MATCH_ROWS,
+            vault,
         )
         if words
         else []
     )
+    # The header doesn't end in a word like "account", which the next line's date would make look
+    # like a number.
+    column = " | Account code"
     sections = [
         f"All amounts are in {household.currency} unless a line says otherwise. Today is {today}; "
         "the latest month is only partly over.",
@@ -265,15 +294,15 @@ def build(
         ),
         _section(
             f"Payees most was spent with, last {PAYEE_DAYS} days",
-            _payees(flows, protected, today - dt.timedelta(days=PAYEE_DAYS - 1)),
+            _payees(flows, protected, today - dt.timedelta(days=PAYEE_DAYS - 1), vault),
             "None.",
         ),
         _section("Budgets", _budgets(db, rates, today, protected), "No budgets."),
         _section("Subscriptions and bills", _recurring(db, protected), "None are tracked."),
         _section(
             f"Latest transactions, newest first (last {RECENT_DAYS} days, up to {RECENT_ROWS}). "
-            "Date | Payee | Category | Amount (+ in, - out)",
-            _transaction_lines(db, protected, names, recent, RECENT_ROWS),
+            f"Date | Payee | Category | Amount (+ in, - out){column}",
+            _transaction_lines(db, protected, names, recent, RECENT_ROWS, vault),
             "None.",
         ),
     ]
@@ -281,11 +310,19 @@ def build(
         sections.append(
             _section(
                 "Transactions whose payee matches the question, newest first. "
-                "Date | Payee | Category | Amount",
+                f"Date | Payee | Category | Amount{column}",
                 matches,
                 "No transaction's payee matches the question.",
             )
         )
+    sections.insert(
+        1,
+        _section(
+            "Accounts. The codes stand for the household's accounts, whose names are private",
+            _accounts(db, vault),
+            "None.",
+        ),
+    )
     unavailable = sorted(convert.unavailable)
     if unavailable:
         sections.append(

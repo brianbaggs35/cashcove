@@ -171,8 +171,70 @@ class ChatIn(BaseModel):
         return self
 
 
+class ProposalStepOut(BaseModel):
+    """One change in a proposal, in Cashcove's words and never the AI's: what it will do, with
+    the details people need to decide."""
+
+    tool: str
+    title: str
+    summary: str
+    details: list[str]
+
+
+# `expired` is a pending proposal nobody decided on in time, which can't be approved any more.
+ProposalState = Literal["pending", "approved", "rejected", "expired"]
+
+
+class ProposalOut(BaseModel):
+    """Changes the AI proposed, and where they stand. Nothing in one has happened until it is
+    approved."""
+
+    id: uuid.UUID
+    state: ProposalState
+    title: str
+    message: str
+    steps: list[ProposalStepOut]
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    decided_at: dt.datetime | None
+    note: str | None
+    # What each change did, once approved.
+    results: list[str]
+
+
+class ProposalReject(BaseModel):
+    """Turning proposed changes down, and optionally why, which the AI is told so it can try
+    again."""
+
+    model_config = STRICT
+
+    note: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+
+    @model_validator(mode="after")
+    def _blank_is_none(self) -> Self:
+        self.note = self.note or None
+        return self
+
+
+class ProposalQuery(BaseModel):
+    model_config = STRICT
+
+    state: ProposalState | None = None
+    page: Annotated[int, Field(ge=1, le=100_000)] = 1
+    page_size: Annotated[int, Field(ge=1, le=100)] = 20
+
+
+class ProposalPage(BaseModel):
+    items: list[ProposalOut]
+    total: int
+    page: int
+    page_size: int
+
+
 class ChatOut(BaseModel):
     reply: str
+    # Changes the AI would make, which wait for an admin to approve or turn them down.
+    proposal: ProposalOut | None = None
 
 
 class StatementIn(BaseModel):

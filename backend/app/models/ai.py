@@ -1,16 +1,20 @@
 """AI: which provider the household uses, what it has been asked, and what it recommends.
 
-The provider's key is kept encrypted, and nothing here holds account information: a review
-only ever stores which category it would give a transaction, and a usage row only counts tokens.
+The provider's key is kept encrypted, and nothing here holds account information that an AI
+was given: a review only ever stores which category it would give a transaction, a usage row only
+counts tokens, and a proposal only holds changes to the household's own records, which the AI never
+carries out.
 """
 
 import datetime as dt
 import uuid
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import BigInteger, ForeignKey, Index, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.models.auth import JSON_TYPE
 from app.models.base import Base, TimestampMixin, UTCDateTime, enum_type, utcnow
 
 SET_NULL = "SET NULL"
@@ -70,6 +74,15 @@ class Confidence(StrEnum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
+
+
+class ProposalStatus(StrEnum):
+    """Where changes the AI proposed stand. A proposal that nobody decides on in time is
+    treated as expired without its status changing."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class AISettings(TimestampMixin, Base):
@@ -178,3 +191,42 @@ class AIUsage(Base):
     review_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("ai_reviews.id", ondelete=SET_NULL), index=True
     )
+
+
+class AIProposal(Base):
+    """Changes the AI would make to the household's records, kept until an admin decides on them.
+
+    The AI only ever proposes. What runs when someone approves is what is stored here, checked
+    again just before it does, so nothing the AI says can change anything by itself. Each is
+    kept after it is decided, with who decided, when, and why they turned it down, as a record
+    of what the AI was allowed to do."""
+
+    __tablename__ = "ai_proposals"
+    __table_args__ = (
+        Index("ix_ai_proposals_user_id_created_at", "user_id", "created_at"),
+        Index("ix_ai_proposals_status_created_at", "status", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    # Whose conversation it came out of: only they can decide on it.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS, ondelete=SET_NULL))
+    # What proposed it, as it was set up then.
+    provider: Mapped[AIProvider] = mapped_column(enum_type(AIProvider, "ai_provider"))
+    model: Mapped[str] = mapped_column(String(120))
+    # What it comes to in a few words, written by Cashcove from the changes.
+    title: Mapped[str] = mapped_column(String(160))
+    # What the AI said with it. Shown as plain text and never trusted.
+    message: Mapped[str] = mapped_column(String(4000))
+    # The changes in order, each with the tool that makes it, what it will do (as Cashcove
+    # worked it out, never as the AI worded it) and the checked details to run.
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(JSON_TYPE)
+    status: Mapped[ProposalStatus] = mapped_column(
+        enum_type(ProposalStatus, "proposal_status"), default=ProposalStatus.PENDING
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    decided_at: Mapped[dt.datetime | None] = mapped_column(UTCDateTime())
+    decided_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS, ondelete=SET_NULL))
+    # What the person said when they turned it down, for the AI and for the record.
+    note: Mapped[str | None] = mapped_column(String(500))
+    # What each change did, in words, once it was approved.
+    results: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
