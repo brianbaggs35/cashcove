@@ -1,7 +1,13 @@
 import { defineStore } from 'pinia'
 import { computed, markRaw, ref } from 'vue'
 
-import { askAi, readStatementWithAi, type ChatTurn, type StatementReading } from '@/api/ai'
+import {
+  askAi,
+  readStatementWithAi,
+  type AiProposal,
+  type ChatTurn,
+  type StatementReading,
+} from '@/api/ai'
 import { ApiError, errorMessage } from '@/api/client'
 import type { FileImport } from '@/api/imports'
 import { todayIso } from '@/utils/dates'
@@ -11,6 +17,7 @@ import { readPdf } from '@/views/import/statement'
 export interface TextMessage extends ChatTurn {
   kind: 'text'
   id: number
+  proposal?: AiProposal
 }
 
 /** A statement the person attached. */
@@ -83,7 +90,14 @@ export const useAiChat = defineStore('ai-chat', () => {
     code.value = null
     try {
       const answer = await askAi(recentTurns(messages.value), todayIso())
-      messages.value.push({ kind: 'text', id: ++counter, role: 'assistant', content: answer.reply })
+      const message: TextMessage = {
+        kind: 'text',
+        id: ++counter,
+        role: 'assistant',
+        content: answer.reply,
+      }
+      if (answer.proposal) message.proposal = answer.proposal
+      messages.value.push(message)
       return true
     } catch (askError) {
       error.value = errorMessage(askError)

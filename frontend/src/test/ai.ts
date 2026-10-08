@@ -1,5 +1,6 @@
 import type {
   AiModel,
+  AiProposal,
   AiProvider,
   AiRecommendation,
   AiReview,
@@ -112,6 +113,29 @@ export function makeAiSettings(changes: Partial<AiSettings> = {}): AiSettings {
     base_url: null,
     api_key_set: true,
     review_imports: true,
+    ...changes,
+  }
+}
+
+export function makeAiProposal(changes: Partial<AiProposal> = {}): AiProposal {
+  return {
+    id: 'proposal-1',
+    state: 'pending',
+    title: 'Add a monthly Coffee budget',
+    message: 'I’ll add a monthly budget for Coffee.',
+    steps: [
+      {
+        tool: 'create_budget',
+        title: 'Add the Coffee budget',
+        summary: 'A monthly budget of $50.00.',
+        details: ['Starts this month.'],
+      },
+    ],
+    created_at: '2026-09-20T15:00:00Z',
+    expires_at: '2026-09-21T15:00:00Z',
+    decided_at: null,
+    note: null,
+    results: [],
     ...changes,
   }
 }

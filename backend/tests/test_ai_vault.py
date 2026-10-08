@@ -44,8 +44,9 @@ def test_a_code_is_its_kind_and_ten_consonants() -> None:
 
 def test_a_thing_has_the_same_code_every_time_and_two_things_never_do() -> None:
     vault = Vault()
+    code = vault.code_for(CHECKING)
 
-    assert vault.code_for(CHECKING) == vault.code_for(CHECKING)
+    assert vault.code_for(CHECKING) == code
     assert len({vault.code_for(entity) for entity in (CHECKING, VISA, TARTAN, ALEX)}) == 4
 
 
@@ -65,7 +66,10 @@ def test_the_same_name_as_a_bank_and_as_a_person_are_different_things() -> None:
 
 
 def test_a_code_is_new_for_every_request() -> None:
-    assert Vault().code_for(CHECKING) != Vault().code_for(CHECKING)
+    first = Vault().code_for(CHECKING)
+    second = Vault().code_for(CHECKING)
+
+    assert first != second
 
 
 def test_a_code_never_has_a_digit_so_no_check_takes_it_for_a_number() -> None:

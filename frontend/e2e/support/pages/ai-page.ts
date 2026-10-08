@@ -44,6 +44,8 @@ export class AiPage {
   readonly error: Locator
   readonly retry: Locator
   readonly clear: Locator
+  /** Persistent change proposals shown with the assistant's replies. */
+  readonly proposals: Locator
 
   /**
    * Statements: the offer in the welcome, the paperclip, what's said of a file that can't be
@@ -91,6 +93,7 @@ export class AiPage {
     this.error = page.getByTestId('chat-error')
     this.retry = page.getByTestId('chat-retry')
     this.clear = page.getByTestId('chat-clear')
+    this.proposals = page.getByTestId('ai-proposal')
 
     this.statementOffer = page.getByTestId('chat-statement-offer')
     this.statementChoose = page.getByTestId('chat-statement-choose')
@@ -195,6 +198,27 @@ export class AiPage {
   /** The text of the latest message in the conversation. */
   async lastMessage(): Promise<string> {
     return (await this.messages.last().textContent()) ?? ''
+  }
+
+  /** The latest proposed change. */
+  get proposal(): Locator {
+    return this.proposals.last()
+  }
+
+  /** Approves the latest proposal and waits for its persisted status. */
+  async approveProposal(): Promise<void> {
+    const proposal = this.proposal
+    await proposal.getByTestId('proposal-approve').click()
+    await expect(proposal.getByTestId('proposal-status')).toHaveText('Approved')
+  }
+
+  /** Rejects the latest proposal, optionally explaining why. */
+  async rejectProposal(reason = ''): Promise<void> {
+    const proposal = this.proposal
+    await proposal.getByTestId('proposal-reject').click()
+    if (reason) await proposal.getByTestId('proposal-reject-note').getByRole('textbox').fill(reason)
+    await proposal.getByTestId('proposal-reject-confirm').click()
+    await expect(proposal.getByTestId('proposal-status')).toHaveText('Rejected')
   }
 
   /** A figure on the Recommendations page: `open`, `applied` or `dismissed`. */

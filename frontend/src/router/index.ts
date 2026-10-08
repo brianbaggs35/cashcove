@@ -81,21 +81,41 @@ export function safeRedirect(value: unknown): string {
   return typeof value === 'string' && /^\/(?![/\\])/.test(value) ? value : HOME
 }
 
-/** Sends people to the page they're allowed to see: setup, sign-in or the app. */
-export function checkAccess(to: RouteLocationNormalized): true | RouteLocationRaw {
+function setupAccess(to: RouteLocationNormalized): true | RouteLocationRaw {
+  return to.name === 'welcome' ? true : { name: 'welcome' }
+}
+
+function setupPageAccess(): true | RouteLocationRaw {
   const auth = useAuthStore()
-  const access = to.meta.access ?? 'member'
-  if (auth.setupRequired) return to.name === 'welcome' ? true : { name: 'welcome' }
-  if (access === 'setup') {
-    if (auth.signedIn) return onboardingStep() ? true : HOME
-    return { name: 'sign-in' }
-  }
-  if (access === 'public') return true
-  if (access === 'guest') return auth.signedIn ? safeRedirect(to.query.redirect) : true
+  if (auth.signedIn) return onboardingStep() ? true : HOME
+  return { name: 'sign-in' }
+}
+
+function guestAccess(to: RouteLocationNormalized): true | RouteLocationRaw {
+  const auth = useAuthStore()
+  return auth.signedIn ? safeRedirect(to.query.redirect) : true
+}
+
+function memberAccess(
+  to: RouteLocationNormalized,
+  access: 'member' | 'admin',
+): true | RouteLocationRaw {
+  const auth = useAuthStore()
   if (!auth.signedIn) {
     return { name: 'sign-in', query: to.fullPath === HOME ? {} : { redirect: to.fullPath } }
   }
   return access === 'admin' && !auth.isAdmin ? HOME : true
+}
+
+/** Sends people to the page they're allowed to see: setup, sign-in or the app. */
+export function checkAccess(to: RouteLocationNormalized): true | RouteLocationRaw {
+  const auth = useAuthStore()
+  const access = to.meta.access ?? 'member'
+  if (auth.setupRequired) return setupAccess(to)
+  if (access === 'setup') return setupPageAccess()
+  if (access === 'public') return true
+  if (access === 'guest') return guestAccess(to)
+  return memberAccess(to, access)
 }
 
 export function buildRouter(history = createWebHistory()): Router {

@@ -664,6 +664,20 @@ const aiEndpoints: typeof endpoints = [
     { messages: [{ role: 'user', content: 'How much on coffee?' }], today: '2026-09-20' },
   ],
   [
+    'approveAiProposal',
+    () => ai.approveAiProposal('proposal-1'),
+    'POST',
+    '/ai/proposals/proposal-1/approve',
+    undefined,
+  ],
+  [
+    'rejectAiProposal',
+    () => ai.rejectAiProposal('proposal-1', 'Not enough detail'),
+    'POST',
+    '/ai/proposals/proposal-1/reject',
+    { note: 'Not enough detail' },
+  ],
+  [
     'searchWithAi',
     () => ai.searchWithAi('groceries over $50', '2026-09-20'),
     'POST',
