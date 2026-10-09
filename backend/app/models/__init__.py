@@ -2,6 +2,7 @@
 
 from app.models.account import LIABILITY_TYPES, Account, AccountSource, AccountType
 from app.models.ai import (
+    AIConversation,
     AIProposal,
     AIProvider,
     AIPurpose,
@@ -58,6 +59,7 @@ from app.models.user import Role, User
 
 __all__ = [
     "LIABILITY_TYPES",
+    "AIConversation",
     "AIProposal",
     "AIProvider",
     "AIPurpose",

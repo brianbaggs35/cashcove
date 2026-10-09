@@ -76,6 +76,22 @@ export interface ChatTurn {
   content: string
 }
 
+export interface AiConversationSummary {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+  message_count: number
+}
+
+export interface AiConversationMessage extends ChatTurn {
+  proposal?: AiProposal | null
+}
+
+export interface AiConversation extends AiConversationSummary {
+  messages: AiConversationMessage[]
+}
+
 export type AiProposalState = 'pending' | 'approved' | 'rejected' | 'expired'
 
 export interface AiProposalStep {
@@ -101,6 +117,7 @@ export interface AiProposal {
 
 export interface AiChatReply {
   reply: string
+  conversation_id: string
   proposal?: AiProposal | null
 }
 
@@ -320,8 +337,19 @@ export const fetchAiModels = (input: AiConnectionInput) =>
 export const testAiConnection = (input: AiConnectionInput) =>
   apiPost<AiTestResult>('/ai/test', input)
 /** The reply to the last turn, which has to be a question. `today` is where the person is. */
-export const askAi = (messages: ChatTurn[], today: string) =>
-  apiPost<AiChatReply>('/ai/chat', { messages, today })
+export const askAi = (messages: ChatTurn[], today: string, conversationId: string | null = null) =>
+  apiPost<AiChatReply>('/ai/chat', {
+    messages,
+    today,
+    conversation_id: conversationId,
+  })
+
+/** The signed-in admin's saved text chats, most recently active first. */
+export const fetchAiConversations = () => apiGet<AiConversationSummary[]>('/ai/conversations')
+export const fetchAiConversation = (id: string) =>
+  apiGet<AiConversation>(`/ai/conversations/${encodeURIComponent(id)}`)
+export const deleteAiConversation = (id: string) =>
+  apiDelete(`/ai/conversations/${encodeURIComponent(id)}`)
 
 /** Applies a pending proposal after the server checks it again. */
 export const approveAiProposal = (id: string) =>

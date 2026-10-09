@@ -1,6 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 
 import * as api from '@/api/ai'
+import type { AiChatReply, AiConversation, AiConversationSummary, AiProposal } from '@/api/ai'
 import { ApiError } from '@/api/client'
 import * as importsApi from '@/api/imports'
 import type { ImportPreview } from '@/api/imports'
@@ -14,6 +15,39 @@ import { later, makeImport, makeOptions, makePreview, seedImports } from '@/test
 import { mountWithPlugins } from '@/test/mount'
 import * as dates from '@/utils/dates'
 import ChatPanel from '@/views/ai/ChatPanel.vue'
+
+function chatReply(reply: string, proposal?: AiProposal): AiChatReply {
+  return {
+    reply,
+    conversation_id: 'conversation-1',
+    ...(proposal ? { proposal } : {}),
+  }
+}
+
+const savedSummary: AiConversationSummary = {
+  id: 'conversation-1',
+  title: 'How much on groceries?',
+  created_at: '2026-09-20T12:00:00Z',
+  updated_at: '2026-09-20T12:05:00Z',
+  message_count: 2,
+}
+
+const savedConversation: AiConversation = {
+  ...savedSummary,
+  messages: [
+    { role: 'user', content: 'How much on groceries?' },
+    { role: 'assistant', content: 'About $84.12.' },
+  ],
+}
+
+const savedProposal = makeAiProposal()
+const savedConversationWithProposal: AiConversation = {
+  ...savedConversation,
+  messages: [
+    { role: 'user', content: 'Add a Coffee budget.' },
+    { role: 'assistant', content: 'I can add that.', proposal: savedProposal },
+  ],
+}
 
 async function render() {
   vi.spyOn(dates, 'todayIso').mockReturnValue('2026-09-20')
@@ -37,6 +71,12 @@ describe('ChatPanel', () => {
     expect(wrapper.find('[data-test="ai-privacy"]').text()).toContain(
       'Account numbers, account names and bank names are never sent to the AI.',
     )
+    expect(find('chat-history-note').text()).toContain(
+      'Text questions and answers are saved on this Cashcove server until deleted.',
+    )
+    expect(find('chat-history-note').text()).toContain(
+      "PDF statements and their extracted rows aren't saved in chat history.",
+    )
     expect(find('chat-welcome').text()).toContain('Ask about your money')
     expect(find('chat-welcome').text()).toContain('Try asking')
     expect(wrapper.findAll('[data-test="chat-question"]').map((chip) => chip.text())).toEqual([
@@ -52,9 +92,13 @@ describe('ChatPanel', () => {
   })
 
   it('asks a suggested question, shows the answer and keeps what was being typed', async () => {
-    const ask = vi.spyOn(api, 'askAi').mockResolvedValue({
-      reply: 'You spent **$420.00** on groceries.\n- Whole Foods 300.00\n- Corner Market 120.00',
-    })
+    const ask = vi
+      .spyOn(api, 'askAi')
+      .mockResolvedValue(
+        chatReply(
+          'You spent **$420.00** on groceries.\n- Whole Foods 300.00\n- Corner Market 120.00',
+        ),
+      )
     const { wrapper, find, input } = await render()
     await input().setValue('Something half typed')
 
@@ -64,6 +108,7 @@ describe('ChatPanel', () => {
     expect(ask).toHaveBeenCalledWith(
       [{ role: 'user', content: 'How much did I spend on groceries last month?' }],
       '2026-09-20',
+      null,
     )
     expect(find('chat-welcome').exists()).toBe(false)
     const [asked, answered] = wrapper.findAll('[data-test="chat-message"]')
@@ -76,7 +121,7 @@ describe('ChatPanel', () => {
   })
 
   it('asks what is typed when Enter is pressed, and clears the box at once', async () => {
-    const answer = later<{ reply: string }>()
+    const answer = later<AiChatReply>()
     const ask = vi.spyOn(api, 'askAi').mockReturnValue(answer.promise)
     const { wrapper, find, input } = await render()
     await input().setValue('What did I spend on coffee?')
@@ -92,7 +137,7 @@ describe('ChatPanel', () => {
     await input().trigger('keydown', { key: 'Enter' })
     expect(ask).toHaveBeenCalledTimes(1)
 
-    answer.resolve({ reply: 'About 105.50.' })
+    answer.resolve(chatReply('About 105.50.'))
     await flushPromises()
 
     expect(find('chat-busy').exists()).toBe(false)
@@ -100,7 +145,7 @@ describe('ChatPanel', () => {
   })
 
   it('asks when Send is clicked, and a new line is Shift and Enter', async () => {
-    const ask = vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Fine.' })
+    const ask = vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('Fine.'))
     const { find, input } = await render()
     await input().setValue('Line one')
 
@@ -116,7 +161,7 @@ describe('ChatPanel', () => {
   })
 
   it('asks when the form is sent some other way, such as by assistive technology', async () => {
-    const ask = vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Fine.' })
+    const ask = vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('Fine.'))
     const { find, input } = await render()
     await input().setValue('Is this sent?')
 
@@ -150,7 +195,7 @@ describe('ChatPanel', () => {
   })
 
   it('shows what was asked as plain text, and what was answered as the answer', async () => {
-    vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Ok.' })
+    vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('Ok.'))
     const { wrapper, input } = await render()
     await input().setValue('Is **this** bold? <b>no</b>')
 
@@ -170,7 +215,7 @@ describe('ChatPanel', () => {
       .mockRejectedValueOnce(
         new ApiError(502, 'The AI didn’t answer in time.', { code: 'ai_unreachable' }),
       )
-      .mockResolvedValueOnce({ reply: 'Here you go.' })
+      .mockResolvedValueOnce(chatReply('Here you go.'))
     const { wrapper, find, input } = await render()
     await input().setValue('Hello?')
 
@@ -189,7 +234,7 @@ describe('ChatPanel', () => {
   })
 
   it('keeps what was typed meanwhile rather than putting the old question back', async () => {
-    const failure = later<{ reply: string }>()
+    const failure = later<AiChatReply>()
     vi.spyOn(api, 'askAi').mockReturnValue(failure.promise)
     const { input } = await render()
     await input().setValue('First')
@@ -223,7 +268,7 @@ describe('ChatPanel', () => {
       state: 'approved',
       results: ['Added the Coffee budget.'],
     })
-    vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Here is the change.', proposal })
+    vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('Here is the change.', proposal))
     vi.spyOn(api, 'approveAiProposal').mockResolvedValue(approved)
     const { find, input } = await render()
     await input().setValue('Add a Coffee budget.')
@@ -248,8 +293,8 @@ describe('ChatPanel', () => {
     })
     const ask = vi
       .spyOn(api, 'askAi')
-      .mockResolvedValueOnce({ reply: 'Here is the change.', proposal })
-      .mockResolvedValueOnce({ reply: 'I changed the amount.', proposal: nextProposal })
+      .mockResolvedValueOnce(chatReply('Here is the change.', proposal))
+      .mockResolvedValueOnce(chatReply('I changed the amount.', nextProposal))
     vi.spyOn(api, 'rejectAiProposal').mockResolvedValue(rejected)
     const { wrapper, find, input } = await render()
     await input().setValue('Add a Coffee budget.')
@@ -273,6 +318,7 @@ describe('ChatPanel', () => {
         },
       ],
       '2026-09-20',
+      'conversation-1',
     )
     expect(wrapper.findAll('[data-test="ai-proposal"]')).toHaveLength(2)
     expect(wrapper.findAll('[data-test="proposal-status"]').map((item) => item.text())).toEqual([
@@ -282,7 +328,7 @@ describe('ChatPanel', () => {
   })
 
   it('starts again with a new chat', async () => {
-    vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Ok.' })
+    vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('Ok.'))
     const { wrapper, find, input } = await render()
     await input().setValue('Hello?')
     await input().trigger('keydown', { key: 'Enter' })
@@ -292,6 +338,175 @@ describe('ChatPanel', () => {
 
     expect(wrapper.findAll('[data-test="chat-message"]')).toHaveLength(0)
     expect(find('chat-welcome').exists()).toBe(true)
+  })
+
+  it('keeps a past chat when starting a new one and restores it from history', async () => {
+    const ask = vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('About $84.12.'))
+    vi.spyOn(api, 'fetchAiConversations').mockResolvedValue([savedSummary])
+    vi.spyOn(api, 'fetchAiConversation').mockResolvedValue(savedConversation)
+    const { wrapper, find, input } = await render()
+    await input().setValue('How much on groceries?')
+    await find('chat-form').trigger('submit')
+    await flushPromises()
+
+    await find('chat-clear').trigger('click')
+    expect(wrapper.findAll('[data-test="chat-message"]')).toHaveLength(0)
+
+    await find('chat-history').trigger('click')
+    await flushPromises()
+    expect(page().find('[data-test="chat-history-list"]').exists()).toBe(true)
+    expect(page().find('[data-test="chat-history-item"]').text()).toContain(
+      'How much on groceries?',
+    )
+
+    await page().find('[data-test="chat-history-item"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="chat-message"]')).toHaveLength(2)
+    expect(find('ai-proposal').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="chat-message"]').at(-1)!.text()).toContain('About $84.12.')
+
+    await input().setValue('What about coffee?')
+    await find('chat-form').trigger('submit')
+    await flushPromises()
+    expect(ask).toHaveBeenLastCalledWith(
+      [
+        { role: 'user', content: 'How much on groceries?' },
+        { role: 'assistant', content: 'About $84.12.' },
+        { role: 'user', content: 'What about coffee?' },
+      ],
+      '2026-09-20',
+      'conversation-1',
+    )
+  })
+
+  it('restores a saved proposal and lets the admin reject it with a reason', async () => {
+    const rejected = makeAiProposal({
+      state: 'rejected',
+      note: 'Please make it smaller.',
+    })
+    const ask = vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('I can adjust that.'))
+    vi.spyOn(api, 'fetchAiConversations').mockResolvedValue([savedSummary])
+    vi.spyOn(api, 'fetchAiConversation').mockResolvedValue(savedConversationWithProposal)
+    const reject = vi.spyOn(api, 'rejectAiProposal').mockResolvedValue(rejected)
+    const { find } = await render()
+
+    await find('chat-history').trigger('click')
+    await flushPromises()
+    await page().find('[data-test="chat-history-item"]').trigger('click')
+    await flushPromises()
+
+    expect(find('ai-proposal').exists()).toBe(true)
+    expect(find('proposal-approve').exists()).toBe(true)
+    await find('proposal-reject').trigger('click')
+    await find('proposal-reject-note').find('textarea').setValue('Please make it smaller.')
+    await find('proposal-reject-confirm').trigger('click')
+    await flushPromises()
+
+    expect(reject).toHaveBeenCalledWith('proposal-1', 'Please make it smaller.')
+    expect(ask).toHaveBeenCalledWith(
+      [
+        { role: 'user', content: 'Add a Coffee budget.' },
+        { role: 'assistant', content: 'I can add that.' },
+        {
+          role: 'user',
+          content:
+            'I turned that down. Proposed: Add the Coffee budget. Reason: Please make it smaller.',
+        },
+      ],
+      '2026-09-20',
+      'conversation-1',
+    )
+    expect(find('proposal-status').text()).toBe('Rejected')
+  })
+
+  it('shows loading, reports history errors, and explains an empty history', async () => {
+    const pending = later<AiConversationSummary[]>()
+    const fetch = vi
+      .spyOn(api, 'fetchAiConversations')
+      .mockReturnValueOnce(pending.promise)
+      .mockRejectedValueOnce(new Error('History could not be loaded.'))
+      .mockResolvedValueOnce([])
+    const { find } = await render()
+
+    await find('chat-history').trigger('click')
+    expect(page().find('[data-test="chat-history-loading"]').exists()).toBe(true)
+    pending.resolve([])
+    await flushPromises()
+    expect(page().find('[data-test="chat-history-empty"]').text()).toContain(
+      'No saved conversations yet',
+    )
+
+    await page().find('[data-test="dialog-close"]').trigger('click')
+    await find('chat-history').trigger('click')
+    await flushPromises()
+    expect(page().find('[data-test="chat-history-error"]').text()).toBe(
+      'History could not be loaded.',
+    )
+    expect(page().find('[data-test="chat-history-empty"]').exists()).toBe(false)
+
+    await page().find('[data-test="dialog-close"]').trigger('click')
+    await find('chat-history').trigger('click')
+    await flushPromises()
+    expect(page().find('[data-test="chat-history-empty"]').exists()).toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(3)
+    await page().find('[data-test="chat-history-close"]').trigger('click')
+  })
+
+  it('asks before deleting history and removes the saved chat when confirmed', async () => {
+    vi.spyOn(api, 'fetchAiConversations').mockResolvedValue([savedSummary])
+    const remove = vi.spyOn(api, 'deleteAiConversation').mockResolvedValue(undefined)
+    const { find } = await render()
+
+    await find('chat-history').trigger('click')
+    await flushPromises()
+    await page().find('[data-test="chat-history-delete"]').trigger('click')
+    expect(page().find('[data-test="chat-history-confirm"]').text()).toContain(
+      'This permanently removes the saved conversation',
+    )
+
+    await page().find('[data-test="chat-history-keep"]').trigger('click')
+    expect(page().find('[data-test="chat-history-item"]').exists()).toBe(true)
+    await page().find('[data-test="chat-history-delete"]').trigger('click')
+    await page().find('[data-test="chat-history-delete-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(remove).toHaveBeenCalledWith('conversation-1')
+    expect(page().find('[data-test="chat-history-empty"]').exists()).toBe(true)
+  })
+
+  it('keeps history open and reports a delete error so it can be retried', async () => {
+    vi.spyOn(api, 'fetchAiConversations').mockResolvedValue([savedSummary])
+    vi.spyOn(api, 'deleteAiConversation').mockRejectedValue(new Error('Could not delete chat.'))
+    const { find } = await render()
+
+    await find('chat-history').trigger('click')
+    await flushPromises()
+    await page().find('[data-test="chat-history-delete"]').trigger('click')
+    await page().find('[data-test="chat-history-delete-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(page().find('[data-test="chat-history-confirm"]').exists()).toBe(true)
+    expect(page().find('[data-test="chat-history-error"]').text()).toBe('Could not delete chat.')
+    expect(page().find('[data-test="chat-history-item"]').exists()).toBe(false)
+  })
+
+  it('keeps the current chat visible when a saved transcript can no longer be loaded', async () => {
+    vi.spyOn(api, 'fetchAiConversations').mockResolvedValue([savedSummary])
+    vi.spyOn(api, 'fetchAiConversation').mockRejectedValue(new Error('This chat is gone.'))
+    vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('Current answer.'))
+    const { wrapper, find, input } = await render()
+    await input().setValue('Current question')
+    await find('chat-form').trigger('submit')
+    await flushPromises()
+
+    await find('chat-history').trigger('click')
+    await flushPromises()
+    await page().find('[data-test="chat-history-item"]').trigger('click')
+    await flushPromises()
+
+    expect(page().find('[data-test="chat-history-error"]').text()).toBe('This chat is gone.')
+    expect(page().find('[data-test="chat-history-dialog"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="chat-message"]')).toHaveLength(2)
   })
 })
 

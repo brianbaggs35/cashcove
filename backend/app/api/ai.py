@@ -15,6 +15,8 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Query, Request, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.ai import automations, chat, errors, proposals, reviews, search, service, statements
 from app.ai.catalog import PROVIDERS, ModelChoice, Price, cloud_price, find_model, provider_info
@@ -25,12 +27,15 @@ from app.ai.providers import AIClient, Message
 from app.ai.usage import usage
 from app.auth.deps import AdminAuth, ApiError, AppSettings, CurrentAuth, Db
 from app.finance.exchange_rates import ExchangeRates
-from app.models import AIProvider, AIPurpose, ReviewSource
+from app.models import AIConversation, AIProposal, AIProvider, AIPurpose, ReviewSource, User
 from app.models.base import utcnow
 from app.schemas.ai import (
     AISettingsIn,
     AISettingsOut,
     AutomationSuggestions,
+    ChatConversationDetailOut,
+    ChatConversationMessageOut,
+    ChatConversationOut,
     ChatIn,
     ChatOut,
     ConnectionIn,
@@ -80,6 +85,35 @@ def _model_out(model: ModelChoice, price: Price | None) -> ModelOut:
 
 def _problem(error: AIError) -> ApiError:
     return ApiError(STATUS.get(error.code, status.HTTP_502_BAD_GATEWAY), error.code, error.message)
+
+
+def _chat_title(question: str) -> str:
+    title = " ".join(question.split())
+    return f"{title[:77].rstrip()}..." if len(title) > 80 else title
+
+
+def _owned_conversation(db: Session, user: User, conversation_id: uuid.UUID) -> AIConversation:
+    conversation = db.scalar(
+        select(AIConversation).where(
+            AIConversation.id == conversation_id,
+            AIConversation.user_id == user.id,
+        )
+    )
+    if conversation is None:
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "not_found", "That conversation doesn't exist anymore."
+        )
+    return conversation
+
+
+def _conversation_out(conversation: AIConversation) -> ChatConversationOut:
+    return ChatConversationOut(
+        id=conversation.id,
+        title=conversation.title,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        message_count=len(conversation.messages),
+    )
 
 
 @router.get("/providers")
@@ -200,8 +234,14 @@ def ask(
     """Answers the last question in a conversation from the household's records, with account
     numbers, account names and bank names kept out of everything sent. The AI can look things up
     and propose changes with its answer. It never makes them: they wait, in the reply, for the
-    admin to approve or turn down."""
+    admin to approve or turn down. Successful text turns are saved for this admin, with proposal
+    records linked back into the conversation history."""
     config = service.require(db, settings)
+    conversation = (
+        _owned_conversation(db, auth.user, body.conversation_id)
+        if body.conversation_id is not None
+        else None
+    )
     try:
         reply = chat.answer(
             db,
@@ -215,10 +255,80 @@ def ask(
         )
     except AIError as error:
         raise _problem(error) from error
+    question = body.messages[-1].content
+    assistant_message = {"role": "assistant", "content": reply.text}
+    if reply.proposal is not None:
+        assistant_message["proposal_id"] = str(reply.proposal.id)
+    messages = [{"role": "user", "content": question}, assistant_message]
+    if conversation is None:
+        conversation = AIConversation(
+            user_id=auth.user.id,
+            title=_chat_title(question),
+            messages=messages,
+        )
+        db.add(conversation)
+    else:
+        conversation.messages = [*conversation.messages, *messages]
+        conversation.updated_at = utcnow()
+    db.commit()
     return ChatOut(
         reply=reply.text,
+        conversation_id=conversation.id,
         proposal=None if reply.proposal is None else proposals.to_out(reply.proposal),
     )
+
+
+@router.get("/conversations")
+def list_conversations(auth: AdminAuth, db: Db) -> list[ChatConversationOut]:
+    """The signed-in admin's saved text chats, most recently active first."""
+    conversations = db.scalars(
+        select(AIConversation)
+        .where(AIConversation.user_id == auth.user.id)
+        .order_by(AIConversation.updated_at.desc(), AIConversation.id.desc())
+    ).all()
+    return [_conversation_out(conversation) for conversation in conversations]
+
+
+@router.get("/conversations/{conversation_id}")
+def read_conversation(
+    conversation_id: uuid.UUID, auth: AdminAuth, db: Db
+) -> ChatConversationDetailOut:
+    """One saved text chat, and only one belonging to this admin."""
+    conversation = _owned_conversation(db, auth.user, conversation_id)
+    summary = _conversation_out(conversation)
+    proposal_ids = [
+        uuid.UUID(message["proposal_id"])
+        for message in conversation.messages
+        if "proposal_id" in message
+    ]
+    saved_proposals = db.scalars(
+        select(AIProposal).where(
+            AIProposal.id.in_(proposal_ids),
+            AIProposal.user_id == auth.user.id,
+        )
+    ).all()
+    proposals_by_id = {str(proposal.id): proposals.to_out(proposal) for proposal in saved_proposals}
+    return ChatConversationDetailOut(
+        **summary.model_dump(),
+        messages=[
+            ChatConversationMessageOut.model_validate(
+                {
+                    "role": message["role"],
+                    "content": message["content"],
+                    "proposal": proposals_by_id.get(message.get("proposal_id", "")),
+                }
+            )
+            for message in conversation.messages
+        ],
+    )
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation(conversation_id: uuid.UUID, auth: AdminAuth, db: Db) -> None:
+    """Permanently removes one of this admin's saved text chats."""
+    conversation = _owned_conversation(db, auth.user, conversation_id)
+    db.delete(conversation)
+    db.commit()
 
 
 @router.get("/proposals")
