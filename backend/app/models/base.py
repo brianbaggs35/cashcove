@@ -74,14 +74,14 @@ def _values(enum: type[StrEnum]) -> list[str]:
     return [member.value for member in enum.__members__.values()]
 
 
-def enum_type(enum: type[StrEnum], name: str) -> Enum:
+def enum_type(enum: type[StrEnum], name: str, *, length: int = 16) -> Enum:
     """A column of an enum's values, stored as text that a CHECK constraint limits."""
     return Enum(
         enum,
         name=name,
         native_enum=False,
         create_constraint=True,
-        length=16,
+        length=length,
         values_callable=_values,
         validate_strings=True,
     )

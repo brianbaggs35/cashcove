@@ -17,7 +17,9 @@ from dataclasses import dataclass, field
 from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.alerts.service import enqueue_large_transactions
 from app.auth.crypto import DecryptionError, SecretBox
+from app.config import Settings
 from app.finance.automations import RuleBook
 from app.models import (
     Account,
@@ -379,6 +381,7 @@ def sync_connection(
     trigger: SyncTrigger,
     *,
     default_currency: str,
+    settings: Settings | None = None,
 ) -> bool:
     """Syncs one connection. Returns False, doing nothing, when it's already syncing."""
     started = utcnow()
@@ -452,6 +455,19 @@ def sync_connection(
     )
     if trouble is not None:
         log.warning("Plaid can't get transactions from %s", connection.institution_name)
+    if settings is not None and counts.added:
+        added = list(
+            db.scalars(
+                select(Transaction)
+                .join(Account, Transaction.account_id == Account.id)
+                .where(
+                    Account.connection_id == connection_id,
+                    Transaction.source == TransactionSource.PLAID,
+                    Transaction.created_at >= started,
+                )
+            )
+        )
+        enqueue_large_transactions(db, settings, added)
     return True
 
 

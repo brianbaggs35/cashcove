@@ -16,6 +16,14 @@ from app.models.ai import (
     ReviewSource,
     ReviewStatus,
 )
+from app.models.alerts import (
+    AlertChannel,
+    AlertDelivery,
+    AlertSettings,
+    AlertState,
+    AlertType,
+    SMTPTransport,
+)
 from app.models.app_settings import AppSettings
 from app.models.audit import AuditEvent
 from app.models.auth import (
@@ -70,6 +78,11 @@ __all__ = [
     "Account",
     "AccountSource",
     "AccountType",
+    "AlertChannel",
+    "AlertDelivery",
+    "AlertSettings",
+    "AlertState",
+    "AlertType",
     "AppSettings",
     "AuditEvent",
     "AuthChallenge",
@@ -110,6 +123,7 @@ __all__ = [
     "ReviewSource",
     "ReviewStatus",
     "Role",
+    "SMTPTransport",
     "Subscription",
     "SyncTrigger",
     "TimestampMixin",

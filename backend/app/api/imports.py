@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 
 from app.ai import reviews
 from app.ai.deps import AISessions, AITransport
+from app.alerts.service import enqueue_large_transactions
 from app.auth.deps import AdminAuth, AppSettings, CurrentAuth, Db
 from app.auth.service import load_preferences
 from app.imports.service import (
@@ -18,7 +19,7 @@ from app.imports.service import (
     rename_profile,
     undo,
 )
-from app.models import ImportProfile
+from app.models import ImportProfile, Transaction
 from app.models.base import utcnow
 from app.schemas.imports import (
     FileImportOut,
@@ -62,6 +63,8 @@ def create_import(
     sorted, which carries on after this answers."""
     locale = load_preferences(db).general.locale
     record, sorted_count = import_file(db, body, auth.user, locale, utcnow().date())
+    transactions = list(db.scalars(select(Transaction).where(Transaction.import_id == record.id)))
+    enqueue_large_transactions(db, settings, transactions)
     started = reviews.for_import(db, settings, auth.user, record.id)
     if started is not None:
         background.add_task(reviews.run, sessions, settings, transport, started[0].id, started[1])

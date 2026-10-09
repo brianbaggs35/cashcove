@@ -1,10 +1,30 @@
 import { makeSessionState, makeUser } from '@/test/fixtures'
 import { flushPromises } from '@/test/mount'
+import * as deliveryApi from '@/api/alerts'
 import { mountSection } from '@/test/settings'
 import AlertRow from '@/views/settings/AlertRow.vue'
 import AlertsSection from '@/views/settings/AlertsSection.vue'
 
 describe('AlertsSection', () => {
+  beforeEach(() => {
+    vi.spyOn(deliveryApi, 'fetchAlertDeliverySettings').mockResolvedValue({
+      discord_enabled: false,
+      discord_configured: false,
+      discord_webhook_set: false,
+      smtp_enabled: false,
+      smtp_configured: false,
+      smtp_host: null,
+      smtp_port: 587,
+      smtp_security: 'starttls',
+      smtp_username_set: false,
+      smtp_password_set: false,
+      smtp_from: null,
+      smtp_to: null,
+    })
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
   it('lists every alert, switched on by default', async () => {
     const { wrapper } = await mountSection(AlertsSection)
     for (const id of [
