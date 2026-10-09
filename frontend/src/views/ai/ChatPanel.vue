@@ -243,20 +243,16 @@ watch(
       </div>
       <div class="d-flex align-center ga-2 px-5 pt-4">
         <h2 class="text-title-medium font-weight-bold ma-0 flex-grow-1">Your conversation</h2>
-        <v-tooltip text="Chat history" location="bottom">
-          <template #activator="{ props }">
-            <v-btn
-              v-bind="props"
-              :icon="History"
-              variant="text"
-              size="small"
-              aria-label="Chat history"
-              :disabled="chat.busy"
-              data-test="chat-history"
-              @click="showHistory"
-            />
-          </template>
-        </v-tooltip>
+        <v-btn
+          :icon="History"
+          variant="text"
+          size="small"
+          aria-label="Chat history"
+          title="Chat history"
+          :disabled="chat.busy"
+          data-test="chat-history"
+          @click="showHistory"
+        />
         <v-btn
           variant="text"
           size="small"
