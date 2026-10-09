@@ -19,7 +19,7 @@ export type ColumnMatch =
 
 /** Which of the file's rows the review step shows. */
 export type RowFilter =
-  'All' | 'Needs a look' | 'New' | 'Maybe there' | 'Already there' | 'Can’t be read'
+  'All' | 'Needs a look' | 'New' | 'Possible duplicates' | 'Already there' | 'Can’t be read'
 
 /** What can be changed about a row the AI read off a PDF, in the dialog its pencil opens. */
 export interface RowChanges {
@@ -143,9 +143,13 @@ export class ImportPage {
 
   /** Ticks rows to import, or unticks them with `on: false`. */
   async tick(texts: string[], { on = true }: { on?: boolean } = {}): Promise<void> {
-    for (const text of texts) {
-      await this.row(text).getByTestId('review-row-check').getByRole('checkbox').setChecked(on)
-    }
+    await texts.reduce<Promise<void>>(
+      (pending, text) =>
+        pending.then(() =>
+          this.row(text).getByTestId('review-row-check').getByRole('checkbox').setChecked(on),
+        ),
+      Promise.resolve(),
+    )
   }
 
   /** Shows the rows of one kind, or `'All'` of them. */
@@ -153,7 +157,7 @@ export class ImportPage {
     await this.dialog
       .getByTestId('review-filters')
       .locator('.v-chip')
-      .filter({ hasText: new RegExp(`^\\s*${filter}\\s+[\\d,]+\\s*$`) })
+      .filter({ hasText: new RegExp(String.raw`^\s*${filter}\s+[\d,]+\s*$`) })
       .click()
   }
 
