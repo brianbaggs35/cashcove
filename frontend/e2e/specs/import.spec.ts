@@ -58,8 +58,8 @@ test.describe('Importing statement files', () => {
     // Named and categorized like the paychecks before it.
     await expect(importPage.row('NORTHWIND HEALTH PAYROLL PPD')).toContainText('Northwind Health')
     await expect(importPage.row('NORTHWIND HEALTH PAYROLL PPD')).toContainText('Paycheck')
-    await expect(importPage.row('VENMO *CASHOUT')).toContainText('Might be Venmo')
-    await expect(importPage.row('Whole Foods')).toContainText('Already in Everyday checking')
+    await expect(importPage.row('VENMO *CASHOUT')).toContainText('Possible duplicate: Venmo')
+    await expect(importPage.row('Whole Foods')).toContainText('Possible duplicate: Whole Foods')
     await expect(importPage.row('PENDING - AMAZON MKTP US')).toContainText('It has no date.')
     await expect(importPage.dialog.getByTestId('import-submit')).toHaveText('Import 2 transactions')
 
