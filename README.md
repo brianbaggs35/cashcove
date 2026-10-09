@@ -288,9 +288,10 @@ setting up.
   saved as a format for that bank, so its next file goes straight to review.
 - **Review:** Choose the account (an OFX file or a PDF statement finds it by its last four
   digits), see which rows are new, which the account already has and which it might, and tick
-  what to import.
-  Rows the account already has aren't imported again, so a file imported twice adds nothing
-  the second time.
+  what to import. Possible duplicates, including rows with the same date, payee and amount,
+  start unticked; review them and tick any that are separate transactions.
+  Rows identified by an already-used bank transaction ID or repeated inside the file can't be
+  imported. Leaving possible matches unticked means importing the same file again adds nothing.
 - **Balances:** For an account kept by hand, take the file's closing balance, add what's
   imported, or leave the balance as it is. A linked account's balance stays as Plaid reports
   it.

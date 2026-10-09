@@ -361,9 +361,9 @@ def _balance_change(
 def import_file(
     db: Session, body: ImportCreate, user: User, locale: str, today: dt.date
 ) -> tuple[FileImport, int]:
-    """Imports the rows chosen from the preview that still can be: ones already in the
-    account by now are left out. Returns the import, and how many of its transactions
-    automations sorted."""
+    """Imports the rows chosen from the preview that still can be. Possible matches remain a
+    choice; unreadable rows and rows already present by bank ID are left out. Returns the import,
+    and how many of its transactions automations sorted."""
     account = importable_account(db, body.account_id)
     read = read_file(db, body, locale, today)
     _, statement = read.statement(body.statement)

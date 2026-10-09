@@ -424,8 +424,10 @@ def test_transactions_already_in_the_account_are_left_out(
         "NORTHWIND HEALTH PAYROLL PPD",
         "file",
     )
-    # Files without IDs are matched by date, amount and description.
-    assert statuses(previewed(admin_client, CARD_CSV, account_id=str(card.id))) == ["duplicate"] * 4
+    # Files without IDs are matched by date, amount and description, but left for review.
+    card_preview = previewed(admin_client, CARD_CSV, account_id=str(card.id))
+    assert statuses(card_preview) == ["possible_duplicate"] * 4
+    assert card_preview["summary"]["possible_duplicates"] == 4
 
 
 def test_the_same_coffee_twice_is_two_transactions(
@@ -439,7 +441,7 @@ def test_the_same_coffee_twice_is_two_transactions(
     imported(admin_client, coffees, checking, chosen=[2])
 
     assert statuses(previewed(admin_client, coffees, account_id=str(checking.id))) == [
-        "duplicate",
+        "possible_duplicate",
         "new",
     ]
 
@@ -747,7 +749,7 @@ def test_a_saved_format_reads_the_banks_next_file(
     preview = previewed(admin_client, longer)
     assert (preview["profile_id"], preview["account_id"]) == (profile["id"], str(checking.id))
     assert preview["options"]["csv"]["skip_rows"] == 5
-    assert statuses(preview) == ["duplicate", "new"]
+    assert statuses(preview) == ["possible_duplicate", "new"]
     # Once that account's closed, the file's account is worked out as for any other.
     checking.closed_at = utcnow()
     session.commit()
@@ -790,7 +792,7 @@ def test_files_without_column_names_use_their_saved_format_when_its_chosen(
     assert previewed(admin_client, HEADERLESS_CSV)["profile_id"] is None
     chosen = previewed(admin_client, HEADERLESS_CSV, profile_id=record["profile_id"])
     assert chosen["profile_id"] == record["profile_id"]
-    assert statuses(chosen) == ["duplicate"] * 3
+    assert statuses(chosen) == ["possible_duplicate"] * 3
 
 
 def test_formats_are_only_saved_for_csv_files(
