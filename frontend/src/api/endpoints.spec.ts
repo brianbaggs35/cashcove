@@ -656,12 +656,43 @@ const aiEndpoints: typeof endpoints = [
   ['removeAiSettings', () => ai.removeAiSettings(), 'DELETE', '/ai/settings', undefined],
   ['fetchAiModels', () => ai.fetchAiModels(connection), 'POST', '/ai/models', connection],
   ['testAiConnection', () => ai.testAiConnection(connection), 'POST', '/ai/test', connection],
+  ['fetchAiConversations', () => ai.fetchAiConversations(), 'GET', '/ai/conversations', undefined],
+  [
+    'fetchAiConversation',
+    () => ai.fetchAiConversation('conversation-1'),
+    'GET',
+    '/ai/conversations/conversation-1',
+    undefined,
+  ],
+  [
+    'deleteAiConversation',
+    () => ai.deleteAiConversation('conversation-1'),
+    'DELETE',
+    '/ai/conversations/conversation-1',
+    undefined,
+  ],
   [
     'askAi',
+    () =>
+      ai.askAi([{ role: 'user', content: 'How much on coffee?' }], '2026-09-20', 'conversation-1'),
+    'POST',
+    '/ai/chat',
+    {
+      messages: [{ role: 'user', content: 'How much on coffee?' }],
+      today: '2026-09-20',
+      conversation_id: 'conversation-1',
+    },
+  ],
+  [
+    'askAi without a conversation id',
     () => ai.askAi([{ role: 'user', content: 'How much on coffee?' }], '2026-09-20'),
     'POST',
     '/ai/chat',
-    { messages: [{ role: 'user', content: 'How much on coffee?' }], today: '2026-09-20' },
+    {
+      messages: [{ role: 'user', content: 'How much on coffee?' }],
+      today: '2026-09-20',
+      conversation_id: null,
+    },
   ],
   [
     'approveAiProposal',

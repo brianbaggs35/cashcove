@@ -44,6 +44,11 @@ export class AiPage {
   readonly error: Locator
   readonly retry: Locator
   readonly clear: Locator
+  /** A dialog of saved text chats, opened on demand from Ask. */
+  readonly chatHistory: Locator
+  readonly chatHistoryDialog: Locator
+  readonly chatHistoryItems: Locator
+  readonly chatHistoryEmpty: Locator
   /** Persistent change proposals shown with the assistant's replies. */
   readonly proposals: Locator
 
@@ -93,6 +98,10 @@ export class AiPage {
     this.error = page.getByTestId('chat-error')
     this.retry = page.getByTestId('chat-retry')
     this.clear = page.getByTestId('chat-clear')
+    this.chatHistory = page.getByTestId('chat-history')
+    this.chatHistoryDialog = page.getByRole('dialog', { name: 'Chat history' })
+    this.chatHistoryItems = page.getByTestId('chat-history-item')
+    this.chatHistoryEmpty = page.getByTestId('chat-history-empty')
     this.proposals = page.getByTestId('ai-proposal')
 
     this.statementOffer = page.getByTestId('chat-statement-offer')
@@ -144,6 +153,13 @@ export class AiPage {
     await this.send.click()
     await expect(this.messages).toHaveCount(before + 2)
     await expect(this.busy).toHaveCount(0)
+  }
+
+  /** Opens the saved text chats, without putting the list on the page until asked. */
+  async openChatHistory(): Promise<void> {
+    await this.chatHistory.click()
+    await expect(this.chatHistoryDialog).toBeVisible()
+    await expect(this.page.getByTestId('chat-history-loading')).toHaveCount(0)
   }
 
   /** The latest statement in the conversation: being read, found or failed. */

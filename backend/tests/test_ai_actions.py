@@ -274,6 +274,41 @@ def test_a_change_is_proposed_and_nothing_changes_until_it_is_approved(
     assert session.scalars(select(Transaction).where(Transaction.category_id.is_(None))).all()
 
 
+def test_chat_history_keeps_proposals_and_their_rejection_reasons(
+    ready: TestClient, fake_ai: FakeAI
+) -> None:
+    answered = chat_with(
+        ready,
+        fake_ai,
+        "Add a Coffee budget",
+        say(
+            "I'll add a monthly Coffee budget.",
+            (
+                "create_budget",
+                {"name": "Coffee", "period": "monthly", "amount": "50"},
+            ),
+        ),
+    )
+    proposal = answered["proposal"]
+    conversation_id = answered["conversation_id"]
+
+    history = ready.get(f"/api/ai/conversations/{conversation_id}").json()
+    saved = history["messages"][-1]["proposal"]
+    assert saved["id"] == proposal["id"]
+    assert saved["state"] == "pending"
+    assert saved["title"] == proposal["title"]
+
+    rejected = ready.post(
+        f"{GROUP}/{proposal['id']}/reject", json={"note": "Please make it smaller."}
+    )
+    assert rejected.status_code == 200, rejected.text
+
+    updated = ready.get(f"/api/ai/conversations/{conversation_id}").json()
+    saved = updated["messages"][-1]["proposal"]
+    assert saved["state"] == "rejected"
+    assert saved["note"] == "Please make it smaller."
+
+
 def test_approving_makes_the_changes_and_says_what_they_did(
     ready: TestClient, fake_ai: FakeAI, session: Session
 ) -> None:

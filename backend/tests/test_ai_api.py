@@ -18,7 +18,7 @@ from app.auth.crypto import SecretBox
 from app.models import AISettings, AIUsage, User
 from e2e.ai import DOWN_HOST, KEYS, FakeAI
 from tests.ai import LOCAL_URL, PROVIDERS, SECRETS, configure, household
-from tests.helpers import error, sign_in
+from tests.helpers import add_user, error, sign_in
 
 LONG_ENOUGH = "x" * 40
 
@@ -41,6 +41,17 @@ def stored(session: Session) -> AISettings:
         ("post", "/api/ai/models", {"provider": "ollama_cloud"}),
         ("post", "/api/ai/test", {"provider": "openai"}),
         ("post", "/api/ai/chat", {"messages": [{"role": "user", "content": "hi"}]}),
+        ("get", "/api/ai/conversations", None),
+        (
+            "get",
+            "/api/ai/conversations/2f6f1c1a-0000-4000-8000-000000000001",
+            None,
+        ),
+        (
+            "delete",
+            "/api/ai/conversations/2f6f1c1a-0000-4000-8000-000000000001",
+            None,
+        ),
         ("post", "/api/ai/search", {"query": "coffee"}),
         ("post", "/api/ai/automation-suggestions", None),
         ("post", "/api/ai/statements", {"file_name": "a.pdf", "content": "JVBERg=="}),
@@ -82,6 +93,17 @@ def test_signing_in_is_required_for_every_ai_endpoint(
         ("post", "/api/ai/statements", {"file_name": "a.pdf", "content": "JVBERg=="}),
         ("post", "/api/ai/automation-suggestions", None),
         ("post", "/api/ai/chat", {"messages": [{"role": "user", "content": "hi"}]}),
+        ("get", "/api/ai/conversations", None),
+        (
+            "get",
+            "/api/ai/conversations/2f6f1c1a-0000-4000-8000-000000000001",
+            None,
+        ),
+        (
+            "delete",
+            "/api/ai/conversations/2f6f1c1a-0000-4000-8000-000000000001",
+            None,
+        ),
         ("get", "/api/ai/usage", None),
         ("get", "/api/ai/reviews", None),
         ("get", "/api/ai/reviews/2f6f1c1a-0000-4000-8000-000000000001", None),
@@ -583,6 +605,101 @@ def question(client: TestClient, text: str = "How much did I spend?", **fields: 
     return client.post(
         "/api/ai/chat", json={"messages": [{"role": "user", "content": text}], **fields}
     )
+
+
+def test_a_question_is_saved_in_history_and_the_conversation_can_continue(
+    admin_client: TestClient, session: Session, fake_ai: FakeAI
+) -> None:
+    household(session)
+    configure(admin_client)
+
+    first = question(admin_client, "  How much on groceries?  ")
+
+    assert first.status_code == 200, first.text
+    conversation_id = first.json()["conversation_id"]
+    first_detail = admin_client.get(f"/api/ai/conversations/{conversation_id}").json()
+    assert first_detail["title"] == "How much on groceries?"
+    assert first_detail["message_count"] == 2
+    assert [(item["role"], item["content"]) for item in first_detail["messages"]] == [
+        ("user", "How much on groceries?"),
+        ("assistant", first.json()["reply"]),
+    ]
+
+    second = admin_client.post(
+        "/api/ai/chat",
+        json={
+            "conversation_id": conversation_id,
+            "messages": [
+                {"role": "user", "content": "How much on groceries?"},
+                {"role": "assistant", "content": first.json()["reply"]},
+                {"role": "user", "content": "And coffee?"},
+            ],
+        },
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["conversation_id"] == conversation_id
+    detail = admin_client.get(f"/api/ai/conversations/{conversation_id}").json()
+    assert detail["message_count"] == 4
+    assert [item["role"] for item in detail["messages"]] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert detail["messages"][2]["content"] == "And coffee?"
+    assert detail["updated_at"] >= first_detail["updated_at"]
+
+    [listed] = admin_client.get("/api/ai/conversations").json()
+    assert (listed["id"], listed["title"], listed["message_count"]) == (
+        conversation_id,
+        "How much on groceries?",
+        4,
+    )
+    assert fake_ai.requests
+
+
+def test_chat_history_titles_are_short_and_unknown_conversations_are_not_found(
+    admin_client: TestClient, session: Session, fake_ai: FakeAI
+) -> None:
+    household(session)
+    configure(admin_client)
+    response = question(admin_client, "x" * 81)
+    conversation_id = response.json()["conversation_id"]
+    [listed] = admin_client.get("/api/ai/conversations").json()
+    assert listed["id"] == conversation_id
+    assert listed["title"] == f"{'x' * 77}..."
+
+    unknown = "2f6f1c1a-0000-4000-8000-000000000001"
+    assert error(admin_client.get(f"/api/ai/conversations/{unknown}")) == "not_found"
+    assert error(admin_client.delete(f"/api/ai/conversations/{unknown}")) == "not_found"
+    before = len(fake_ai.requests)
+    assert error(question(admin_client, "Do not send this", conversation_id=unknown)) == "not_found"
+    assert len(fake_ai.requests) == before
+
+
+def test_chat_history_is_admin_owned_and_can_be_deleted(
+    admin_client: TestClient, admin: User, session: Session, settings: Any
+) -> None:
+    household(session)
+    configure(admin_client)
+    conversation_id = question(admin_client).json()["conversation_id"]
+    other = add_user(session, settings, email="history@example.com", name="History Admin")
+    sign_in(admin_client, other.email)
+
+    assert admin_client.get("/api/ai/conversations").json() == []
+    assert error(admin_client.get(f"/api/ai/conversations/{conversation_id}")) == "not_found"
+    assert error(admin_client.delete(f"/api/ai/conversations/{conversation_id}")) == "not_found"
+
+    sign_in(admin_client, admin.email)
+    token = admin_client.headers.pop("X-CSRF-Token")
+    assert error(admin_client.delete(f"/api/ai/conversations/{conversation_id}")) == "csrf"
+    admin_client.headers["X-CSRF-Token"] = token
+    deleted = admin_client.delete(f"/api/ai/conversations/{conversation_id}")
+
+    assert deleted.status_code == 204
+    assert admin_client.get("/api/ai/conversations").json() == []
+    assert error(admin_client.get(f"/api/ai/conversations/{conversation_id}")) == "not_found"
 
 
 def test_a_question_cant_be_asked_until_ai_is_set_up(admin_client: TestClient) -> None:

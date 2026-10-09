@@ -55,6 +55,65 @@ test.describe('Asking the AI', () => {
       await expect(aiPage.welcome).toBeVisible()
     })
 
+    test('a new chat keeps previous text conversations in history', async ({ aiPage, apiAs }) => {
+      await setUpAi(await apiAs('admin'))
+      await aiPage.goto()
+      const question = 'How much did I spend on groceries last month?'
+
+      await aiPage.ask(question)
+      await aiPage.clear.click()
+      await expect(aiPage.messages).toHaveCount(0)
+
+      await aiPage.openChatHistory()
+      const saved = aiPage.chatHistoryItems.filter({ hasText: question })
+      await expect(saved).toBeVisible()
+      await saved.click()
+
+      await expect(aiPage.chatHistoryDialog).toBeHidden()
+      await expect(aiPage.messages).toHaveCount(2)
+      await expect(aiPage.messages.first()).toContainText(question)
+      await expect(aiPage.messages.last()).toContainText(question)
+      await expect(aiPage.proposals).toHaveCount(0)
+    })
+
+    test('history restores proposal decisions and can permanently delete a chat', async ({
+      aiPage,
+      apiAs,
+    }) => {
+      const api = await apiAs('admin')
+      await setUpAi(api)
+      await aiPage.goto()
+      const question = 'Create a Vacation budget of $200 a month'
+      const reason = 'Please make the budget $150 instead.'
+
+      await aiPage.ask(question)
+      await expect(aiPage.proposal.getByTestId('proposal-status')).toHaveText('Pending approval')
+      await aiPage.clear.click()
+      await aiPage.openChatHistory()
+      await aiPage.chatHistoryItems.filter({ hasText: question }).click()
+
+      await expect(aiPage.proposal.getByTestId('proposal-approve')).toBeVisible()
+      await aiPage.rejectProposal(reason)
+      await expect(aiPage.messages.nth(2)).toContainText(reason)
+
+      await aiPage.clear.click()
+      await aiPage.openChatHistory()
+      await aiPage.chatHistoryItems.filter({ hasText: question }).click()
+      const rejected = aiPage.proposals.filter({ hasText: 'Rejected' })
+      await expect(rejected).toHaveCount(1)
+      await expect(rejected.getByTestId('proposal-note')).toContainText(reason)
+      await expect(rejected.getByTestId('proposal-approve')).toHaveCount(0)
+      await expect(rejected.getByTestId('proposal-reject')).toHaveCount(0)
+
+      await aiPage.openChatHistory()
+      const saved = aiPage.chatHistoryItems.filter({ hasText: question })
+      await saved.getByTestId('chat-history-delete').click()
+      await expect(aiPage.page.getByTestId('chat-history-confirm')).toContainText(question)
+      await aiPage.page.getByTestId('chat-history-delete-confirm').click()
+      await expect(aiPage.chatHistoryEmpty).toBeVisible()
+      expect(await api.get<unknown[]>('/ai/conversations')).toEqual([])
+    })
+
     test('a suggested question can be asked with a tap', async ({ aiPage, apiAs }) => {
       await setUpAi(await apiAs('admin'), 'anthropic')
       await aiPage.goto()

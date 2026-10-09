@@ -193,6 +193,18 @@ class AIUsage(Base):
     )
 
 
+class AIConversation(TimestampMixin, Base):
+    """A user's saved text chat. Statement files and their extracted rows are never kept here."""
+
+    __tablename__ = "ai_conversations"
+    __table_args__ = (Index("ix_ai_conversations_user_id_updated_at", "user_id", "updated_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(USERS, ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(120))
+    messages: Mapped[list[dict[str, str]]] = mapped_column(JSON_TYPE, default=list)
+
+
 class AIProposal(Base):
     """Changes the AI would make to the household's records, kept until an admin decides on them.
 

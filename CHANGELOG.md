@@ -12,6 +12,7 @@ and give it a version and a date when you cut a release (see Releases in the
 
 - Migration `0017` adds persistent AI proposals, including their pending, approved or rejected
   status and any context given when they were rejected.
+- Migration `0018` adds per-admin AI chat history, which can be viewed and deleted from the AI tab.
 
 ### Added
 
@@ -28,6 +29,9 @@ and give it a version and a date when you cut a release (see Releases in the
 - **Admin-only AI access.** The AI page, chat, settings and proposal decisions are restricted to
   admins; read-only settings and transaction search remain available to other signed-in users
   where the rest of the app needs them.
+- **AI chat history.** Text questions and answers are saved on the Cashcove server, so a new chat
+  no longer loses the previous one. Open **History** to revisit or permanently delete a
+  conversation. PDF statements and their extracted rows are not saved in chat history.
 
 ## 0.2.4 - 2026-10-06
 

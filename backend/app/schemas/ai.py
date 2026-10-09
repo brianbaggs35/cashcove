@@ -161,6 +161,7 @@ class ChatIn(BaseModel):
     model_config = STRICT
 
     messages: Annotated[list[ChatTurn], Field(min_length=1, max_length=24)]
+    conversation_id: uuid.UUID | None = None
     # The date where the person is, which "this month" and "last week" are measured from.
     today: Day | None = None
 
@@ -233,8 +234,27 @@ class ProposalPage(BaseModel):
 
 class ChatOut(BaseModel):
     reply: str
+    conversation_id: uuid.UUID
     # Changes the AI would make, which wait for an admin to approve or turn them down.
     proposal: ProposalOut | None = None
+
+
+class ChatConversationOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    message_count: int
+
+
+class ChatConversationMessageOut(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    proposal: ProposalOut | None = None
+
+
+class ChatConversationDetailOut(ChatConversationOut):
+    messages: list[ChatConversationMessageOut]
 
 
 class StatementIn(BaseModel):

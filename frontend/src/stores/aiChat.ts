@@ -3,7 +3,11 @@ import { computed, markRaw, ref } from 'vue'
 
 import {
   askAi,
+  deleteAiConversation,
+  fetchAiConversation,
+  fetchAiConversations,
   readStatementWithAi,
+  type AiConversationSummary,
   type AiProposal,
   type ChatTurn,
   type StatementReading,
@@ -67,11 +71,15 @@ export function recentTurns(messages: readonly ChatMessage[]): ChatTurn[] {
 }
 
 /**
- * The conversation with the AI. It's kept for as long as the page is open, so moving between the
- * AI tab's pages doesn't lose it, and never stored anywhere.
+ * The current conversation with the AI, and its saved text history. Uploaded statement files and
+ * their extracted rows stay in the current page only and are never added to the history.
  */
 export const useAiChat = defineStore('ai-chat', () => {
   const messages = ref<ChatMessage[]>([])
+  const conversationId = ref<string | null>(null)
+  const history = ref<AiConversationSummary[]>([])
+  const historyLoading = ref(false)
+  const historyError = ref<string | null>(null)
   /** The AI is working, on an answer or on reading a statement. */
   const busy = ref(false)
   const error = ref<string | null>(null)
@@ -89,7 +97,8 @@ export const useAiChat = defineStore('ai-chat', () => {
     error.value = null
     code.value = null
     try {
-      const answer = await askAi(recentTurns(messages.value), todayIso())
+      const answer = await askAi(recentTurns(messages.value), todayIso(), conversationId.value)
+      conversationId.value = answer.conversation_id
       const message: TextMessage = {
         kind: 'text',
         id: ++counter,
@@ -189,12 +198,73 @@ export const useAiChat = defineStore('ai-chat', () => {
 
   function clear(): void {
     messages.value = []
+    conversationId.value = null
     error.value = null
     code.value = null
+    historyError.value = null
+  }
+
+  async function loadHistory(): Promise<void> {
+    historyLoading.value = true
+    historyError.value = null
+    try {
+      history.value = await fetchAiConversations()
+    } catch (loadError) {
+      historyError.value = errorMessage(loadError)
+    } finally {
+      historyLoading.value = false
+    }
+  }
+
+  async function restore(id: string): Promise<boolean> {
+    historyLoading.value = true
+    historyError.value = null
+    try {
+      const saved = await fetchAiConversation(id)
+      messages.value = saved.messages.map(({ role, content, proposal }) => {
+        const message: TextMessage = {
+          kind: 'text',
+          id: ++counter,
+          role,
+          content,
+        }
+        if (proposal) message.proposal = proposal
+        return message
+      })
+      conversationId.value = saved.id
+      error.value = null
+      code.value = null
+      return true
+    } catch (loadError) {
+      historyError.value = errorMessage(loadError)
+      return false
+    } finally {
+      historyLoading.value = false
+    }
+  }
+
+  async function deleteHistory(id: string): Promise<boolean> {
+    historyLoading.value = true
+    historyError.value = null
+    try {
+      await deleteAiConversation(id)
+      history.value = history.value.filter((conversation) => conversation.id !== id)
+      if (conversationId.value === id) clear()
+      return true
+    } catch (deleteError) {
+      historyError.value = errorMessage(deleteError)
+      return false
+    } finally {
+      historyLoading.value = false
+    }
   }
 
   return {
     messages,
+    conversationId,
+    history,
+    historyLoading,
+    historyError,
     busy,
     reading,
     error,
@@ -206,5 +276,8 @@ export const useAiChat = defineStore('ai-chat', () => {
     cancel,
     imported,
     clear,
+    loadHistory,
+    restore,
+    deleteHistory,
   }
 })
