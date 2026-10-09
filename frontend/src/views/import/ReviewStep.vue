@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { ArrowLeftRight, BookmarkCheck, Link, Plus, Sparkles, WandSparkles } from '@lucide/vue'
+import {
+  ArrowLeftRight,
+  BookmarkCheck,
+  CircleAlert,
+  Link,
+  Plus,
+  Sparkles,
+  WandSparkles,
+} from '@lucide/vue'
 import { computed, nextTick, useTemplateRef, watch } from 'vue'
 
 import type { Account } from '@/api/accounts'
@@ -100,6 +108,16 @@ const bankNote = computed(() => {
     return `Plaid brings in ${name}’s transactions from ${from} on, so ${rows} from then ${start} unticked. Tick any the bank missed.`
   const end = formatListDate(history.end, locale.value)
   return `Plaid brought in ${name}’s transactions from ${from} to ${end}, so ${rows} from those days ${start} unticked.`
+})
+
+const possibleDuplicateNote = computed(() => {
+  const count = preview.value.summary.possible_duplicates
+  if (!count) return null
+  const accountName = (wizard.account as Account).name
+  if (count === 1) {
+    return `1 possible duplicate may already be in ${accountName}. It starts unticked; review it and tick it if it’s a separate transaction.`
+  }
+  return `${count.toLocaleString('en-US')} possible duplicates may already be in ${accountName}. They start unticked; review each and tick any that are separate transactions.`
 })
 
 /** How many of the new rows automations will sort. */
@@ -240,6 +258,17 @@ const saveLabel = computed(() =>
     </div>
 
     <template v-if="wizard.account">
+      <v-alert
+        v-if="possibleDuplicateNote"
+        :icon="CircleAlert"
+        color="warning"
+        variant="tonal"
+        density="compact"
+        class="mt-3"
+        :text="possibleDuplicateNote"
+        data-test="review-possible-duplicates"
+      />
+
       <v-alert
         v-if="bankNote"
         :icon="Link"

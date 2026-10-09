@@ -91,7 +91,7 @@ describe('ReviewRows', () => {
       find('review-filters')
         .findAll('.v-chip')
         .map((chip) => chip.text().replace(/\s+/g, ' ')),
-    ).toEqual(['All 4', 'New 1', 'Maybe there 1', 'Already there 1', 'Can’t be read 1'])
+    ).toEqual(['All 4', 'New 1', 'Possible duplicates 1', 'Already there 1', 'Can’t be read 1'])
     const [paid, groceries, coffee, pending] = rows()
     expect(paid!.element.tagName).toBe('LABEL')
     expect(paid!.classes()).toContain('review-rows__row--chosen')
@@ -106,7 +106,7 @@ describe('ReviewRows', () => {
 
     expect(coffee!.classes()).not.toContain('review-rows__row--chosen')
     expect(coffee!.find('[data-test="review-row-note"]').text()).toBe(
-      'Might be Blue Bottle on Sep 4, from the bank',
+      'Possible duplicate: Blue Bottle on Sep 4, from the bank',
     )
 
     expect(pending!.text()).toContain('Line 5')
@@ -206,7 +206,7 @@ describe('ReviewRows', () => {
     const notes = rows().map((row) => row.find('[data-test="review-row-note"]'))
     expect(notes[0]!.text()).toBe('NORTHWIND HEALTH PAYROLL PPD')
     expect(notes[1]!.text()).toBe('On a day the bank already shared through Plaid')
-    expect(notes[2]!.text()).toBe('Might already be in the account')
+    expect(notes[2]!.text()).toBe('Possible duplicate in the account')
     expect(notes[3]!.exists()).toBe(false)
     expect(rows()[3]!.text()).toBe('Sep 1Unknown payee')
     expect(rows()[1]!.text()).toContain('+$1,875.00')

@@ -112,6 +112,31 @@ describe('ReviewStep', () => {
     expect(wrapper.emitted('add-account')).toHaveLength(1)
   })
 
+  it('asks whether to import possible duplicates, which start unticked', async () => {
+    const preview = makePreview({ rows: [makeRow({ status: 'possible_duplicate' })] })
+    const { wizard, find } = await render(preview)
+
+    expect(find('review-possible-duplicates').text()).toBe(
+      '1 possible duplicate may already be in Everyday checking. It starts unticked; review it and tick it if it’s a separate transaction.',
+    )
+    expect(wizard.selected).toEqual([])
+  })
+
+  it('counts multiple possible duplicates together', async () => {
+    const preview = makePreview({
+      rows: [
+        makeRow({ status: 'possible_duplicate' }),
+        makeRow({ line: 3, status: 'possible_duplicate' }),
+      ],
+    })
+    const { wizard, find } = await render(preview)
+
+    expect(find('review-possible-duplicates').text()).toBe(
+      '2 possible duplicates may already be in Everyday checking. They start unticked; review each and tick any that are separate transactions.',
+    )
+    expect(wizard.selected).toEqual([])
+  })
+
   it('lists the accounts it could go in', async () => {
     const { find, chooseAccount } = await render()
     await find('review-account').find('.v-field').trigger('mousedown')
