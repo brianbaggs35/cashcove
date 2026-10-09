@@ -31,7 +31,7 @@ const titles: Record<Filter, string> = {
   all: 'All',
   check: 'Needs a look',
   new: 'New',
-  possible_duplicate: 'Maybe there',
+  possible_duplicate: 'Possible duplicates',
   duplicate: 'Already there',
   invalid: 'Can’t be read',
 }
@@ -103,8 +103,8 @@ function note(row: PreviewRow): string | null {
       return `Already in ${accountName.value}`
     case 'possible_duplicate':
       return match
-        ? `Might be ${match.payee} on ${day(match.date)}, ${SOURCES[match.source]}`
-        : `Might already be in ${accountName.value}`
+        ? `Possible duplicate: ${match.payee} on ${day(match.date)}, ${SOURCES[match.source]}`
+        : `Possible duplicate in ${accountName.value}`
     default:
       if (coveredByBank(row, preview.value.bank_history))
         return 'On a day the bank already shared through Plaid'

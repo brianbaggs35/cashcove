@@ -33,6 +33,12 @@ and give it a version and a date when you cut a release (see Releases in the
   no longer loses the previous one. Open **History** to revisit or permanently delete a
   conversation. PDF statements and their extracted rows are not saved in chat history.
 
+### Changed
+
+- **Import duplicate review.** File and AI statement imports flag transactions matching an
+  existing date, payee and amount as possible duplicates. They start unticked, so they are
+  excluded by default and can be included if they are separate transactions.
+
 ## 0.2.4 - 2026-10-06
 
 ### Upgrading

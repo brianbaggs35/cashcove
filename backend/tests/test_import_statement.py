@@ -126,19 +126,37 @@ def test_the_preview_reads_it_as_a_pdf_and_checks_it_against_the_account(
     assert preview["balance"]["suggested"] in {"move", "keep"}
 
 
-def test_a_row_the_account_has_already_is_a_duplicate(
+def test_a_row_matching_the_date_payee_and_amount_is_a_possible_duplicate(
     admin_client: TestClient, checking: Account, session: Session
 ) -> None:
-    add_transaction(session, checking, "-84.12", "Whole Foods", date=dt.date(2026, 9, 3))
+    add_transaction(
+        session,
+        checking,
+        "-84.12",
+        "Whole Foods",
+        date=dt.date(2026, 9, 3),
+        original_description="WHOLEFDS MARKET #123",
+    )
 
     preview = previewed(admin_client, document(*ROWS), account_id=str(checking.id))
 
-    assert [row["status"] for row in preview["rows"]] == ["duplicate", "new"]
+    assert [row["status"] for row in preview["rows"]] == ["possible_duplicate", "new"]
+    assert preview["rows"][0]["match"]["payee"] == "Whole Foods"
 
 
 def test_importing_it_adds_the_rows_chosen_and_remembers_it_came_from_a_pdf(
     admin_client: TestClient, checking: Account, session: Session
 ) -> None:
+    add_transaction(
+        session,
+        checking,
+        "-84.12",
+        "Whole Foods",
+        date=dt.date(2026, 9, 3),
+        original_description="WHOLEFDS MARKET #123",
+    )
+    session.refresh(checking)
+    starting_balance = checking.balance
     response = admin_client.post(
         "/api/imports",
         json=upload(
@@ -146,14 +164,14 @@ def test_importing_it_adds_the_rows_chosen_and_remembers_it_came_from_a_pdf(
             file_name="september.pdf",
             options={},
             account_id=str(checking.id),
-            lines=[1, 2],
+            lines=[2],
             balance="move",
         ),
     )
 
     assert response.status_code == 201, response.text
     body = response.json()
-    assert (body["format"], body["file_name"], body["added"]) == ("pdf", "september.pdf", 2)
+    assert (body["format"], body["file_name"], body["added"]) == ("pdf", "september.pdf", 1)
     record = session.scalars(select(FileImport)).one()
     assert record.format == FileFormat.PDF
     session.expire_all()
@@ -162,10 +180,38 @@ def test_importing_it_adds_the_rows_chosen_and_remembers_it_came_from_a_pdf(
         ("Whole Foods", Decimal("-84.12")),
         ("Acme Corp", Decimal("2400.00")),
     ]
-    assert all(item.import_id == record.id for item in transactions)
+    assert [item.import_id for item in transactions] == [None, record.id]
     stored = session.get(Account, checking.id)
     assert stored is not None
-    assert stored.balance == Decimal("3315.88")
+    assert stored.balance == starting_balance + Decimal("2400.00")
+
+
+def test_a_possible_duplicate_can_be_imported_when_chosen(
+    admin_client: TestClient, checking: Account, session: Session
+) -> None:
+    add_transaction(
+        session,
+        checking,
+        "-84.12",
+        "Whole Foods",
+        date=dt.date(2026, 9, 3),
+        original_description="WHOLEFDS MARKET #123",
+    )
+    response = admin_client.post(
+        "/api/imports",
+        json=upload(
+            document(*ROWS),
+            file_name="september.pdf",
+            options={},
+            account_id=str(checking.id),
+            lines=[1],
+            balance="keep",
+        ),
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["added"] == 1
+    assert session.scalar(select(Transaction).where(Transaction.import_id.is_not(None))) is not None
 
 
 def test_a_document_that_isnt_one_cant_be_previewed(admin_client: TestClient) -> None:

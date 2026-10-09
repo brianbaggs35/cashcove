@@ -136,7 +136,8 @@ class _Existing:
             )
         )
         for row in self.rows:
-            self.by_content[(row.date, row.amount, _described(row))].append(row)
+            for description in {_described(row), text_key(row.payee)}:
+                self.by_content[(row.date, row.amount, description)].append(row)
             self.by_amount[row.amount].append(row)
         # An account has each ID once, however long ago it came in.
         ids = sorted({row.external_id for row in rows if row.external_id})
@@ -277,20 +278,23 @@ def _same_ids(rows: list[FileRow]) -> set[int]:
 def _matched(
     existing: _Existing, rows: list[FileRow]
 ) -> tuple[dict[int, Transaction], dict[int, Transaction]]:
-    """By line, the transactions the account already has for rows, and ones it might have."""
+    """By line, transactions identified by bank ID and ones the account might already have."""
     matches: dict[int, Transaction] = {}
-    # Matched by ID first, then by date, amount and description, so neither takes a
-    # transaction a stronger match would have claimed.
-    for find in (existing.same_id, existing.same):
-        for row in rows:
-            if row.line not in matches and (found := find(row)) is not None:
-                matches[row.line] = found
-    near = {
-        row.line: found
-        for row in rows
-        if row.line not in matches and (found := existing.near(row)) is not None
-    }
-    return matches, near
+    for row in rows:
+        if (found := existing.same_id(row)) is not None:
+            matches[row.line] = found
+    possible: dict[int, Transaction] = {}
+    for row in rows:
+        if row.line not in matches and (found := existing.same(row)) is not None:
+            possible[row.line] = found
+    for row in rows:
+        if (
+            row.line not in matches
+            and row.line not in possible
+            and (found := existing.near(row)) is not None
+        ):
+            possible[row.line] = found
+    return matches, possible
 
 
 def review(db: Session, rows: list[FileRow], account: Account | None) -> list[Reviewed]:
@@ -298,7 +302,7 @@ def review(db: Session, rows: list[FileRow], account: Account | None) -> list[Re
     readable = [row for row in rows if row.problem is None]
     repeats = _same_ids(readable)
     fresh = [row for row in readable if row.line not in repeats]
-    matches, near = _matched(_Existing(db, account, readable), fresh)
+    matches, possible = _matched(_Existing(db, account, readable), fresh)
     namer = Namer(db, fresh)
     results: list[Reviewed] = []
     for row in rows:
@@ -311,6 +315,6 @@ def review(db: Session, rows: list[FileRow], account: Account | None) -> list[Re
             results.append(Reviewed(row, "duplicate", match=matches[row.line]))
         else:
             payee, category_id = namer.name(row)
-            status: RowStatus = "possible_duplicate" if row.line in near else "new"
-            results.append(Reviewed(row, status, payee, category_id, near.get(row.line)))
+            status: RowStatus = "possible_duplicate" if row.line in possible else "new"
+            results.append(Reviewed(row, status, payee, category_id, possible.get(row.line)))
     return results
