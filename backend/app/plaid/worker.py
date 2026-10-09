@@ -15,6 +15,7 @@ import httpx2 as httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.alerts.worker import run_alert_checks
 from app.auth.service import load_preferences, plaid_box
 from app.config import Settings, get_settings
 from app.db import get_sessionmaker
@@ -67,7 +68,13 @@ def run_due(
             try:
                 with sessions() as db:
                     synced += sync_connection(
-                        db, plaid, box, connection_id, trigger, default_currency=currency
+                        db,
+                        plaid,
+                        box,
+                        connection_id,
+                        trigger,
+                        default_currency=currency,
+                        settings=settings,
                     )
             except Exception:
                 # One connection's bug shouldn't hold up the others.
@@ -89,6 +96,11 @@ def serve(
             run_due(sessions, settings, transport)
         except Exception:
             log.exception("Checking for connections to sync failed")
+        try:
+            with sessions() as db:
+                run_alert_checks(db, settings)
+        except Exception:
+            log.exception("Checking household alerts failed")
     log.info("Stopped syncing")
 
 

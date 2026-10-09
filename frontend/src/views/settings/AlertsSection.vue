@@ -11,6 +11,7 @@ import {
 
 import { currencySymbol } from '@/utils/format'
 import AlertRow from '@/views/settings/AlertRow.vue'
+import AlertDeliverySection from '@/views/settings/AlertDeliverySection.vue'
 import PreferencesGate from '@/views/settings/PreferencesGate.vue'
 import SettingsCard from '@/views/settings/SettingsCard.vue'
 
@@ -23,7 +24,7 @@ const amountRules = [
   <PreferencesGate v-slot="{ draft }">
     <SettingsCard
       title="Alerts"
-      subtitle="Cashcove shows these alerts in the app. Turn off anything you don't want to hear about."
+      subtitle="Choose what Cashcove alerts you want. These rules apply to in-app and delivered alerts."
       :icon="Bell"
     >
       <AlertRow
@@ -144,4 +145,5 @@ const amountRules = [
       />
     </SettingsCard>
   </PreferencesGate>
+  <AlertDeliverySection />
 </template>

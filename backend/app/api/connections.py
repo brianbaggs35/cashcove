@@ -105,6 +105,7 @@ def update_accounts(
         connection.id,
         SyncTrigger.LINKED if first_time else SyncTrigger.MANUAL,
         default_currency=preferences.general.currency,
+        settings=settings,
     )
     return _out(db, connection_id)
 
@@ -153,6 +154,7 @@ def sync_now(
         connection.id,
         trigger,
         default_currency=load_preferences(db).general.currency,
+        settings=settings,
     )
     if not started:
         raise ApiError(
