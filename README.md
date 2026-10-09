@@ -190,6 +190,12 @@ bill from the payment that paid it, and Cashcove links every other payment like 
 already there, and each one that comes later, from Plaid, a statement file or by hand. For a
 payee that's written differently from one source to the next, an automation links them all.
 
+**Settings > Alerts** also sends configured alert rules—upcoming bills and subscriptions, low
+balances, large transactions, budget thresholds and bank-sync problems—by email, Discord, or
+both. An admin can add a Discord webhook or an SMTP server there; the SMTP **Test connection**
+button sends a test email to the chosen recipient. SMTP usernames and passwords and Discord
+webhook URLs are encrypted in the database and never shown again.
+
 Both can have a **category**, which their linked payments take. Deleting a category moves the
 subscriptions, bills and automations that use it along with its transactions when you choose
 somewhere to move them, and otherwise leaves all of them uncategorized.

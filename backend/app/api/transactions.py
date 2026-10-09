@@ -9,7 +9,8 @@ from fastapi import APIRouter, Query, status
 from sqlalchemy import case, delete, desc, func, select
 from sqlalchemy.orm import Session
 
-from app.auth.deps import AdminAuth, ApiError, CurrentAuth, Db
+from app.alerts.service import enqueue_large_transaction
+from app.auth.deps import AdminAuth, ApiError, AppSettings, CurrentAuth, Db
 from app.finance.accounts import get_account, move_balance, writable_account
 from app.finance.automations import RuleBook
 from app.finance.categories import find_category
@@ -115,7 +116,9 @@ def suggest_payees(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_transaction(body: TransactionCreate, auth: AdminAuth, db: Db) -> TransactionOut:
+def create_transaction(
+    body: TransactionCreate, auth: AdminAuth, db: Db, settings: AppSettings
+) -> TransactionOut:
     """Adds a transaction by hand. A manual account's balance moves with it."""
     account = writable_account(db, body.account_id)
     find_category(db, body.category_id)
@@ -134,6 +137,7 @@ def create_transaction(body: TransactionCreate, auth: AdminAuth, db: Db) -> Tran
     db.add(transaction)
     move_balance(account, body.amount, utcnow())
     db.commit()
+    enqueue_large_transaction(db, settings, transaction)
     return TransactionOut.model_validate(transaction)
 
 

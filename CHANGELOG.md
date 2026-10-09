@@ -32,6 +32,9 @@ and give it a version and a date when you cut a release (see Releases in the
 - **AI chat history.** Text questions and answers are saved on the Cashcove server, so a new chat
   no longer loses the previous one. Open **History** to revisit or permanently delete a
   conversation. PDF statements and their extracted rows are not saved in chat history.
+- **Email and Discord alerts.** Send large-transaction, low-balance, budget, upcoming payment and
+  bank-sync alerts through an SMTP server, a Discord webhook, or both. Settings test each channel;
+  SMTP passwords and usernames, and Discord webhook URLs, are encrypted in the database.
 
 ### Changed
 
