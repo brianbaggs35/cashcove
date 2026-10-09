@@ -20,6 +20,7 @@ Before reporting a change as complete:
 3. For frontend changes, run `cd frontend && npm run lint -- --max-warnings=0 && npm run format:check && npm run typecheck`.
 4. For broad changes or before a pull request, run `make lint` and `make test`. CI also runs `make audit` and `make e2e`; consult `.github/workflows/ci.yml` for the full checks and their environment requirements.
 5. In the final response, state which checks actually passed. Do not imply a check ran if it did not; call out failures or unavailable dependencies/services.
+6. Sonarqube scan. Use the IDE sonarqube scan if available. If not, fall back to the command line scanner.
 
 `make test` requires Docker for the backend's throwaway PostgreSQL database. Backend and frontend test suites enforce 100% coverage, so add or update tests when changing behavior.
 
