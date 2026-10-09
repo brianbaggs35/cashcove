@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 
 import * as api from '@/api/ai'
+import type { AiChatReply, AiConversation, AiConversationSummary } from '@/api/ai'
 import { ApiError } from '@/api/client'
 import {
   MAX_LENGTH,
@@ -13,6 +14,26 @@ import {
 import { makeStatementReading } from '@/test/ai'
 import { later, makeImport } from '@/test/imports'
 import * as dates from '@/utils/dates'
+
+function chatReply(reply: string): AiChatReply {
+  return { reply, conversation_id: 'conversation-1' }
+}
+
+const savedSummary: AiConversationSummary = {
+  id: 'conversation-1',
+  title: 'How much on groceries?',
+  created_at: '2026-09-20T12:00:00Z',
+  updated_at: '2026-09-20T12:05:00Z',
+  message_count: 2,
+}
+
+const savedConversation: AiConversation = {
+  ...savedSummary,
+  messages: [
+    { role: 'user', content: 'How much on groceries?' },
+    { role: 'assistant', content: 'About $84.12.' },
+  ],
+}
 
 function conversation(...roles: ('user' | 'assistant')[]): ChatMessage[] {
   return roles.map((role, index) => ({
@@ -95,7 +116,7 @@ describe('ai chat store', () => {
   })
 
   it('asks a question and keeps the answer', async () => {
-    const ask = vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'About 84.12.' })
+    const ask = vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('About 84.12.'))
     const chat = useAiChat()
 
     const sent = await chat.send('  How much on groceries?  ')
@@ -104,7 +125,9 @@ describe('ai chat store', () => {
     expect(ask).toHaveBeenCalledWith(
       [{ role: 'user', content: 'How much on groceries?' }],
       '2026-09-20',
+      null,
     )
+    expect(chat.conversationId).toBe('conversation-1')
     expect(said(chat)).toEqual([
       ['user', 'How much on groceries?'],
       ['assistant', 'About 84.12.'],
@@ -114,7 +137,7 @@ describe('ai chat store', () => {
   })
 
   it('sends the whole conversation each time', async () => {
-    const ask = vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Ok.' })
+    const ask = vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('Ok.'))
     const chat = useAiChat()
 
     await chat.send('One')
@@ -127,11 +150,12 @@ describe('ai chat store', () => {
         { role: 'user', content: 'Two' },
       ],
       '2026-09-20',
+      'conversation-1',
     )
   })
 
   it('is busy while it waits, and won’t ask two things at once', async () => {
-    const answer = later<{ reply: string }>()
+    const answer = later<AiChatReply>()
     const ask = vi.spyOn(api, 'askAi').mockReturnValue(answer.promise)
     const chat = useAiChat()
 
@@ -141,7 +165,7 @@ describe('ai chat store', () => {
     expect(chat.reading).toBe(false)
     expect(await chat.send('Two')).toBe(false)
     expect(await chat.retry()).toBe(false)
-    answer.resolve({ reply: 'Fine.' })
+    answer.resolve(chatReply('Fine.'))
     await first
 
     expect(ask).toHaveBeenCalledTimes(1)
@@ -164,7 +188,7 @@ describe('ai chat store', () => {
       .mockRejectedValueOnce(
         new ApiError(502, 'The AI didn’t answer in time.', { code: 'ai_unreachable' }),
       )
-      .mockResolvedValueOnce({ reply: 'Here you go.' })
+      .mockResolvedValueOnce(chatReply('Here you go.'))
     const chat = useAiChat()
 
     expect(await chat.send('Hello?')).toBe(false)
@@ -202,6 +226,101 @@ describe('ai chat store', () => {
     expect(chat.messages).toEqual([])
     expect(chat.error).toBeNull()
     expect(chat.code).toBeNull()
+  })
+
+  it('loads saved history and reports a history error', async () => {
+    const fetch = vi
+      .spyOn(api, 'fetchAiConversations')
+      .mockResolvedValueOnce([savedSummary])
+      .mockRejectedValueOnce(new Error('History is offline.'))
+    const chat = useAiChat()
+
+    await chat.loadHistory()
+    expect(chat.history).toEqual([savedSummary])
+    expect(chat.historyLoading).toBe(false)
+    expect(chat.historyError).toBeNull()
+
+    await chat.loadHistory()
+    expect(chat.historyError).toBe('History is offline.')
+    expect(chat.historyLoading).toBe(false)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('restores a saved transcript and keeps using its conversation id', async () => {
+    const ask = vi
+      .spyOn(api, 'askAi')
+      .mockRejectedValueOnce(new ApiError(502, 'Offline.', { code: 'offline' }))
+      .mockResolvedValueOnce(chatReply('About coffee.'))
+    vi.spyOn(api, 'fetchAiConversation').mockResolvedValue(savedConversation)
+    const chat = useAiChat()
+    await chat.send('A failed question')
+
+    expect(await chat.restore('conversation-1')).toBe(true)
+    expect(said(chat)).toEqual([
+      ['user', 'How much on groceries?'],
+      ['assistant', 'About $84.12.'],
+    ])
+    expect(chat.conversationId).toBe('conversation-1')
+    expect(chat.error).toBeNull()
+    expect(chat.code).toBeNull()
+    expect(chat.historyError).toBeNull()
+
+    await chat.send('And coffee?')
+    expect(ask).toHaveBeenLastCalledWith(
+      [
+        { role: 'user', content: 'How much on groceries?' },
+        { role: 'assistant', content: 'About $84.12.' },
+        { role: 'user', content: 'And coffee?' },
+      ],
+      '2026-09-20',
+      'conversation-1',
+    )
+  })
+
+  it('leaves the current transcript alone when history cannot be restored', async () => {
+    vi.spyOn(api, 'fetchAiConversation').mockRejectedValue(new Error('This chat is gone.'))
+    vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('Current answer.'))
+    const chat = useAiChat()
+    await chat.send('Try a question')
+    const currentMessages = [...chat.messages]
+
+    expect(await chat.restore('missing')).toBe(false)
+    expect(chat.messages).toEqual(currentMessages)
+    expect(chat.conversationId).toBe('conversation-1')
+    expect(chat.historyError).toBe('This chat is gone.')
+    expect(chat.historyLoading).toBe(false)
+  })
+
+  it('deletes a history item and clears the current chat only when it was deleted', async () => {
+    const remove = vi.spyOn(api, 'deleteAiConversation').mockResolvedValue(undefined)
+    vi.spyOn(api, 'fetchAiConversation').mockResolvedValue(savedConversation)
+    const chat = useAiChat()
+    chat.history = [savedSummary, { ...savedSummary, id: 'conversation-2', title: 'A second chat' }]
+    await chat.restore('conversation-1')
+
+    expect(await chat.deleteHistory('conversation-2')).toBe(true)
+    expect(chat.history.map(({ id }) => id)).toEqual(['conversation-1'])
+    expect(chat.conversationId).toBe('conversation-1')
+    expect(chat.messages).toHaveLength(2)
+
+    expect(await chat.deleteHistory('conversation-1')).toBe(true)
+    expect(chat.history).toEqual([])
+    expect(chat.conversationId).toBeNull()
+    expect(chat.messages).toEqual([])
+    expect(chat.historyError).toBeNull()
+    expect(remove).toHaveBeenCalledTimes(2)
+    expect(chat.historyLoading).toBe(false)
+  })
+
+  it('keeps a conversation in history and reports when deletion fails', async () => {
+    vi.spyOn(api, 'deleteAiConversation').mockRejectedValue(new Error('Could not delete chat.'))
+    const chat = useAiChat()
+    chat.history = [savedSummary]
+
+    expect(await chat.deleteHistory('conversation-1')).toBe(false)
+    expect(chat.history).toEqual([savedSummary])
+    expect(chat.historyError).toBe('Could not delete chat.')
+    expect(chat.historyLoading).toBe(false)
   })
 })
 
@@ -282,7 +401,7 @@ describe('ai chat store, with a statement', () => {
   it('can be told to stop waiting, and then ignores the answer that comes', async () => {
     const answer = later<api.StatementReading>()
     vi.spyOn(api, 'readStatementWithAi').mockReturnValue(answer.promise)
-    vi.spyOn(api, 'askAi').mockResolvedValue({ reply: 'Fine.' })
+    vi.spyOn(api, 'askAi').mockResolvedValue(chatReply('Fine.'))
     const chat = useAiChat()
     const reading = chat.attach(pdf())
     await vi.waitFor(() => {
@@ -329,7 +448,7 @@ describe('ai chat store, with a statement', () => {
 
   it('won’t read a statement again while something else is going on', async () => {
     vi.spyOn(api, 'readStatementWithAi').mockRejectedValue(new Error('Offline'))
-    const answer = later<{ reply: string }>()
+    const answer = later<AiChatReply>()
     const chat = useAiChat()
     await chat.attach(pdf())
     vi.spyOn(api, 'askAi').mockReturnValue(answer.promise)
@@ -337,7 +456,7 @@ describe('ai chat store, with a statement', () => {
 
     expect(await chat.reread(chat.messages[1] as StatementMessage)).toBeNull()
 
-    answer.resolve({ reply: 'Hi.' })
+    answer.resolve(chatReply('Hi.'))
   })
 
   it('remembers what importing a statement’s transactions added', async () => {

@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { Eraser, FileText, FileUp, Paperclip, SendHorizontal, Sparkles, Upload } from '@lucide/vue'
+import {
+  Eraser,
+  FileText,
+  FileUp,
+  History,
+  Paperclip,
+  SendHorizontal,
+  Sparkles,
+  Trash2,
+  Upload,
+} from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
 
-import type { AiProposal, StatementReading } from '@/api/ai'
+import type { AiConversationSummary, AiProposal, StatementReading } from '@/api/ai'
+import AppDialog from '@/components/ui/AppDialog.vue'
+import RelativeTime from '@/components/ui/RelativeTime.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { MAX_LENGTH, useAiChat, type StatementMessage, type TextMessage } from '@/stores/aiChat'
 import { useImportWizard } from '@/stores/importWizard'
@@ -27,6 +39,9 @@ const end = ref<HTMLElement | null>(null)
 const picker = useTemplateRef<HTMLInputElement>('picker')
 /** Something attached that can't be read here, and where to go instead. */
 const problem = ref<string | null>(null)
+/** The saved text conversations, opened only when requested. */
+const historyOpen = ref(false)
+const deleteTarget = ref<AiConversationSummary | null>(null)
 /** The statement being opened for review, and the dialog it opens in. */
 const importing = ref(false)
 const opening = ref(false)
@@ -70,6 +85,20 @@ function updateProposal(message: TextMessage, proposal: AiProposal) {
 /** Rejection context is another user turn, so the AI can revise its proposal. */
 function explainRejection(note: string) {
   void chat.send(note)
+}
+
+async function showHistory() {
+  historyOpen.value = true
+  deleteTarget.value = null
+  await chat.loadHistory()
+}
+
+async function restoreConversation(id: string) {
+  if (await chat.restore(id)) historyOpen.value = false
+}
+
+async function removeConversation(id: string) {
+  if (await chat.deleteHistory(id)) deleteTarget.value = null
 }
 
 const NOT_A_PDF =
@@ -157,6 +186,7 @@ onMounted(() => void accounts.ensureLoaded())
 watch(
   () => [
     chat.messages.length,
+    chat.messages.map((message) => message.id).join(),
     chat.busy,
     chat.error,
     chat.messages.map((message) => (message.kind === 'statement' ? message.status : '')).join(),
@@ -171,6 +201,10 @@ watch(
 <template>
   <section aria-label="Ask the AI" data-test="ai-chat">
     <AiPrivacyNotice class="mb-4" />
+    <p class="text-body-small text-medium-emphasis mt-n2 mb-4" data-test="chat-history-note">
+      Text questions and answers are saved on this Cashcove server until deleted. PDF statements and
+      their extracted rows aren't saved in chat history.
+    </p>
 
     <v-alert
       v-if="problem"
@@ -209,6 +243,20 @@ watch(
       </div>
       <div class="d-flex align-center ga-2 px-5 pt-4">
         <h2 class="text-title-medium font-weight-bold ma-0 flex-grow-1">Your conversation</h2>
+        <v-tooltip text="Chat history" location="bottom">
+          <template #activator="{ props }">
+            <v-btn
+              v-bind="props"
+              :icon="History"
+              variant="text"
+              size="small"
+              aria-label="Chat history"
+              :disabled="chat.busy"
+              data-test="chat-history"
+              @click="showHistory"
+            />
+          </template>
+        </v-tooltip>
         <v-btn
           variant="text"
           size="small"
@@ -429,6 +477,112 @@ watch(
         </template>
       </v-textarea>
     </form>
+
+    <AppDialog
+      v-model="historyOpen"
+      title="Chat history"
+      subtitle="Your text chats are kept here until deleted. PDF statements and extracted rows aren't included."
+      :icon="History"
+      max-width="560"
+      data-test="chat-history-dialog"
+    >
+      <v-alert
+        v-if="chat.historyError"
+        type="error"
+        variant="tonal"
+        density="compact"
+        class="mb-4"
+        :text="chat.historyError"
+        data-test="chat-history-error"
+      />
+
+      <div v-if="deleteTarget" data-test="chat-history-confirm">
+        <p class="text-body-medium mb-1">
+          Delete <strong>{{ deleteTarget.title }}</strong
+          >?
+        </p>
+        <p class="text-body-small text-medium-emphasis mb-0">
+          This permanently removes the saved conversation and can't be undone. Any changes you
+          already approved remain in your records.
+        </p>
+      </div>
+
+      <template v-else>
+        <output
+          v-if="chat.historyLoading"
+          class="d-flex align-center justify-center ga-3 py-8"
+          data-test="chat-history-loading"
+        >
+          <v-progress-circular indeterminate size="20" width="2" color="primary" />
+          <span class="text-body-medium">Loading history…</span>
+        </output>
+
+        <v-list
+          v-else-if="chat.history.length"
+          density="comfortable"
+          class="chat__history-list py-0"
+          data-test="chat-history-list"
+        >
+          <v-list-item
+            v-for="conversation in chat.history"
+            :key="conversation.id"
+            :title="conversation.title"
+            :disabled="chat.busy || chat.historyLoading"
+            data-test="chat-history-item"
+            @click="restoreConversation(conversation.id)"
+          >
+            <template #subtitle>
+              {{ conversation.message_count }} messages ·
+              <RelativeTime :value="conversation.updated_at" />
+            </template>
+            <template #append>
+              <v-btn
+                :icon="Trash2"
+                variant="text"
+                size="small"
+                :aria-label="`Delete conversation: ${conversation.title}`"
+                :disabled="chat.historyLoading"
+                data-test="chat-history-delete"
+                @click.stop="deleteTarget = conversation"
+              />
+            </template>
+          </v-list-item>
+        </v-list>
+
+        <div v-else-if="!chat.historyError" class="text-center py-8" data-test="chat-history-empty">
+          <p class="text-body-medium font-weight-medium mb-1">No saved conversations yet</p>
+          <p class="text-body-small text-medium-emphasis mb-0">
+            A chat appears here after the AI answers.
+          </p>
+        </div>
+      </template>
+
+      <template #actions>
+        <template v-if="deleteTarget">
+          <v-btn
+            variant="text"
+            :disabled="chat.historyLoading"
+            data-test="chat-history-keep"
+            @click="deleteTarget = null"
+          >
+            Keep chat
+          </v-btn>
+          <v-btn
+            color="error"
+            variant="flat"
+            :loading="chat.historyLoading"
+            :disabled="chat.historyLoading"
+            data-test="chat-history-delete-confirm"
+            @click="removeConversation(deleteTarget.id)"
+          >
+            Delete conversation
+          </v-btn>
+        </template>
+        <v-btn v-else variant="text" data-test="chat-history-close" @click="historyOpen = false">
+          Close
+        </v-btn>
+      </template>
+    </AppDialog>
 
     <label for="chat-file" class="d-sr-only">PDF statement to read</label>
     <input

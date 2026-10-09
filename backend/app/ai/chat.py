@@ -1,9 +1,10 @@
 """Answering a household's questions about its money, and proposing changes when asked.
 
-The conversation is a loop that runs inside one request, because the chat keeps nothing between
-messages: the AI answers in JSON that may ask for look-ups (which run at once, and whose results
-it is given to carry on from) or propose changes (which are checked, worded for people and kept
-for an admin to approve). It ends when the AI has only words to say.
+The provider loop runs inside one request. The API stores successful text turns as history and
+sends recent turns to this function when it asks again; this module keeps no conversation state.
+The AI answers in JSON that may ask for look-ups (which run at once, and whose results it is given
+to carry on from) or propose changes (which are checked, worded for people and kept for an admin
+to approve). It ends when the AI has only words to say.
 
 Nothing here depends on a provider's own way of calling tools: the tools are described in the
 instructions and called in JSON text, so Anthropic, OpenAI and Ollama (on the household's computer
