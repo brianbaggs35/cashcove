@@ -24,7 +24,8 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated sqlalchemy to 2.1.4
 - Updated ruff to 0.17.0
 - Updated @lucide/vue to 1.55.0
-- Update vue-router to 5.4.0
+- Updated vue-router to 5.4.0
+- Updated @playwright/test to 1.64.0
 
 ## 0.2.5 - 2026-10-08
 
