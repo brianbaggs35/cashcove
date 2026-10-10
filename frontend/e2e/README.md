@@ -58,7 +58,8 @@ The harness can erase every account, so it only starts with `CASHCOVE_ENVIRONMEN
 the production image never contains it, and the test server keeps its data in memory,
 ignores `.env` and only listens on this computer.
 
-Tests run one at a time, because they share the one database.
+Tests run one at a time within each runner, because they share one database. CI runs two
+independent shards in parallel, each with its own test server and database.
 
 ## The baseline
 
@@ -444,8 +445,8 @@ Every run measures what the tests exercised, from the browser and the server:
   counts everything since the test server started, so run `make e2e-down` first for a
   measurement of one run.
 
-`CASHCOVE_E2E_COVERAGE=off npm run e2e` skips it. In CI, the **End-to-end** job uploads the
-report, traces and coverage as the `e2e-results` artifact.
+`CASHCOVE_E2E_COVERAGE=off npm run e2e` skips it. In CI, each **End-to-end** shard uploads its
+report, traces and coverage as `e2e-results-1` or `e2e-results-2`.
 
 ## The production image's smoke test
 

@@ -318,10 +318,14 @@ jobs:
         run: docker compose down --volumes
 
   e2e:
-    name: End-to-end
+    name: End-to-end (${{ matrix.shard }}/2)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     runs-on: ubuntu-24.04
-    # The specs run one at a time, on a computer and a phone, and a slow runner has taken twice as
-    # long as a fast one: 12 minutes on one, and over 30 on another, which cancelled the job.
+    # Each shard has its own test server and database, so it can run alongside the other shard
+    # while keeping tests sequential within that server.
     timeout-minutes: 60
     defaults:
       run:
@@ -361,20 +365,22 @@ jobs:
           cache-from: |
             type=gha
             type=gha,scope=e2e
-          cache-to: type=gha,scope=e2e,mode=max
+            type=gha,scope=e2e-${{ matrix.shard }}
+          # Avoid concurrent shards exporting to the same cache scope.
+          cache-to: type=gha,scope=e2e-${{ matrix.shard }},mode=max
 
       - name: Start the test server
         working-directory: .
         run: docker compose -f docker-compose.e2e.yml up --detach --no-build --wait --wait-timeout 180
 
       - name: Playwright tests with coverage
-        run: npm run e2e
+        run: npm run e2e -- --shard=${{ matrix.shard }}/2
 
       - name: Upload the report and coverage
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: e2e-results
+          name: e2e-results-${{ matrix.shard }}
           path: frontend/e2e-results/
           if-no-files-found: ignore
           retention-days: 14
