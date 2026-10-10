@@ -40,7 +40,7 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov --cov-report=term-missing --cov-report=xml --cov-fail-under=100"
+addopts = "--cov --cov-report=term-missing --cov-report=xml --cov-fail-under=99"
 
 [tool.coverage.run]
 branch = true

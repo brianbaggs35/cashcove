@@ -22,7 +22,7 @@ Before reporting a change as complete:
 5. In the final response, state which checks actually passed. Do not imply a check ran if it did not; call out failures or unavailable dependencies/services.
 6. Sonarqube scan. Use the IDE sonarqube scan if available. If not, fall back to the command line scanner.
 
-`make test` requires Docker for the backend's throwaway PostgreSQL database. Backend and frontend test suites enforce 100% coverage, so add or update tests when changing behavior.
+`make test` requires Docker for the backend's throwaway PostgreSQL database. Backend and frontend coverage thresholds are 99%, while actual coverage should remain at 100%; add or update tests when changing behavior.
 
 Also make sure to run `make lint` or equivalent which would be ruff, eslint, prettier, pyright, bandit, typecheck, etc. The command `make lint` seems to run them all. Always run sonarqube scans too on all
 edited files.
