@@ -9,6 +9,7 @@ import sys
 import threading
 import uuid
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any
 
 import httpx2 as httpx
@@ -26,6 +27,9 @@ from app.models import (
     ConnectionStatus,
     ConnectionSync,
     HistoryStatus,
+    PaymentFrequency,
+    RecurringKind,
+    Subscription,
     SyncTrigger,
     Transaction,
 )
@@ -251,6 +255,64 @@ def test_payees_fall_back_to_what_the_bank_called_it(
         None,
     )
     assert rows["c"].date == dt.date.fromisoformat(template["date"])
+
+
+def test_plaid_payments_link_to_bills_and_subscriptions_and_settle_their_due_dates(
+    session: Session, settings: Settings, fake: FakePlaid
+) -> None:
+    connection = linked(session, settings, fake)
+    plaid_account = fake.item("platypus").accounts[0]
+    plaid_account.events.clear()
+    account = session.scalars(
+        select(Account).where(Account.external_id == plaid_account.account_id)
+    ).one()
+    today = utcnow().date()
+    netflix = Subscription(
+        name="Netflix",
+        payee="Netflix",
+        amount=Decimal("15.49"),
+        amount_varies=False,
+        frequency=PaymentFrequency.MONTHLY,
+        account_id=account.id,
+        next_due_date=today,
+        active=True,
+    )
+    power = Subscription(
+        name="City Power",
+        kind=RecurringKind.BILL,
+        payee="City Power & Light",
+        amount=Decimal("90.00"),
+        amount_varies=True,
+        frequency=PaymentFrequency.MONTHLY,
+        account_id=account.id,
+        next_due_date=today,
+        active=True,
+    )
+    session.add_all([netflix, power])
+    session.commit()
+    netflix_transaction = fake.add_transaction(
+        "platypus",
+        plaid_account.account_id,
+        "15.49",
+        "Netflix",
+        "ENTERTAINMENT_TV_AND_MOVIES",
+    )
+    power_transaction = fake.add_transaction(
+        "platypus",
+        plaid_account.account_id,
+        "101.25",
+        "City Power & Light",
+        "RENT_AND_UTILITIES_GAS_AND_ELECTRICITY",
+    )
+
+    run(session, settings, connection, fake.transport)
+
+    rows = {row.external_id: row for row in transactions_in(session, account)}
+    assert rows[netflix_transaction["transaction_id"]].subscription_id == netflix.id
+    assert rows[power_transaction["transaction_id"]].subscription_id == power.id
+    session.expire_all()
+    assert session.get_one(Subscription, netflix.id).next_due_date > today
+    assert session.get_one(Subscription, power.id).next_due_date > today
 
 
 def test_an_account_imported_mid_sync_waits_for_the_next_one(
