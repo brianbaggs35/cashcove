@@ -55,10 +55,8 @@ ul.v-list ul {
   --chart-cat-5: #d55181;
 }
 
-@media (max-width: 599.98px) {
-  .app-dialog__actions .v-btn {
-    min-height: 44px;
-  }
+.app-dialog__actions .v-btn {
+  min-height: 44px;
 }
 
 @media (forced-colors: active) {
