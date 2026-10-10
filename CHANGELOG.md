@@ -16,6 +16,10 @@ and give it a version and a date when you cut a release (see Releases in the
 - **Prevent duplicate transaction imports.** When importing transactions via bank statement PDF
   or a file (CSV, etc.) the system will check for any duplicates and flag them for review.
 
+### Dependency Updates
+
+- Updated fastapi to 1.143.0
+
 ## 0.2.5 - 2026-10-08
 
 ### Upgrading
