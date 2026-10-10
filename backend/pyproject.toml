@@ -7,7 +7,7 @@ dependencies = [
     "aiosmtplib>=5.1.3",
     "alembic>=1.20.0",
     "email-validator>=2.3.0",
-    "fastapi>=0.142.2",
+    "fastapi>=0.143.0",
     # Talks to Plaid's API (plaid-python is only published as a source package, and the image
     # installs prebuilt wheels only).
     "httpx2>=2.13.1",
