@@ -430,7 +430,12 @@ watch(
       </div>
     </v-card>
 
-    <form class="chat__composer mt-4" data-test="chat-form" @submit.prevent="submit">
+    <form
+      class="chat__composer mt-4"
+      :class="{ 'chat__composer--behind-dialog': importing || historyOpen }"
+      data-test="chat-form"
+      @submit.prevent="submit"
+    >
       <v-textarea
         v-model="draft"
         label="Ask a question"
@@ -701,7 +706,7 @@ watch(
   overflow-wrap: anywhere;
 }
 
-/* Stays in reach at the bottom of the screen, above a phone's bottom navigation. */
+/* Stays in reach as the conversation scrolls without covering the latest message. */
 .chat__composer {
   position: sticky;
   bottom: calc(12px + var(--v-layout-bottom, 0px));
@@ -711,5 +716,10 @@ watch(
   border-radius: 16px;
   background: rgb(var(--v-theme-surface));
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.chat__composer--behind-dialog {
+  position: static;
+  z-index: auto;
 }
 </style>

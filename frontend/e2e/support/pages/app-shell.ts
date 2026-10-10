@@ -20,22 +20,18 @@ export const TABS = {
 
 export type Tab = keyof typeof TABS
 
-/** The tabs a phone shows in its bottom bar; the rest are under More. */
-const BOTTOM_BAR_TABS: readonly Tab[] = ['dashboard', 'accounts', 'transactions', 'budget']
-
 /**
- * The signed-in app's frame: the navigation (a side menu on computers, a bottom bar on
- * phones), the account menu and the theme switcher.
+ * The signed-in app's frame: its collapsible side menu, account menu and theme switcher.
  */
 export class AppShell {
   readonly sideMenu: Locator
-  readonly bottomBar: Locator
+  readonly mobileMenuToggle: Locator
   readonly accountMenu: Locator
   readonly themeMenu: Locator
 
   constructor(readonly page: Page) {
     this.sideMenu = page.getByRole('navigation', { name: 'Main navigation' })
-    this.bottomBar = page.getByRole('navigation', { name: 'Quick navigation' })
+    this.mobileMenuToggle = page.getByTestId('mobile-nav-toggle')
     this.accountMenu = page.getByTestId('user-menu')
     this.themeMenu = page.getByTestId('theme-toggle')
   }
@@ -43,28 +39,27 @@ export class AppShell {
   /** Whether the app is showing its phone layout, once it has loaded. */
   async onPhone(): Promise<boolean> {
     await expect(this.accountMenu).toBeVisible()
-    return (await this.bottomBar.count()) > 0
+    return (await this.mobileMenuToggle.count()) > 0
   }
 
-  /** Shows the side menu: it's always there on a computer, and More opens it on a phone. */
+  /** Opens the left-side menu when it is closed. */
   async showMenu(): Promise<void> {
-    if (await this.onPhone()) await this.page.getByTestId('bottom-more').click()
+    if (
+      (await this.onPhone()) &&
+      (await this.mobileMenuToggle.getAttribute('aria-expanded')) !== 'true'
+    ) {
+      await this.mobileMenuToggle.click()
+    }
     await expect(this.sideMenu).toBeVisible()
   }
 
-  /** Opens a tab the way someone would: from the side menu, or the bottom bar on a phone. */
+  /** Opens a tab from the side menu, on either screen size. */
   async open(tab: Tab): Promise<void> {
-    if (await this.onPhone()) {
-      if (BOTTOM_BAR_TABS.includes(tab)) {
-        await this.page.getByTestId(`bottom-${tab}`).click()
-      } else {
-        await this.page.getByTestId('bottom-more').click()
-        await this.sideMenu.getByRole('link', { name: TABS[tab] }).click()
-      }
-    } else {
-      await this.sideMenu.getByRole('link', { name: TABS[tab] }).click()
-    }
+    await this.showMenu()
+    await this.sideMenu.getByRole('link', { name: TABS[tab] }).click()
     await expect(this.page).toHaveURL(new RegExp(`/${tab}(/|$)`))
+    if (await this.onPhone())
+      await expect(this.mobileMenuToggle).toHaveAttribute('aria-expanded', 'false')
   }
 
   async chooseTheme(theme: 'light' | 'dark' | 'system'): Promise<void> {

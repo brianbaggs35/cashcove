@@ -61,7 +61,41 @@ describe('AppNavigation', () => {
   it('shows the brand and the system status', async () => {
     const { wrapper } = await mountWithPlugins(AppNavigation, { withApp: true, width: 1920 })
     expect(wrapper.find('.app-nav__brand').text()).toContain('Cashcove')
+    expect(wrapper.find('.app-nav__brand').text()).toContain('Personal finance')
     expect(wrapper.find('[data-test="status-indicator"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps the desktop rail compact while naming every icon link', async () => {
+    const { wrapper } = await mountWithPlugins(AppNavigation, {
+      withApp: true,
+      width: 1920,
+      props: { collapsed: true },
+    })
+    const toggle = wrapper.find('[data-test="nav-collapse-toggle"]')
+    expect(wrapper.find('.app-nav').classes()).toContain('app-nav--rail')
+    expect(wrapper.find('.app-nav__brand-copy').exists()).toBe(false)
+    expect(wrapper.findAll('.app-nav__item').map((link) => link.attributes('aria-label'))).toEqual(
+      navItems.map((item) => item.title),
+    )
+    expect(toggle.attributes('aria-label')).toBe('Expand navigation')
+
+    await toggle.trigger('click')
+    expect(wrapper.findComponent(AppNavigation).emitted('collapse')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('lets a mobile drawer close without showing the desktop rail control', async () => {
+    const { wrapper } = await mountWithPlugins(AppNavigation, {
+      withApp: true,
+      width: 390,
+      props: { mobile: true, modelValue: true },
+    })
+    expect(wrapper.find('[data-test="mobile-nav-close"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="nav-collapse-toggle"]').exists()).toBe(false)
+
+    await wrapper.find('[data-test="mobile-nav-close"]').trigger('click')
+    expect(wrapper.findComponent(AppNavigation).emitted('update:modelValue')?.[0]).toEqual([false])
     wrapper.unmount()
   })
 })
