@@ -36,8 +36,8 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
-    // Phones get the bottom navigation bar and full-screen dialogs.
-    { name: 'mobile', use: { ...devices['Pixel 7'] } },
+    { name: 'desktop', testIgnore: '**/*.mobile.spec.ts', use: { ...devices['Desktop Chrome'] } },
+    // Phones use the left-side navigation drawer and full-screen dialogs.
+    { name: 'mobile', testIgnore: '**/*.desktop.spec.ts', use: { ...devices['Pixel 7'] } },
   ],
 })

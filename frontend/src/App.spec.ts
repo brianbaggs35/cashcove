@@ -9,22 +9,85 @@ import { greeting } from '@/utils/format'
 
 describe('App', () => {
   it('greets you on desktop and renders the current tab', async () => {
-    const { wrapper } = await mountWithPlugins(App, { route: '/transactions', width: 1920 })
+    const { wrapper, router } = await mountWithPlugins(App, {
+      route: '/transactions',
+      width: 1920,
+    })
     expect(wrapper.find('[data-test="app-greeting"]').text()).toContain(greeting(new Date()))
     expect(wrapper.find('h1').text()).toBe('Transactions')
     expect(wrapper.find('[data-test="app-brand"]').exists()).toBe(false)
     expect(wrapper.find('.v-bottom-navigation').exists()).toBe(false)
+    expect(wrapper.find('[data-test="mobile-nav-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="nav-collapse-toggle"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="nav-collapse-toggle"]').attributes('aria-expanded')).toBe(
+      'true',
+    )
+    await router.push('/budget')
+    await flushPromises()
+    expect(wrapper.find('h1').text()).toBe('Budget')
+    expect(wrapper.find('[data-test="nav-collapse-toggle"]').attributes('aria-expanded')).toBe(
+      'true',
+    )
     wrapper.unmount()
   })
 
-  it('shows the brand and bottom navigation on mobile, with More opening the drawer', async () => {
-    const { wrapper } = await mountWithPlugins(App, { route: '/accounts', width: 390 })
+  it('shows a left drawer on mobile and closes it after choosing a page', async () => {
+    const { wrapper, router } = await mountWithPlugins(App, { route: '/accounts', width: 390 })
     expect(wrapper.find('[data-test="app-brand"]').text()).toContain('Cashcove')
     expect(wrapper.find('[data-test="app-greeting"]').exists()).toBe(false)
+    expect(wrapper.find('.v-bottom-navigation').exists()).toBe(false)
     const drawer = () => wrapper.find('.v-navigation-drawer')
+    const toggle = () => wrapper.find('[data-test="mobile-nav-toggle"]')
     expect(drawer().classes()).not.toContain('v-navigation-drawer--active')
-    await wrapper.find('[data-test="bottom-more"]').trigger('click')
+    expect(toggle().attributes('aria-expanded')).toBe('false')
+    await toggle().trigger('click')
+    expect(toggle().attributes('aria-expanded')).toBe('true')
     expect(drawer().classes()).toContain('v-navigation-drawer--active')
+    await wrapper.find('[data-test="mobile-nav-close"]').trigger('click')
+    expect(toggle().attributes('aria-expanded')).toBe('false')
+
+    await toggle().trigger('click')
+    await router.push('/dashboard')
+    await flushPromises()
+    expect(wrapper.find('h1').text()).toBe('Dashboard')
+    expect(toggle().attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it('switches navigation behavior when the viewport crosses the mobile breakpoint', async () => {
+    const { wrapper } = await mountWithPlugins(App, { route: '/accounts', width: 390 })
+    const mobileToggle = () => wrapper.find('[data-test="mobile-nav-toggle"]')
+    expect(mobileToggle().exists()).toBe(true)
+
+    window.innerWidth = 1280
+    window.dispatchEvent(new Event('resize'))
+    await flushPromises()
+    expect(mobileToggle().exists()).toBe(false)
+    expect(wrapper.find('[data-test="nav-collapse-toggle"]').attributes('aria-expanded')).toBe(
+      'true',
+    )
+
+    window.innerWidth = 390
+    window.dispatchEvent(new Event('resize'))
+    await flushPromises()
+    expect(mobileToggle().attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it('collapses and expands the desktop navigation from the brand row', async () => {
+    const { wrapper } = await mountWithPlugins(App, { route: '/accounts', width: 1920 })
+    const toggle = () => wrapper.find('[data-test="nav-collapse-toggle"]')
+    expect(toggle().attributes('aria-label')).toBe('Collapse navigation')
+    expect(toggle().attributes('aria-expanded')).toBe('true')
+
+    await toggle().trigger('click')
+    expect(wrapper.find('.app-nav').classes()).toContain('app-nav--rail')
+    expect(toggle().attributes('aria-label')).toBe('Expand navigation')
+    expect(toggle().attributes('aria-expanded')).toBe('false')
+
+    await toggle().trigger('click')
+    expect(wrapper.find('.app-nav').classes()).not.toContain('app-nav--rail')
+    expect(toggle().attributes('aria-label')).toBe('Collapse navigation')
     wrapper.unmount()
   })
 
