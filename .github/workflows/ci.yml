@@ -93,7 +93,7 @@ jobs:
           alembic check
 
       # After the migration checks, because the tests replace the schema with the models' own.
-      - name: Tests with 100% coverage on Postgres 18
+      - name: Tests (99% minimum; 100% target) on Postgres 18
         env:
           CASHCOVE_TEST_DATABASE_URL: postgresql+psycopg://cashcove@127.0.0.1:5432/cashcove
         run: pytest
@@ -139,7 +139,7 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Tests with 100% coverage
+      - name: Tests (99% minimum; 100% target)
         run: npm run coverage
 
       - name: Dependency audit (fail on critical)

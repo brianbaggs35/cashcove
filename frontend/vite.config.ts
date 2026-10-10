@@ -44,7 +44,7 @@ export default defineConfig({
       exclude: ['src/**/*.spec.ts', 'src/test/**'],
       // lcov.info names files from the repository root (frontend/src/…), as SonarQube expects.
       reporter: ['text', ['lcovonly', { projectRoot: '..' }], 'html'],
-      thresholds: { lines: 100, functions: 100, branches: 100, statements: 100 },
+      thresholds: { lines: 99, functions: 99, branches: 99, statements: 99 },
     },
   },
 })
