@@ -20,6 +20,7 @@ and give it a version and a date when you cut a release (see Releases in the
 
 - Updated fastapi to 1.143.0
 - Updated pydantic to 2.14.0
+- Updated pypdf to 6.20.0
 
 ## 0.2.5 - 2026-10-08
 
