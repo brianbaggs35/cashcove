@@ -12,8 +12,8 @@ reporters.push(['html', { outputFolder: './e2e-results/report', open: 'never' }]
 export default defineConfig({
   testDir: './e2e/specs',
   outputDir: './e2e-results/artifacts',
-  // Every test shares one database, and resetting it mid-test would pull the rug out from
-  // under another, so tests run one at a time.
+  // Every test in a shard shares one database, and resetting it mid-test would pull the rug
+  // out from under another, so tests run one at a time per shard.
   workers: 1,
   fullyParallel: false,
   forbidOnly: ci,
