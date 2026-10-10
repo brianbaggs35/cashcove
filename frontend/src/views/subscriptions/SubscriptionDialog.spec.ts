@@ -10,9 +10,11 @@ import { notices } from '@/composables/notify'
 import {
   checking,
   coffee,
+  latte,
   makeAccount,
   makePage,
   makeTransaction,
+  salary,
   savings,
   seedFinance,
   wholeFoods,
@@ -86,6 +88,8 @@ async function makeFormValid(wrapper: VueWrapper) {
 }
 
 describe('SubscriptionDialog', () => {
+  afterEach(() => vi.useRealTimers())
+
   it('defaults account, amount schedule, next due date and transaction choices', async () => {
     const { overlay, field, value, fetch } = await render()
 
@@ -101,6 +105,94 @@ describe('SubscriptionDialog', () => {
       direction: 'out',
       page_size: 200,
     })
+  })
+
+  it('debounces transaction typeahead queries and lets the server filter matching fields', async () => {
+    const { fetch, component } = await render()
+    const seed = component('SubscriptionDialog').findComponent({ name: 'VAutocomplete' })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    seed.vm.$emit('update:search', 'whole')
+    seed.vm.$emit('update:search', ' whole foods ')
+    await flushPromises()
+    vi.advanceTimersByTime(299)
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(1)
+    await flushPromises()
+    expect(fetch).toHaveBeenLastCalledWith({
+      account_id: [checking.id],
+      direction: 'out',
+      q: 'whole foods',
+      page_size: 200,
+    })
+    expect(seed.props('noFilter')).toBe(true)
+    expect(seed.props('noDataText')).toBe('No matching outgoing transactions found')
+
+    seed.vm.$emit('update:search', ' whole foods ')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(2)
+
+    seed.vm.$emit('update:search', null)
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    expect(fetch).toHaveBeenLastCalledWith({
+      account_id: [checking.id],
+      direction: 'out',
+      page_size: 200,
+    })
+  })
+
+  it('keeps the selected payment while showing only the latest typeahead results', async () => {
+    const { fetch, component } = await render()
+    const seed = component('SubscriptionDialog').findComponent({ name: 'VAutocomplete' })
+    seed.vm.$emit('update:modelValue', wholeFoods.id)
+    await flushPromises()
+
+    const pending: {
+      query: transactionsApi.TransactionQuery | undefined
+      resolve: (value: Awaited<ReturnType<typeof transactionsApi.fetchTransactions>>) => void
+    }[] = []
+    fetch.mockImplementation(
+      (query) =>
+        new Promise((resolve) => {
+          pending.push({ query, resolve })
+        }),
+    )
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    seed.vm.$emit('update:search', 'older')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    seed.vm.$emit('update:search', 'newer')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    expect(pending.map((item) => item.query?.q)).toEqual(['older', 'newer'])
+
+    pending[1]!.resolve(makePage([latte]))
+    await flushPromises()
+    pending[0]!.resolve(makePage([salary]))
+    await flushPromises()
+
+    seed.vm.$emit('update:modelValue', wholeFoods.id)
+    await flushPromises()
+    const values = (seed.props('items') as { value: string }[]).map((item) => item.value)
+    expect(values).toEqual([wholeFoods.id, latte.id])
+  })
+
+  it('cancels a pending transaction search when the dialog closes', async () => {
+    const { fetch, component, open } = await render()
+    const seed = component('SubscriptionDialog').findComponent({ name: 'VAutocomplete' })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    seed.vm.$emit('update:search', 'whole')
+
+    open.value = false
+    await flushPromises()
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   it('selects a past payment, copies its merchant and amount, and creates the rule', async () => {
