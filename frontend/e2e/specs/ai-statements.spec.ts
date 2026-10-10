@@ -217,6 +217,39 @@ test.describe('Reading a PDF statement', () => {
       await expect(importPage.aiSuggestion(/starbucks/i)).toContainText('Coffee')
     })
 
+    test('a possible duplicate in a PDF statement starts unticked and is left out', async ({
+      apiAs,
+      baseline,
+      importPage,
+      transactionsPage,
+    }) => {
+      await readingAi(await apiAs('admin'))
+      await importPage.goto()
+      await importPage.chooseFile(
+        bankStatementPdf('harbor-overlap.pdf', [
+          {
+            days_ago: baseline.transactions.groceries.days_ago,
+            description: 'WHOLEFDS MKT #10234 AUSTIN TX',
+            amount: '-84.12',
+          },
+          { days_ago: 1, description: 'LOCAL BOOKSHOP PURCHASE', amount: '-11.23' },
+        ]),
+      )
+
+      const duplicate = importPage.row('Wholefds Mkt')
+      await expect(duplicate).toContainText('Possible duplicate: Whole Foods')
+      await expect(
+        duplicate.getByTestId('review-row-check').getByRole('checkbox'),
+      ).not.toBeChecked()
+      await expect(importPage.dialog.getByTestId('import-submit')).toHaveText(
+        'Import 1 transaction',
+      )
+
+      await importPage.importRows()
+      await importPage.seeTransactions()
+      await expect(transactionsPage.rows).toHaveCount(1)
+    })
+
     test('a statement’s rows can be flipped when the money went the wrong way, and its account changed', async ({
       aiPage,
       apiAs,
