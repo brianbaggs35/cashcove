@@ -27,6 +27,7 @@ function dismiss() {
     :color="current?.tone"
     location="bottom"
     rounded="lg"
+    class="notification-host"
     data-test="notification"
     @update:model-value="(value) => value || dismiss()"
   >
@@ -46,3 +47,13 @@ function dismiss() {
     </template>
   </v-snackbar>
 </template>
+
+<style scoped>
+.notification-host :deep(.v-snackbar__wrapper) {
+  pointer-events: none;
+}
+
+.notification-host :deep(.v-snackbar__actions) {
+  pointer-events: auto;
+}
+</style>

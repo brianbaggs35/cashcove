@@ -158,6 +158,9 @@ jobs:
     name: Container
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
     env:
       CASHCOVE_VERSION: ci
       CASHCOVE_HTTPS_PORT: 8443
@@ -172,7 +175,29 @@ jobs:
         run: make lint-infra
 
       - name: Trivy scan of dependencies, secrets and the Dockerfile
-        run: make scan-source
+        id: trivy-source
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          trivyignores: .trivyignore.yaml
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
+          format: sarif
+          output: trivy-source.sarif
+          exit-code: "1"
+        continue-on-error: true
+
+      # GitHub makes fork pull requests' tokens read-only, so scan them without uploading.
+      - name: Upload source scan to GitHub code scanning
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: trivy-source.sarif
+          category: trivy-source
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -192,7 +217,38 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy scan of the image
-        run: make scan-image
+        id: trivy-image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0
+          skip-setup-trivy: true
+          scan-type: image
+          image-ref: cashcove:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
+          format: sarif
+          output: trivy-image.sarif
+          exit-code: "1"
+        continue-on-error: true
+
+      - name: Upload image scan to GitHub code scanning
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      - name: Enforce the Trivy scan threshold
+        if: ${{ !cancelled() }}
+        env:
+          SOURCE_SCAN_OUTCOME: ${{ steps.trivy-source.outcome }}
+          IMAGE_SCAN_OUTCOME: ${{ steps.trivy-image.outcome }}
+        run: |
+          if [[ "$SOURCE_SCAN_OUTCOME" != "success" || "$IMAGE_SCAN_OUTCOME" != "success" ]]; then
+            echo "::error::Trivy found high or critical findings, or a scan failed."
+            exit 1
+          fi
 
       # For the browser test below, which uses the image as someone would.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

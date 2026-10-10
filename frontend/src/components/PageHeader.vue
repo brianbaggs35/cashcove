@@ -26,6 +26,10 @@ defineProps<{ item: NavItem }>()
 </template>
 
 <style scoped>
+.page-header__actions {
+  flex-wrap: wrap;
+}
+
 .page-header__icon {
   color: rgb(var(--v-theme-on-primary));
   background: linear-gradient(135deg, rgb(var(--v-theme-primary)), rgb(var(--v-theme-secondary)));

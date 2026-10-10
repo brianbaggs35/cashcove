@@ -554,6 +554,9 @@ test.describe('Accessibility', () => {
         // Its review, and the dialog for correcting a row, over it.
         await aiPage.reviewStatement()
         await expect(importPage.row('Delta Air Lines').getByTestId('review-row-flag')).toBeVisible()
+        const cancelTarget = await page.getByTestId('import-cancel').boundingBox()
+        expect(cancelTarget?.width).toBeGreaterThanOrEqual(44)
+        expect(cancelTarget?.height).toBeGreaterThanOrEqual(44)
         await expectAccessible(page, { include: OVERLAY })
         await importPage.row('Delta Air Lines').getByTestId('review-row-edit').click()
         await expect(importPage.rowDialog).toBeVisible()

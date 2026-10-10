@@ -8,6 +8,13 @@ and give it a version and a date when you cut a release (see Releases in the
 
 ## 0.2.6 - 2026-10-10
 
+### Added
+
+- **Responsive navigation.** Phones use one expandable left-side drawer instead of a space-taking
+  bottom bar; desktop users can collapse the sidebar to an icon rail.
+- **Trivy code-scanning results.** CI uploads SARIF reports for the source tree and built container
+  to GitHub code scanning while retaining the high- and critical-severity gate.
+
 ### Changed
 
 - **Past-payment search.** When linking a subscription or bill, type to search older transactions
@@ -15,6 +22,8 @@ and give it a version and a date when you cut a release (see Releases in the
   pickers continue to filter by category name or group.
 - **Prevent duplicate transaction imports.** When importing transactions via bank statement PDF
   or a file (CSV, etc.) the system will check for any duplicates and flag them for review.
+- **Mobile dialog actions.** Import controls have comfortable touch targets, and transient
+  notifications no longer block the actions beneath them.
 
 ## 0.2.5 - 2026-10-08
 

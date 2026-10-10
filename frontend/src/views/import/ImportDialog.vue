@@ -337,7 +337,7 @@ watch(open, (value) => {
 
     <template #actions>
       <template v-if="wizard.step === 'columns'">
-        <v-btn variant="text" data-test="import-cancel" @click="open = false">Cancel</v-btn>
+        <v-btn variant="text" data-test="import-cancel" @click="open = false"> Cancel </v-btn>
         <v-btn
           color="primary"
           variant="flat"
@@ -359,7 +359,7 @@ watch(open, (value) => {
         >
           Back
         </v-btn>
-        <v-btn variant="text" data-test="import-cancel" @click="open = false">Cancel</v-btn>
+        <v-btn variant="text" data-test="import-cancel" @click="open = false"> Cancel </v-btn>
         <v-btn
           color="primary"
           variant="flat"
