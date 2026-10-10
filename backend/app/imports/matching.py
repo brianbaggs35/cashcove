@@ -172,21 +172,32 @@ class _Existing:
         candidates = self.by_content.get(_content(row), [])
         return self.take(next((item for item in candidates if item.id not in self.used), None))
 
-    def near(self, row: FileRow) -> Transaction | None:
+    def near(self, row: FileRow, payee: str) -> Transaction | None:
         """One with the same amount a few days either side, most likely one entered by hand.
-        Ones imported from a file need the same day, since the same bank dates them alike."""
+        File imports normally need the same day, except when the payee matches too."""
         day = row.date or dt.date.min
+        payee_key = text_key(payee)
 
         def distance(item: Transaction) -> int:
             return abs((item.date - day).days)
+
+        def same_payee(item: Transaction) -> bool:
+            return payee_key in {_described(item), text_key(item.payee)}
 
         candidates = [
             item
             for item in self.by_amount.get(row.amount or Decimal(0), [])
             if item.id not in self.used
-            and distance(item) <= (0 if item.source == TransactionSource.FILE else WINDOW.days)
+            and distance(item)
+            <= (WINDOW.days if item.source != TransactionSource.FILE or same_payee(item) else 0)
         ]
-        candidates.sort(key=lambda item: (distance(item), item.source == TransactionSource.FILE))
+        candidates.sort(
+            key=lambda item: (
+                not same_payee(item),
+                distance(item),
+                item.source == TransactionSource.FILE,
+            )
+        )
         return self.take(next(iter(candidates), None))
 
 
@@ -276,7 +287,7 @@ def _same_ids(rows: list[FileRow]) -> set[int]:
 
 
 def _matched(
-    existing: _Existing, rows: list[FileRow]
+    existing: _Existing, rows: list[FileRow], namer: Namer
 ) -> tuple[dict[int, Transaction], dict[int, Transaction]]:
     """By line, transactions identified by bank ID and ones the account might already have."""
     matches: dict[int, Transaction] = {}
@@ -291,7 +302,7 @@ def _matched(
         if (
             row.line not in matches
             and row.line not in possible
-            and (found := existing.near(row)) is not None
+            and (found := existing.near(row, namer.name(row)[0])) is not None
         ):
             possible[row.line] = found
     return matches, possible
@@ -302,8 +313,8 @@ def review(db: Session, rows: list[FileRow], account: Account | None) -> list[Re
     readable = [row for row in rows if row.problem is None]
     repeats = _same_ids(readable)
     fresh = [row for row in readable if row.line not in repeats]
-    matches, possible = _matched(_Existing(db, account, readable), fresh)
     namer = Namer(db, fresh)
+    matches, possible = _matched(_Existing(db, account, readable), fresh, namer)
     results: list[Reviewed] = []
     for row in rows:
         if row.problem is not None:

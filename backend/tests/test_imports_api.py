@@ -518,6 +518,38 @@ def test_transactions_entered_by_hand_might_be_the_same(
     assert record["added"] == 1
 
 
+def test_same_payee_and_amount_match_an_imported_transaction_a_few_days_apart(
+    admin_client: TestClient, session: Session, checking: Account
+) -> None:
+    add_transaction(
+        session,
+        checking,
+        "-84.12",
+        "Whole Foods",
+        date=dt.date(2026, 9, 4),
+        source=TransactionSource.FILE,
+    )
+    add_transaction(
+        session,
+        checking,
+        "-3.00",
+        "Other Store",
+        date=dt.date(2026, 9, 4),
+        source=TransactionSource.FILE,
+    )
+
+    preview = previewed(
+        admin_client,
+        "Date,Description,Amount\n"
+        "09/03/2026,Whole Foods,-84.12\n"
+        "09/03/2026,Different Store,-3.00\n",
+        account_id=str(checking.id),
+    )
+
+    assert statuses(preview) == ["possible_duplicate", "new"]
+    assert preview["rows"][0]["match"]["payee"] == "Whole Foods"
+
+
 # ---- Payees and categories -----------------------------------------------------------------
 
 
