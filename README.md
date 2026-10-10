@@ -13,7 +13,7 @@ web app, managed by supervisord. One `make up` brings the whole thing online.
 | Database | PostgreSQL 18, on a unix socket only, peer auth, no password to leak    |
 | Edge     | nginx mainline, TLS 1.3 only, HSTS, strict CSP (allows Plaid Link only) |
 | Image    | Chainguard's Wolfi base, read-only filesystem, scanned by Trivy in CI   |
-| Tests    | pytest and vitest at 100% coverage, Playwright end to end, axe          |
+| Tests    | pytest and vitest (100% target; 99% minimum), Playwright end to end, axe |
 | Quality  | SonarQube, ruff, pyright, mypy, bandit, ESLint, vue-tsc, Trivy          |
 
 ## Quick start
@@ -514,7 +514,7 @@ Both are recorded in the activity log.
 ```sh
 make dev      # the same single container, with Vite hot reload and API auto-reload
 make install  # or install dependencies locally to run tests and linters outside Docker
-make test     # pytest (on a throwaway Postgres in Docker) + vitest, both at 100% coverage
+make test     # pytest (on a throwaway Postgres in Docker) + vitest (99% minimum; 100% target)
 make e2e      # Playwright end-to-end tests against a test server built from the image
 make lint     # ruff, pyright, mypy, bandit, ESLint, Prettier, vue-tsc, hadolint, ShellCheck, actionlint
 make audit    # pip-audit and npm audit
@@ -523,7 +523,7 @@ make scan     # Trivy on the source, dependencies, Dockerfile and built image
 
 Every pull request runs the same checks in GitHub Actions (`.github/workflows/ci.yml`):
 the **Backend** and **Frontend** jobs run the linters, type checkers, dependency audits and
-tests with 100% coverage; the **Container** job scans with Trivy, builds the image, starts
+tests with a 99% minimum and 100% coverage target; the **Container** job scans with Trivy, builds the image, starts
 it with `docker compose`, goes through the setup wizard in a browser, signs in and opens
 every tab, and smoke-tests TLS, the API, sign-in, the redirect and the security headers,
 before and after a restart; the **End-to-end** job runs the Playwright tests; and the

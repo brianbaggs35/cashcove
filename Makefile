@@ -93,7 +93,7 @@ install: ## Install backend and frontend dependencies locally, and Chromium for 
 	$(BACKEND) uv sync
 	$(FRONTEND) npm ci --ignore-scripts && npm run e2e:install
 
-test: test-backend test-frontend ## Run all tests with coverage (100% required)
+test: test-backend test-frontend ## Run all tests with coverage (99% minimum; 100% target)
 
 test-backend: ## Run pytest with coverage, on a throwaway Postgres
 	@docker rm --force $(TEST_DB) >/dev/null 2>&1 || true
