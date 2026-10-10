@@ -27,6 +27,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated vue-router to 5.4.0
 - Updated @playwright/test to 1.64.0
 - Updated @types/node to 26.6.5
+- Updated @vitejs/plugin-vue to 6.0.10
 
 ## 0.2.5 - 2026-10-08
 
