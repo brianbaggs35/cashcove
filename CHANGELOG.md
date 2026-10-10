@@ -30,6 +30,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated @vitejs/plugin-vue to 6.0.10
 - Updated monocart-coverage-reports to 2.13.2
 - Updated prettier to 3.9.10
+- Updated vite to 8.3.4
 
 ## 0.2.5 - 2026-10-08
 
