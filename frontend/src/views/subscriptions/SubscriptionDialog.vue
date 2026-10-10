@@ -69,8 +69,13 @@ const form = reactive<SubscriptionForm>({
 })
 const valid = ref(false)
 const transactions = ref<Transaction[]>([])
+const selectedTransaction = ref<Transaction | null>(null)
+const transactionSearch = ref('')
 const transactionError = ref<string | null>(null)
 const transactionLoading = ref(false)
+const transactionById = new Map<string, Transaction>()
+let transactionRequest = 0
+let transactionTimer: ReturnType<typeof setTimeout> | undefined
 
 const account = computed(() => accounts.find(form.accountId))
 const accountItems = computed(() => {
@@ -83,15 +88,20 @@ const accountItems = computed(() => {
     props: { subtitle: item.institution ?? undefined },
   }))
 })
-const paymentItems = computed(() =>
-  transactions.value.map((transaction) => ({
+const paymentItems = computed(() => {
+  const selected = selectedTransaction.value
+  const available =
+    selected && !transactions.value.some((transaction) => transaction.id === selected.id)
+      ? [selected, ...transactions.value]
+      : transactions.value
+  return available.map((transaction) => ({
     value: transaction.id,
     title: `${transaction.payee} · ${formatListDate(transaction.date, locale.value)}`,
     props: {
       subtitle: `${money(negate(transaction.amount), account.value?.currency)} · ${account.value?.name ?? ''}`,
     },
-  })),
-)
+  }))
+})
 const title = computed(() =>
   props.subscription ? `Edit ${copy.value.noun}` : `Add a ${copy.value.noun}`,
 )
@@ -108,6 +118,7 @@ const formError = computed(() =>
 
 function reset() {
   const subscription = props.subscription
+  clearSearchTimer()
   form.name = subscription?.name ?? ''
   form.payee = subscription?.payee ?? ''
   form.amount = subscription?.amount ?? null
@@ -119,44 +130,90 @@ function reset() {
   form.notes = subscription?.notes ?? ''
   form.active = subscription?.active ?? true
   form.seedTransactionId = null
+  selectedTransaction.value = null
+  transactionById.clear()
+  transactionSearch.value = ''
   transactions.value = []
   transactionError.value = null
+  transactionLoading.value = false
   saving.clear()
 }
 
 async function loadTransactions() {
   const accountId = form.accountId
-  transactions.value = []
+  const request = ++transactionRequest
   transactionError.value = null
-  if (!accountId) return
+  if (!accountId) {
+    transactions.value = []
+    transactionById.clear()
+    transactionLoading.value = false
+    return
+  }
+  transactions.value = []
   transactionLoading.value = true
   try {
+    const search = transactionSearch.value.trim()
     const result = await fetchTransactions({
       account_id: [accountId],
       direction: 'out',
+      ...(search ? { q: search } : {}),
       page_size: 200,
     })
-    if (form.accountId === accountId) transactions.value = result.items
+    if (request === transactionRequest && form.accountId === accountId) {
+      transactions.value = result.items
+      transactionById.clear()
+      if (selectedTransaction.value) {
+        transactionById.set(selectedTransaction.value.id, selectedTransaction.value)
+      }
+      for (const transaction of result.items) {
+        transactionById.set(transaction.id, transaction)
+      }
+    }
   } catch (error) {
-    if (form.accountId === accountId) {
+    if (request === transactionRequest && form.accountId === accountId) {
       transactionError.value = errorMessage(error)
     }
   } finally {
-    if (form.accountId === accountId) transactionLoading.value = false
+    if (request === transactionRequest && form.accountId === accountId) {
+      transactionLoading.value = false
+    }
   }
+}
+
+function clearSearchTimer() {
+  if (transactionTimer !== undefined) clearTimeout(transactionTimer)
+  transactionTimer = undefined
+}
+
+function searchTransactions(query = '') {
+  if (query === transactionSearch.value) return
+  transactionSearch.value = query
+  transactionRequest++
+  transactionError.value = null
+  transactions.value = []
+  transactionLoading.value = !!form.accountId
+  clearSearchTimer()
+  transactionTimer = setTimeout(() => {
+    transactionTimer = undefined
+    void loadTransactions()
+  }, 300)
 }
 
 function selectAccount(accountId: string | null) {
   if (accountId === form.accountId) return
   form.accountId = accountId
   form.seedTransactionId = null
+  selectedTransaction.value = null
+  transactionById.clear()
+  transactionSearch.value = ''
+  clearSearchTimer()
   void loadTransactions()
 }
 
 function selectTransaction(transactionId: string | null) {
   form.seedTransactionId = transactionId
-  if (!transactionId) return
-  const transaction = transactions.value.find((item) => item.id === transactionId)
+  const transaction = transactionId ? transactionById.get(transactionId) : undefined
+  selectedTransaction.value = transaction ?? null
   if (!transaction) return
   form.payee = transaction.payee
   form.amount = negate(transaction.amount)
@@ -164,11 +221,15 @@ function selectTransaction(transactionId: string | null) {
   if (!form.categoryId && transaction.category_id) form.categoryId = transaction.category_id
 }
 
-watch(open, (value) => {
-  if (value) {
-    reset()
-    void loadTransactions()
-  }
+watch(open, (value, _, onCleanup) => {
+  if (!value) return
+  reset()
+  void loadTransactions()
+  onCleanup(() => {
+    clearSearchTimer()
+    transactionRequest++
+    transactionLoading.value = false
+  })
 })
 watch(form, () => {
   saving.clear()
@@ -293,12 +354,19 @@ function submit() {
             :items="paymentItems"
             :loading="transactionLoading"
             label="Link a past payment (optional)"
-            hint="Matching this payment links other and future payments from this account."
+            hint="Matching this payment links other and future payments from this account. Search payees, notes or amounts to find older payments."
             persistent-hint
             clearable
-            no-data-text="No outgoing transactions found for this account"
+            no-filter
+            hide-selected
+            :no-data-text="
+              transactionSearch.trim()
+                ? 'No matching outgoing transactions found'
+                : 'No outgoing transactions found for this account'
+            "
             :error-messages="transactionError"
             :data-test="part('seed-transaction')"
+            @update:search="(value) => searchTransactions(value ?? undefined)"
             @update:model-value="selectTransaction"
           />
         </v-col>

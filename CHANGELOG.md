@@ -6,6 +6,16 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
+## 0.2.6 - 2026-10-10
+
+### Changed
+
+- **Past-payment search.** When linking a subscription or bill, type to search older transactions
+  by payee, notes or amount instead of scrolling through only the newest 200. Shared category
+  pickers continue to filter by category name or group.
+- **Prevent duplicate transaction imports.** When importing transactions via bank statement PDF
+  or a file (CSV, etc.) the system will check for any duplicates and flag them for review.
+
 ## 0.2.5 - 2026-10-08
 
 ### Upgrading

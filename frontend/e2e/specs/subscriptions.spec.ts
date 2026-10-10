@@ -13,6 +13,7 @@ import {
 interface Subscription {
   id: string
   name: string
+  category_id: string | null
   amount: string
   amount_varies: boolean
   active: boolean
@@ -167,6 +168,61 @@ test.describe('Subscriptions', () => {
     expect(
       retainedPayments.items.find((transaction) => transaction.id === netflix.id)?.subscription_id,
     ).toBeNull()
+  })
+
+  test('searches payments older than the first page and categories by group', async ({
+    page,
+    baseline,
+    apiAs,
+  }) => {
+    test.setTimeout(60_000)
+    const api = await apiAs('admin')
+    for (let index = 0; index < 200; index++) {
+      await api.post('/transactions', {
+        account_id: baseline.accounts.checking.id,
+        date: dateInHouseholdDays(0),
+        amount: '-1.00',
+        payee: `Search filler ${index}`,
+        category_id: null,
+        notes: null,
+      })
+    }
+
+    await page.goto('/subscriptions')
+    await page.getByTestId('subscription-add-first').click()
+
+    const dialog = page.getByRole('dialog')
+    await dialog.getByTestId('subscription-name').getByRole('textbox').fill('Searchable plan')
+    await choose(dialog.getByTestId('subscription-account'), 'Everyday checking')
+
+    const searchRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url())
+      return (
+        url.pathname.endsWith('/api/transactions') && url.searchParams.get('q') === 'Whole Foods'
+      )
+    })
+    const payment = dialog.getByTestId('subscription-seed-transaction')
+    await choose(payment, /Whole Foods/, { search: 'Whole Foods' })
+    const request = await searchRequest
+    expect(new URL(request.url()).searchParams.get('q')).toBe('Whole Foods')
+    await choose(dialog.getByTestId('subscription-category'), 'Groceries', {
+      search: 'Food & drink',
+    })
+
+    await expect(payment).toContainText('Whole Foods')
+    await expect(dialog.getByTestId('subscription-category')).toContainText('Groceries')
+    await expectAccessible(page, { include: '.v-overlay--active' })
+    await dialog.getByTestId('subscription-save').click()
+    await expect(dialog).toBeHidden()
+
+    const created = (await api.get<Subscription[]>('/subscriptions')).find(
+      (item) => item.name === 'Searchable plan',
+    )!
+    expect(created.category_id).toBe(baseline.categories.Groceries.id)
+    const payments = await linkedPayments(api, created.id)
+    expect(payments.items.map((transaction) => transaction.id)).toContain(
+      baseline.transactions.groceries.id,
+    )
   })
 
   test('a bill that changes every time is set up with an estimate', async ({ page, apiAs }) => {
