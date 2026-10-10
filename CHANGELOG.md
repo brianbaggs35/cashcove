@@ -32,6 +32,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated pypdf to 6.20.0
 - Updated sqlalchemy to 2.1.4
 - Updated ruff to 0.17.0
+- Updated @lucide/vue to 1.55.0
 
 ## 0.2.5 - 2026-10-08
 
