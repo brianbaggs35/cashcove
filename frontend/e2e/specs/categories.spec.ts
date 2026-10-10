@@ -1,4 +1,5 @@
 import {
+  choose,
   expect,
   expectAccessible,
   openOverlays,
@@ -140,6 +141,23 @@ test.describe('Categories', () => {
 
     await categoriesPage.search.fill('')
     await expect(categoriesPage.group('Housing')).toBeVisible()
+  })
+
+  test('category pickers find options by their group name', async ({ categoriesPage }) => {
+    await categoriesPage.goto()
+    await categoriesPage.actOnCategory('Groceries', 'delete')
+
+    const dialog = categoriesPage.deleteCategoryDialog
+    await dialog
+      .getByTestId('delete-category-keep')
+      .getByRole('radio', { name: 'Move them to another category' })
+      .check()
+    const picker = dialog.getByTestId('delete-category-move-to')
+    await choose(picker, 'Restaurants', { search: 'Food & drink' })
+    await expect(picker).toContainText('Restaurants')
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toBeHidden()
   })
 
   test('the old Settings address opens the tab, and Settings no longer lists categories', async ({
