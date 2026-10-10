@@ -25,6 +25,10 @@ and give it a version and a date when you cut a release (see Releases in the
 - **Mobile dialog actions.** Import controls have comfortable touch targets, and transient
   notifications no longer block the actions beneath them.
 
+### Dependency Updates
+
+- Updated fastapi to 1.143.0
+
 ## 0.2.5 - 2026-10-08
 
 ### Upgrading
