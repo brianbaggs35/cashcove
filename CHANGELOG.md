@@ -11,6 +11,7 @@ and give it a version and a date when you cut a release (see Releases in the
 ### Updated Dependencies
 
 - Updated pydantic to 2.14.1
+- Updated vue-tsc to 3.3.13
 
 ## 0.2.6 - 2026-10-10
 
