@@ -149,6 +149,6 @@ const items = computed(() => navItems.filter((item) => !item.admin || auth.isAdm
 }
 
 .app-nav__item :deep(.v-list-item__spacer) {
-  width: 14px !important;
+  width: 14px;
 }
 </style>
