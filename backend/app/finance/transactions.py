@@ -84,6 +84,9 @@ def conditions(query: TransactionQuery) -> list[ColumnElement[bool]]:
         where.append(Transaction.import_id == query.import_id)
     if query.subscription_id is not None:
         where.append(Transaction.subscription_id == query.subscription_id)
+    if query.not_subscription_id is not None:
+        # Not linked to anything counts too, which a plain "not equal" would leave out.
+        where.append(Transaction.subscription_id.is_distinct_from(query.not_subscription_id))
     if query.min_amount is not None:
         where.append(
             or_(Transaction.amount >= query.min_amount, Transaction.amount <= -query.min_amount)

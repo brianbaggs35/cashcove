@@ -1,4 +1,5 @@
 import type { PaymentFrequency, Subscription } from '@/api/subscriptions'
+import { todayIso } from '@/utils/dates'
 import { fromCents, toCents } from '@/utils/money'
 
 const titles: Record<PaymentFrequency, string> = {
@@ -42,4 +43,22 @@ export function expectedAmount(
   subscription: Pick<Subscription, 'amount' | 'expected_amount'>,
 ): string {
   return subscription.expected_amount ?? subscription.amount
+}
+
+/** How many days from today a day is, which is negative once it has gone by. */
+export function daysUntil(date: string, today = todayIso()): number {
+  return Math.round(
+    (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000,
+  )
+}
+
+/**
+ * What the last payment was, when it isn't what the subscription says, such as after a price
+ * rise. A bill that changes every time has no such thing.
+ */
+export function priceChange(
+  subscription: Pick<Subscription, 'amount' | 'amount_varies' | 'last_payment_amount'>,
+): string | null {
+  const { amount_varies: varies, last_payment_amount: last, amount } = subscription
+  return !varies && last !== null && toCents(last) !== toCents(amount) ? last : null
 }

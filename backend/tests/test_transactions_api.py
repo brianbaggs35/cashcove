@@ -10,7 +10,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.finance.transactions import searched_amount
-from app.models import Account, AccountType, Transaction, TransactionSource
+from app.models import (
+    Account,
+    AccountType,
+    PaymentFrequency,
+    RecurringKind,
+    Subscription,
+    Transaction,
+    TransactionSource,
+)
 from app.models.base import utcnow
 from tests.finance import (
     TODAY,
@@ -221,6 +229,51 @@ def test_filters_narrow_the_list(
     assert payees(viewer_client, **resolved) == expected
 
 
+def test_what_one_subscription_tracks_can_be_asked_for_or_left_out(
+    viewer_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    mine = Subscription(
+        name="Mine",
+        kind=RecurringKind.SUBSCRIPTION,
+        payee="Mine",
+        amount=Decimal("5.00"),
+        frequency=PaymentFrequency.MONTHLY,
+        account_id=account.id,
+        next_due_date=TODAY,
+    )
+    other = Subscription(
+        name="Other",
+        kind=RecurringKind.BILL,
+        payee="Other",
+        amount=Decimal("5.00"),
+        frequency=PaymentFrequency.MONTHLY,
+        account_id=account.id,
+        next_due_date=TODAY,
+    )
+    session.add_all([mine, other])
+    session.commit()
+    add_transaction(session, account, "-5.00", "Tracked by mine", subscription_id=mine.id)
+    add_transaction(session, account, "-6.00", "Tracked by other", subscription_id=other.id)
+    add_transaction(session, account, "-7.00", "Tracked by nothing")
+
+    assert payees(viewer_client, subscription_id=str(mine.id)) == ["Tracked by mine"]
+    # What is left to link to it: another's, and what nothing tracks, which "not equal" would drop.
+    left = payees(viewer_client, not_subscription_id=str(mine.id))
+    assert sorted(left) == ["Tracked by nothing", "Tracked by other"]
+    assert sorted(payees(viewer_client, not_subscription_id=str(other.id))) == [
+        "Tracked by mine",
+        "Tracked by nothing",
+    ]
+    # Asking for what is mine and what is not mine at once leaves nothing.
+    assert (
+        payees(viewer_client, subscription_id=str(mine.id), not_subscription_id=str(mine.id)) == []
+    )
+    # And the totals count what is left, not what was left out.
+    totals = listed(viewer_client, not_subscription_id=str(mine.id))["totals"]
+    assert [(t["count"], t["money_out"]) for t in totals] == [(2, "-13.00")]
+
+
 def test_filtered_totals_add_up_only_what_matches(
     viewer_client: TestClient, household: dict[str, Any]
 ) -> None:
@@ -364,6 +417,8 @@ def test_totals_are_kept_apart_by_currency(viewer_client: TestClient, session: S
         {"direction": "sideways"},
         {"q": "x" * 101},
         {"account_id": "not-an-id"},
+        {"subscription_id": "not-an-id"},
+        {"not_subscription_id": "not-an-id"},
         {"colour": "blue"},
     ],
 )

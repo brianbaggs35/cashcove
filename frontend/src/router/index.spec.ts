@@ -33,9 +33,43 @@ describe('router', () => {
     const loaders = routes
       .map((route) => route.component)
       .filter((component): component is () => Promise<unknown> => typeof component === 'function')
-    expect(loaders).toHaveLength(navItems.length + 5)
+    // The tabs, the pages for one subscription or bill, and the pages outside the app.
+    expect(loaders).toHaveLength(navItems.length + 2 + 5)
     const modules = await Promise.all(loaders.map((load) => load()))
     for (const module of modules) expect(module).toHaveProperty('default')
+  })
+
+  it.each([
+    ['subscription', '/subscriptions', 'Subscription'],
+    ['bill', '/bills', 'Bill'],
+  ] as const)('opens one %s at its own address, within its tab', async (kind, tab, title) => {
+    const route = await visit(`${tab}/0b3f6a52-8a9f-4c5e-9d3f-6f7a4c1d2e90`)
+
+    expect(route.name).toBe(kind)
+    expect(route.params.id).toBe('0b3f6a52-8a9f-4c5e-9d3f-6f7a4c1d2e90')
+    expect(document.title).toBe(`${title} · Cashcove`)
+    // Which tab to light in the navigation, whichever it is of.
+    expect(route.meta.nav).toBe(kind === 'bill' ? 'bills' : 'subscriptions')
+    // The page is told which it is and which one, so the same page serves both.
+    const record = route.matched[0]!
+    const props = record.props.default as (route: unknown) => unknown
+    expect(props(route)).toEqual({ kind, id: '0b3f6a52-8a9f-4c5e-9d3f-6f7a4c1d2e90' })
+  })
+
+  it('keeps the list of each at the address the tab has, and the pages for one apart from it', async () => {
+    expect((await visit('/bills')).name).toBe('bills')
+    expect((await visit('/subscriptions')).name).toBe('subscriptions')
+    expect((await visit('/bills')).meta.nav).toBeUndefined()
+  })
+
+  it('lets any signed-in person open one, but not someone signed out', async () => {
+    const id = '0b3f6a52-8a9f-4c5e-9d3f-6f7a4c1d2e90'
+    expect(
+      (await visit(`/bills/${id}`, makeSessionState({ user: makeUser({ role: 'viewer' }) }))).name,
+    ).toBe('bill')
+    const signedOut = await visit(`/bills/${id}`, signedOutState())
+    expect(signedOut.name).toBe('sign-in')
+    expect(signedOut.query.redirect).toBe(`/bills/${id}`)
   })
 
   it('sends the old Settings address for categories to the Categories tab', async () => {

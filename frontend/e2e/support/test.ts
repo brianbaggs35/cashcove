@@ -23,6 +23,7 @@ import { DashboardPage } from './pages/dashboard-page'
 import { ImportPage } from './pages/import-page'
 import { SignInPage } from './pages/sign-in-page'
 import { TransactionsPage } from './pages/transactions-page'
+import { RecurringPage } from './pages/recurring-page'
 import { PlaidStandIn, useLinkStandIn } from './plaid'
 
 /** The baseline data, and ways to put the database back to it. */
@@ -52,6 +53,8 @@ export interface CashcoveFixtures {
   automationsPage: AutomationsPage
   /** The Bills tab and its dialogs. */
   billsPage: BillsPage
+  /** One subscription or bill in full: its payments, what is coming, and linking payments. */
+  recurringPage: RecurringPage
   /** The Budget tab, its charts and its dialogs. */
   budgetPage: BudgetPage
   /** The Connect tab and its wizard. */
@@ -150,6 +153,10 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
 
   billsPage: async ({ page }, use) => {
     await use(new BillsPage(page))
+  },
+
+  recurringPage: async ({ page }, use) => {
+    await use(new RecurringPage(page))
   },
 
   budgetPage: async ({ page }, use) => {

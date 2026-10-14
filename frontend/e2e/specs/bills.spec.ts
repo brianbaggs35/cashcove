@@ -236,9 +236,13 @@ test.describe('Bills', () => {
     await dialog.getByTestId('finder-search').getByRole('searchbox').fill('Venmo')
     await expect(dialog.getByTestId('finder-row')).toHaveCount(1)
     await expectAccessible(page, { include: '.v-overlay--active' })
-    await dialog.getByTestId(`payment-link-${venmo.id}`).click()
+    // Pressing anywhere on a payment's row ticks it, and the ones ticked are linked together.
+    await dialog.getByTestId(`payment-select-${venmo.id}`).getByRole('checkbox').check()
+    await expect(dialog.getByTestId('payments-picked')).toContainText('1 payment chosen')
+    await dialog.getByTestId('payments-link-selected').click()
     await expect(dialog.getByTestId('payments-summary')).toContainText('1 payment linked.')
-    await expect(dialog.getByTestId(`payment-unlink-${venmo.id}`)).toBeVisible()
+    // What was linked is no longer left to find.
+    await expect(dialog.getByTestId('finder-row')).toHaveCount(0)
 
     const linked = await api.get<Bill>(`/bills/${bill.id}`)
     expect(linked.payment_count).toBe(1)
@@ -265,6 +269,9 @@ test.describe('Bills', () => {
     await dialog.getByTestId('payments-scope').getByRole('button', { name: 'Linked here' }).click()
     await expect(dialog.getByTestId('finder-row')).toHaveCount(1)
     await dialog.getByTestId(`payment-unlink-${venmo.id}`).click()
+    // Taking a payment off asks first.
+    await expect(page.getByTestId('confirm-text')).toContainText('stays in your history')
+    await page.getByTestId('confirm-accept').click()
     await expect(dialog.getByTestId('payments-summary')).toContainText('0 payments linked.')
     expect(await linkedPayments(api, bill.id)).toEqual([])
   })

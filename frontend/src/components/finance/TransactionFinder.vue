@@ -14,7 +14,10 @@ import { formatListDate } from '@/utils/dates'
 /**
  * Finds transactions to pick from: a search box over the newest ones, listed with what they
  * were, when and where. The parent decides what picking means with the `prepend` and `append`
- * slots, which get each transaction, and calls `reload` after something changed.
+ * slots, which get each transaction, and calls `reload` after something changed. A parent that
+ * wants its own rows fills the `row` slot, which is given each transaction and how the list
+ * describes it, and can start the search with something (`v-model:search`) and say what an empty
+ * result means (`empty`), with a `hint` under the search box.
  */
 const props = withDefaults(
   defineProps<{
@@ -22,6 +25,8 @@ const props = withDefaults(
     direction?: 'in' | 'out'
     /** Only transactions linked to this subscription. */
     subscriptionId?: string | null
+    /** Everything but the transactions linked to this subscription. */
+    notSubscriptionId?: string | null
     /** Offers a switch for transactions that have no category yet. */
     uncategorizedSwitch?: boolean
     /** How many to list; the search narrows them down. */
@@ -32,6 +37,7 @@ const props = withDefaults(
   {
     direction: undefined,
     subscriptionId: null,
+    notSubscriptionId: null,
     uncategorizedSwitch: false,
     pageSize: 25,
     note: () => null,
@@ -42,7 +48,8 @@ const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const { locale } = useHousehold()
 
-const search = ref('')
+/** What is searched for, which the parent can set or read, e.g. to start with a payee. */
+const search = defineModel<string>('search', { default: '' })
 const uncategorized = ref(false)
 const items = ref<Transaction[]>([])
 const total = ref(0)
@@ -62,6 +69,7 @@ async function load() {
       uncategorized: uncategorized.value || undefined,
       direction: props.direction,
       subscription_id: props.subscriptionId ?? undefined,
+      not_subscription_id: props.notSubscriptionId ?? undefined,
       page_size: props.pageSize,
       sort: '-date',
     })
@@ -92,7 +100,10 @@ watch(search, () => {
   clearTimeout(timer)
   timer = setTimeout(() => void load(), 300)
 })
-watch([uncategorized, () => props.direction, () => props.subscriptionId], () => void load())
+watch(
+  [uncategorized, () => props.direction, () => props.subscriptionId, () => props.notSubscriptionId],
+  () => void load(),
+)
 onScopeDispose(() => {
   clearTimeout(timer)
 })
@@ -137,6 +148,7 @@ function describe(transaction: Transaction): string {
         data-test="finder-uncategorized"
       />
     </div>
+    <div v-if="$slots.hint" class="mb-3" data-test="finder-hint"><slot name="hint" /></div>
 
     <v-alert
       v-if="error"
@@ -155,15 +167,28 @@ function describe(transaction: Transaction): string {
       <v-skeleton-loader type="list-item-two-line@3" />
     </div>
     <div v-else-if="!items.length" data-test="finder-empty">
-      <EmptyState
-        :icon="SearchX"
-        title="No transactions found"
-        text="Try a different search."
-        compact
-      />
+      <slot name="empty">
+        <EmptyState
+          :icon="SearchX"
+          title="No transactions found"
+          text="Try a different search."
+          compact
+        />
+      </slot>
     </div>
     <template v-else>
+      <ul
+        v-if="$slots.row"
+        class="transaction-finder__rows pa-0 ma-0"
+        :class="{ 'transaction-finder__list--loading': loading }"
+        data-test="finder-list"
+      >
+        <li v-for="transaction in items" :key="transaction.id" data-test="finder-row">
+          <slot name="row" :transaction="transaction" :description="describe(transaction)" />
+        </li>
+      </ul>
       <v-list
+        v-else
         lines="two"
         class="pa-0 transaction-finder__list"
         :class="{ 'transaction-finder__list--loading': loading }"
@@ -210,8 +235,15 @@ function describe(transaction: Transaction): string {
   flex: 1 1 240px;
 }
 
-.transaction-finder__list {
+.transaction-finder__list,
+.transaction-finder__rows {
   transition: opacity 120ms;
+}
+
+.transaction-finder__rows {
+  display: grid;
+  gap: 8px;
+  list-style: none;
 }
 
 .transaction-finder__list--loading {

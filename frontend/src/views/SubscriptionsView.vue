@@ -15,20 +15,18 @@ import type { RecurringKind, Subscription } from '@/api/subscriptions'
 import TabPage from '@/components/TabPage.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ReadOnlyNotice from '@/components/ui/ReadOnlyNotice.vue'
-import { confirmAndRun } from '@/composables/confirm'
-import { notify } from '@/composables/notify'
+import { useRecurringActions } from '@/composables/useRecurringActions'
 import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import { usePreferencesStore } from '@/stores/preferences'
-import { todayIso } from '@/utils/dates'
 import { toCents, fromCents } from '@/utils/money'
 import SubscriptionCard from '@/views/subscriptions/SubscriptionCard.vue'
 import SubscriptionDialog from '@/views/subscriptions/SubscriptionDialog.vue'
 import SubscriptionPaymentsDialog from '@/views/subscriptions/SubscriptionPaymentsDialog.vue'
 import { dueReminder, kinds, partOf, partsOf } from '@/views/subscriptions/kinds'
-import { estimatedAmount, expectedAmount } from '@/views/subscriptions/recurrence'
+import { daysUntil, estimatedAmount, expectedAmount } from '@/views/subscriptions/recurrence'
 
 /**
  * The page of subscriptions or of bills: tracked, matched to the transactions that pay them and
@@ -106,12 +104,6 @@ function sumByCurrency(items: Subscription[], period: 'month' | 'year') {
   return [...totals].map(([currency, cents]) => ({ currency, amount: fromCents(cents) }))
 }
 
-function daysUntil(date: string) {
-  return Math.round(
-    (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${todayIso()}T00:00:00Z`)) / 86_400_000,
-  )
-}
-
 const reminder = computed(() => dueReminder(preferences.saved?.alerts, props.kind))
 const alertDays = computed(() => reminder.value.days)
 const dueSoon = computed(
@@ -143,47 +135,16 @@ function linkPayments(subscription: Subscription) {
   paymentsOpen.value = true
 }
 
-async function remove(subscription: Subscription) {
-  const done = await confirmAndRun(
-    {
-      title: `Delete ${subscription.name}?`,
-      text: 'Its tracked transactions will stay in your history, but will no longer be linked.',
-      confirmText: `Delete ${copy.value.noun}`,
-      tone: 'error',
-    },
-    () => recurringApi(props.kind).remove(subscription.id),
-  )
-  if (!done) return
-  notify(`Deleted ${subscription.name}`)
-  await load()
-}
+const actions = useRecurringActions(load, (message) => {
+  error.value = message
+})
 
-async function toggle(subscription: Subscription) {
-  try {
-    await recurringApi(props.kind).update(subscription.id, { active: !subscription.active })
-    notify(subscription.active ? 'Paused automatic matching' : 'Resumed automatic matching')
-    await load()
-  } catch (updateError) {
-    error.value = errorMessage(updateError)
-  }
+async function remove(subscription: Subscription) {
+  if (await actions.remove(subscription)) await load()
 }
 
 async function saved() {
   await load()
-}
-
-/** A price rise, say: the amount a payment really was becomes the subscription's. */
-async function updateAmount(subscription: Subscription) {
-  if (subscription.last_payment_amount === null) return
-  try {
-    await recurringApi(props.kind).update(subscription.id, {
-      amount: subscription.last_payment_amount,
-    })
-    notify(`Updated ${subscription.name} to ${money(subscription.last_payment_amount)}`)
-    await load()
-  } catch (updateError) {
-    error.value = errorMessage(updateError)
-  }
 }
 </script>
 
@@ -378,9 +339,9 @@ async function updateAmount(subscription: Subscription) {
             :readonly="!auth.isAdmin"
             @edit="edit"
             @delete="remove"
-            @toggle="toggle"
+            @toggle="actions.toggle"
             @link="linkPayments"
-            @update-amount="updateAmount"
+            @update-amount="actions.updateAmount"
           />
         </v-col>
       </v-row>

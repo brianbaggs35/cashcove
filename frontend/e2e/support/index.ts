@@ -55,6 +55,13 @@ export {
 export { AppShell, TABS, type Tab } from './pages/app-shell'
 export { BillsPage, type BillAction, type BillFields } from './pages/bills-page'
 export {
+  RecurringPage,
+  type PageAction,
+  type PaymentAction,
+  type RecurringKind,
+} from './pages/recurring-page'
+export { dateInDays, householdDate, longDay } from './dates'
+export {
   BudgetPage,
   type BudgetFields,
   type BudgetPeriodChoice,

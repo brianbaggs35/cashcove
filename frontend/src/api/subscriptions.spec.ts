@@ -1,6 +1,7 @@
 import {
   createSubscription,
   deleteSubscription,
+  fetchSubscriptionOverview,
   fetchSubscriptions,
   linkSubscriptionPayments,
   unlinkSubscriptionPayment,
@@ -29,6 +30,19 @@ describe('subscription API', () => {
       '/api/subscriptions',
       '/api/subscriptions?active=true',
       '/api/subscriptions?active=false',
+    ])
+  })
+
+  it('reads one subscription in full as of the day the person is in', async () => {
+    const fetch = vi.fn().mockResolvedValue(response({ summary: { total: '0.00' } }))
+    vi.stubGlobal('fetch', fetch)
+
+    await expect(fetchSubscriptionOverview('sub-1', '2026-10-14')).resolves.toEqual({
+      summary: { total: '0.00' },
+    })
+
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      '/api/subscriptions/sub-1/overview?today=2026-10-14',
     ])
   })
 

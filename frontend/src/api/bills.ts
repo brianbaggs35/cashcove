@@ -2,6 +2,7 @@ import { apiDelete, apiGet, apiPatch, apiPost, apiRequest } from '@/api/client'
 import {
   activeQuery,
   type PaymentsLinked,
+  type RecurringOverview,
   type Subscription,
   type SubscriptionChanges,
   type SubscriptionInput,
@@ -11,6 +12,9 @@ import {
 export type Bill = Subscription
 
 export const fetchBills = (active?: boolean) => apiGet<Bill[]>(`/bills${activeQuery(active)}`)
+/** It in full, as of `today`, which says which year the person is in. */
+export const fetchBillOverview = (id: string, today: string) =>
+  apiGet<RecurringOverview>(`/bills/${id}/overview?today=${today}`)
 export const createBill = (input: SubscriptionInput) => apiPost<Bill>('/bills', input)
 export const updateBill = (id: string, changes: SubscriptionChanges) =>
   apiPatch<Bill>(`/bills/${id}`, changes)

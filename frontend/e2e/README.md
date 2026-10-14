@@ -11,6 +11,12 @@ transactions, its charts as tables, what needs attention and where each card lin
 themes and on a phone. The Automation flows spec follows a paycheck into a statement file and from
 the bank (classified, counted in a budget, and left alone when it is a purchase of the same name),
 links payments to a bill from both, and keeps a category chosen by hand.
+The Show pages spec opens a bill or a subscription from its list (its name, its card and the
+first item of its menu), checks everything its page shows against what the API says (what it
+costs, each payment, the chart, what is coming, its details and what refers to it), links payments
+found by what they look like to it and takes them off after confirming, changes, pauses, resumes
+and deletes it from its page, and makes sure an item that isn't there says so, for admins and
+viewers, on both screen sizes and in both themes.
 The Bills spec adds bills from the payment that paid them and links payments to them by hand and
 by automation, from the bank and from a statement file, and checks their reminders, categories
 and place in a budget.

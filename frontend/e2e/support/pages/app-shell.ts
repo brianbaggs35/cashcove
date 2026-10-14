@@ -53,6 +53,17 @@ export class AppShell {
     await expect(this.sideMenu).toBeVisible()
   }
 
+  /** Closes the left-side menu on a phone, where it covers the page. */
+  async hideMenu(): Promise<void> {
+    if (
+      (await this.onPhone()) &&
+      (await this.mobileMenuToggle.getAttribute('aria-expanded')) === 'true'
+    ) {
+      await this.page.getByTestId('mobile-nav-close').click()
+      await expect(this.mobileMenuToggle).toHaveAttribute('aria-expanded', 'false')
+    }
+  }
+
   /** Opens a tab from the side menu, on either screen size. */
   async open(tab: Tab): Promise<void> {
     await this.showMenu()
