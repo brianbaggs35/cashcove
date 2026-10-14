@@ -190,6 +190,18 @@ bill from the payment that paid it, and Cashcove links every other payment like 
 already there, and each one that comes later, from Plaid, a statement file or by hand. For a
 payee that's written differently from one source to the next, an automation links them all.
 
+Each subscription and bill has a page of its own: press its name, anywhere on its card, or
+**View** at the top of the card's menu. The page shows what it costs (and, for a bill that changes
+every time, what it is expected to be), when it is next due, what every payment came to, a chart
+of what each of the latest payments cost with its average, the payments themselves, the dates the
+next ones fall due, everything that was set up, and the automations and budgets that refer to it.
+A path of links above the title leads back to the tab (on a phone, one button does). Admins can
+change it, pause it and delete it from the page, and **Link payments** works from there too: it
+opens already searching for payments that look like the payee, so a bank's other spelling of it is
+found at once, and the ones you tick are linked together. **Linked here** lists what is linked,
+and each payment can be taken off, here or from the menu on its row, after you confirm it. Anyone
+signed in can read the page; only admins see what changes it.
+
 **Settings > Alerts** also sends configured alert rules—upcoming bills and subscriptions, low
 balances, large transactions, budget thresholds and bank-sync problems—by email, Discord, or
 both. An admin can add a Discord webhook or an SMTP server there; the SMTP **Test connection**

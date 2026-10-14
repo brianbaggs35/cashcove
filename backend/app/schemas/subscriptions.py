@@ -7,7 +7,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from app.models import PaymentFrequency, RecurringKind
+from app.models import BudgetPeriod, PaymentFrequency, RecurringKind
 from app.schemas.fields import STRICT, AmountOut, TransactionNotes
 
 SubscriptionName = Annotated[
@@ -88,3 +88,60 @@ class PaymentsLinked(BaseModel):
 
     count: int
     subscription: SubscriptionOut
+
+
+class PaymentSummary(BaseModel):
+    """What the payments linked to a subscription or bill came to. Amounts are what was paid,
+    without the minus sign, in the currency of the account it is paid from."""
+
+    total: AmountOut
+    # The nulls are for one with no payments yet.
+    average: AmountOut | None
+    highest: AmountOut | None
+    lowest: AmountOut | None
+    first_on: dt.date | None
+    # What was paid in the calendar year the person is in.
+    this_year: AmountOut
+
+
+class PaymentPoint(BaseModel):
+    """One payment on a chart of what a subscription or bill has cost."""
+
+    on: dt.date
+    amount: AmountOut
+
+
+class UpcomingPayment(BaseModel):
+    """A payment that is coming, counted on from the next one by how often it repeats."""
+
+    due_on: dt.date
+    amount: AmountOut
+
+
+class LinkedAutomation(BaseModel):
+    """An automation that links payments to a subscription or bill as they come in."""
+
+    id: uuid.UUID
+    name: str
+    active: bool
+
+
+class LinkedBudget(BaseModel):
+    """A budget that counts a subscription's or bill's payments as spending."""
+
+    id: uuid.UUID
+    name: str
+    period: BudgetPeriod
+
+
+class RecurringOverview(BaseModel):
+    """Everything about one subscription or bill that its own page shows: it, what it has cost,
+    what is coming, and what else in Cashcove refers to it."""
+
+    subscription: SubscriptionOut
+    summary: PaymentSummary
+    # The latest payments, the oldest first, to draw what it has cost over time.
+    history: list[PaymentPoint]
+    upcoming: list[UpcomingPayment]
+    automations: list[LinkedAutomation]
+    budgets: list[LinkedBudget]

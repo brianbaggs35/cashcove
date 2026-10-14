@@ -1,3 +1,4 @@
+import type { BudgetPeriodKind } from '@/api/budget'
 import { apiDelete, apiGet, apiPatch, apiPost, apiRequest } from '@/api/client'
 
 export type PaymentFrequency =
@@ -38,6 +39,55 @@ export interface Subscription {
   updated_at: string
 }
 
+/** What the payments linked to a subscription or bill came to, as what was paid. */
+export interface PaymentSummary {
+  total: string
+  /** The rest are null until it has a payment. */
+  average: string | null
+  highest: string | null
+  lowest: string | null
+  first_on: string | null
+  /** What was paid in the calendar year the person is in. */
+  this_year: string
+}
+
+/** One payment on a chart of what a subscription or bill has cost. */
+export interface PaymentPoint {
+  on: string
+  amount: string
+}
+
+/** A payment that is coming, counted on from the next one. */
+export interface UpcomingPayment {
+  due_on: string
+  amount: string
+}
+
+/** An automation that links payments to a subscription or bill. */
+export interface LinkedAutomation {
+  id: string
+  name: string
+  active: boolean
+}
+
+/** A budget that counts a subscription's or bill's payments as spending. */
+export interface LinkedBudget {
+  id: string
+  name: string
+  period: BudgetPeriodKind
+}
+
+/** Everything its own page shows: it, what it has cost, what is coming and what refers to it. */
+export interface RecurringOverview {
+  subscription: Subscription
+  summary: PaymentSummary
+  /** The latest payments, the oldest first. */
+  history: PaymentPoint[]
+  upcoming: UpcomingPayment[]
+  automations: LinkedAutomation[]
+  budgets: LinkedBudget[]
+}
+
 /** What linking payments did: how many changed, and the subscription as it is now. */
 export interface PaymentsLinked {
   count: number
@@ -64,6 +114,9 @@ export const activeQuery = (active?: boolean) => (active === undefined ? '' : `?
 
 export const fetchSubscriptions = (active?: boolean) =>
   apiGet<Subscription[]>(`/subscriptions${activeQuery(active)}`)
+/** It in full, as of `today`, which says which year the person is in. */
+export const fetchSubscriptionOverview = (id: string, today: string) =>
+  apiGet<RecurringOverview>(`/subscriptions/${id}/overview?today=${today}`)
 export const createSubscription = (input: SubscriptionInput) =>
   apiPost<Subscription>('/subscriptions', input)
 export const updateSubscription = (id: string, changes: SubscriptionChanges) =>

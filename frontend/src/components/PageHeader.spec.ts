@@ -10,6 +10,16 @@ describe('PageHeader', () => {
     expect(wrapper.find('h1').text()).toBe('Accounts')
     expect(wrapper.text()).toContain(item.summary)
     expect(wrapper.find('.page-header__actions').exists()).toBe(false)
+    expect(wrapper.find('.page-header__meta').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders what the page says about itself under the summary, when it has something', async () => {
+    const { wrapper } = await mountWithPlugins(PageHeader, {
+      props: { item },
+      slots: { meta: '<span>Paused</span>' },
+    })
+    expect(wrapper.find('.page-header__meta').text()).toBe('Paused')
     wrapper.unmount()
   })
 

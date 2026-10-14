@@ -22,6 +22,26 @@ describe('AppNavigation', () => {
     wrapper.unmount()
   })
 
+  it('keeps the tab lit while one of the pages inside it is open', async () => {
+    const id = '0b3f6a52-8a9f-4c5e-9d3f-6f7a4c1d2e90'
+    const lit = async (route: string) => {
+      const { wrapper } = await mountWithPlugins(AppNavigation, {
+        withApp: true,
+        width: 1920,
+        route,
+      })
+      const active = wrapper.findAll('.v-list-item--active').map((item) => item.text())
+      wrapper.unmount()
+      return active
+    }
+
+    expect(await lit(`/bills/${id}`)).toEqual(['Bills'])
+    expect(await lit(`/subscriptions/${id}`)).toEqual(['Subscriptions'])
+    // Nothing else is lit by it, and the list's own page still lights its own tab.
+    expect(await lit('/bills')).toEqual(['Bills'])
+    expect(await lit('/transactions')).toEqual(['Transactions'])
+  })
+
   it('leaves the AI tab out for a viewer, who can’t open it', async () => {
     const { wrapper } = await mountWithPlugins(AppNavigation, {
       withApp: true,

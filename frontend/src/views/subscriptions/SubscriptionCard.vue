@@ -3,12 +3,14 @@ import {
   CalendarClock,
   CirclePause,
   EllipsisVertical,
+  Eye,
   Landmark,
   Link2,
   Pencil,
   Trash2,
 } from '@lucide/vue'
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 
 import type { Subscription } from '@/api/subscriptions'
 import CategoryChip from '@/components/finance/CategoryChip.vue'
@@ -16,9 +18,13 @@ import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
 import { fromIsoDate } from '@/utils/dates'
 import { formatShortDate } from '@/utils/format'
-import { toCents } from '@/utils/money'
 import { kinds, partOf } from '@/views/subscriptions/kinds'
-import { estimatedAmount, expectedAmount, frequencyTitle } from '@/views/subscriptions/recurrence'
+import {
+  estimatedAmount,
+  expectedAmount,
+  frequencyTitle,
+  priceChange,
+} from '@/views/subscriptions/recurrence'
 
 const props = withDefaults(
   defineProps<{
@@ -44,6 +50,16 @@ const household = useHousehold()
 const copy = computed(() => kinds[props.subscription.kind])
 const part = (name: string) => partOf(props.subscription.kind, name)
 const account = computed(() => accounts.find(props.subscription.account_id))
+/** Its own page, which the card opens from its name, the whole card and the menu. */
+const page = computed(() => ({
+  name: props.subscription.kind,
+  params: { id: props.subscription.id },
+}))
+const router = useRouter()
+/** What the menu's View does. It isn't a link, since a menu of actions only holds actions. */
+function open() {
+  void router.push(page.value)
+}
 const overdue = computed(() => props.daysUntilDue < 0)
 const dueText = computed(() => {
   if (overdue.value) {
@@ -70,11 +86,8 @@ const expected = computed(() => expectedAmount(props.subscription))
 const monthlyAmount = computed(() =>
   estimatedAmount(expected.value, props.subscription.frequency, 'month'),
 )
-/** A payment that isn't what it should be, such as after a price rise, which a bill that varies has anyway. */
-const priceChange = computed(() => {
-  const { amount_varies: varies, last_payment_amount: last, amount } = props.subscription
-  return !varies && last !== null && toCents(last) !== toCents(amount) ? last : null
-})
+/** A payment that isn't what it should be, such as after a price rise. */
+const changedPrice = computed(() => priceChange(props.subscription))
 </script>
 
 <template>
@@ -91,7 +104,9 @@ const priceChange = computed(() => {
         <div class="flex-grow-1 min-width-0">
           <div class="d-flex align-center flex-wrap ga-2">
             <h2 class="text-title-medium font-weight-bold ma-0" :data-test="part('title')">
-              {{ subscription.name }}
+              <router-link :to="page" class="subscription-card__link" :data-test="part('open')">
+                {{ subscription.name }}
+              </router-link>
             </h2>
             <v-chip
               v-if="!subscription.active"
@@ -117,6 +132,7 @@ const priceChange = computed(() => {
             />
           </template>
           <v-list density="compact" nav min-width="200">
+            <v-list-item :prepend-icon="Eye" title="View" :data-test="part('view')" @click="open" />
             <v-list-item
               :prepend-icon="subscription.active ? CirclePause : copy.icon"
               :title="subscription.active ? 'Pause matching' : 'Resume matching'"
@@ -193,14 +209,14 @@ const priceChange = computed(() => {
         {{ lastPayment }}
       </p>
       <v-alert
-        v-if="priceChange"
+        v-if="changedPrice"
         type="info"
         variant="tonal"
         density="compact"
         class="mt-3"
         :data-test="part('price-change')"
       >
-        The last payment was {{ household.money(priceChange, account?.currency) }}, not
+        The last payment was {{ household.money(changedPrice, account?.currency) }}, not
         {{ household.money(subscription.amount, account?.currency) }}.
         <template v-if="!readonly" #append>
           <v-btn
@@ -253,9 +269,40 @@ const priceChange = computed(() => {
 
 <style scoped>
 .subscription-card {
+  cursor: pointer;
   transition:
     border-color 160ms ease,
     transform 160ms ease;
+}
+
+/* The name is the card's one link, and reaches across the whole card, so anywhere on it opens the
+   page without a link inside a link. What can be pressed on its own sits above that. */
+.subscription-card__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.subscription-card__link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* Over what only sits there, such as the chips, so pressing them opens the page too. */
+  z-index: 1;
+}
+
+.subscription-card__link:focus-visible {
+  outline: none;
+}
+
+.subscription-card__link:focus-visible::after {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: -2px;
+  border-radius: inherit;
+}
+
+.subscription-card :deep(.v-btn) {
+  position: relative;
+  z-index: 2;
 }
 
 .subscription-card:hover {

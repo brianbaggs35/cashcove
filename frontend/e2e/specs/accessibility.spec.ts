@@ -9,6 +9,7 @@ import {
   expect,
   expectAccessible,
   holdAi,
+  householdDate,
   setUpAi,
   simpleCsv,
   TABS,
@@ -419,6 +420,124 @@ test.describe('Accessibility', () => {
           'linking payments': () =>
             billsPage.cards.first().getByTestId('bill-link-payments').click(),
         })
+      })
+
+      test('the bill and subscription pages, and what opens from them', async ({
+        page,
+        signInAs,
+        apiAs,
+        baseline,
+        recurringPage,
+      }) => {
+        // Two pages, each with a menu, dialogs and a chart to check, and a chart to read as a table.
+        test.slow()
+        const api = await apiAs('admin')
+        const bill = await api.post<{ id: string }>('/bills', {
+          name: 'City Power',
+          amount: '96.40',
+          amount_varies: true,
+          frequency: 'monthly',
+          account_id: baseline.accounts.checking.id,
+          // Past due, so the page also shows what warns of that.
+          next_due_date: householdDate(-3),
+          category_id: baseline.categories.Utilities.id,
+          notes: 'Paid on the 3rd.',
+          payee: 'City Power & Light',
+          seed_transaction_id: baseline.transactions.power.id,
+        })
+        for (const [index, amount] of ['91.75', '120.32', '143.88'].entries()) {
+          await api.post('/transactions', {
+            account_id: baseline.accounts.checking.id,
+            date: householdDate(-(40 + index * 30)),
+            amount: `-${amount}`,
+            payee: 'City Power & Light',
+            category_id: null,
+            notes: null,
+          })
+        }
+        // Written the way a bank statement does, so it is left to find in the dialog.
+        await api.post('/transactions', {
+          account_id: baseline.accounts.checking.id,
+          date: householdDate(-5),
+          amount: '-101.20',
+          payee: 'CITY POWER & LIGHT 0412 AUSTIN TX',
+          category_id: null,
+          notes: null,
+        })
+        const subscription = await api.post<{ id: string }>('/subscriptions', {
+          name: 'Netflix Plus',
+          amount: '15.49',
+          frequency: 'monthly',
+          account_id: baseline.accounts.checking.id,
+          next_due_date: householdDate(2),
+          category_id: null,
+          notes: null,
+          payee: 'Netflix Plus',
+          seed_transaction_id: null,
+        })
+        await signInAs('admin')
+
+        await recurringPage.goto('bill', bill.id)
+        await expect(recurringPage.paymentRows).toHaveCount(4)
+        await expectAccessible(page)
+        await page.getByTestId('chart-view-table').click()
+        await expectAccessible(page)
+        await page.getByTestId('chart-view-chart').click()
+        const linking = recurringPage.linkDialog('bill')
+        await expectAccessibleOverlays(page, {
+          'the page’s menu': () => page.getByTestId('show-actions').click(),
+          'a payment’s menu': () => recurringPage.payment(0).getByTestId('payment-actions').click(),
+          'taking a payment off': () => recurringPage.actOnPayment(1, 'unlink'),
+          'a payment’s details': () => recurringPage.actOnPayment(2, 'details'),
+          'finding payments to link': async () => {
+            await page.getByTestId('payments-link').click()
+            await expect(linking.getByTestId('finder-row')).toHaveCount(1)
+          },
+          'finding payments, with one chosen': async () => {
+            await page.getByTestId('payments-link').click()
+            await expect(linking.getByTestId('finder-row')).toHaveCount(1)
+            await linking.getByRole('checkbox').check()
+            await expect(linking.getByTestId('payments-picked')).toBeVisible()
+          },
+          'what is linked here': async () => {
+            await page.getByTestId('payments-link').click()
+            await linking.getByRole('button', { name: 'Linked here' }).click()
+            await expect(linking.getByTestId('finder-row')).toHaveCount(4)
+          },
+        })
+
+        await recurringPage.goto('subscription', subscription.id)
+        await expect(page.getByTestId('show-due-alert')).toBeVisible()
+        await expectAccessible(page)
+      })
+
+      test('the pages of a bill, a subscription and what is not there, for a viewer', async ({
+        page,
+        signInAs,
+        apiAs,
+        baseline,
+        recurringPage,
+      }) => {
+        const api = await apiAs('admin')
+        const bill = await api.post<{ id: string }>('/bills', {
+          name: 'City Power',
+          amount: '96.40',
+          frequency: 'monthly',
+          account_id: baseline.accounts.checking.id,
+          next_due_date: householdDate(-3),
+          category_id: baseline.categories.Utilities.id,
+          notes: null,
+          payee: 'City Power & Light',
+          seed_transaction_id: baseline.transactions.power.id,
+        })
+        await signInAs('viewer')
+
+        await recurringPage.goto('bill', bill.id)
+        await expectReadOnlyNotice(page)
+        await expect(recurringPage.paymentRows).toHaveCount(1)
+        await expectAccessible(page)
+        await recurringPage.goto('bill', '0b3f6a52-8a9f-4c5e-9d3f-6f7a4c1d2e90')
+        await expectAccessible(page)
       })
 
       test('the budget dialogs, menu and charts', async ({ page, signInAs, budgetPage }) => {

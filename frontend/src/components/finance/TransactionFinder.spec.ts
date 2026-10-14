@@ -75,6 +75,41 @@ describe('TransactionFinder', () => {
     expect(fetch).toHaveBeenLastCalledWith({ direction: 'in', page_size: 10, sort: '-date' })
   })
 
+  it('asks for everything but what one subscription tracks, and again when that changes', async () => {
+    const { fetch, wrapper } = await render({
+      direction: 'out',
+      notSubscriptionId: 'subscription-1',
+    })
+
+    expect(fetch).toHaveBeenLastCalledWith({
+      direction: 'out',
+      not_subscription_id: 'subscription-1',
+      page_size: 25,
+      sort: '-date',
+    })
+    await wrapper.setProps({ notSubscriptionId: null })
+    await flushPromises()
+    expect(fetch).toHaveBeenLastCalledWith({ direction: 'out', page_size: 25, sort: '-date' })
+  })
+
+  it('starts from a search the parent gives, and tells it what is typed since', async () => {
+    const fetch = vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+    const updates: string[] = []
+    const { wrapper } = await mountWithPlugins(TransactionFinder, {
+      props: { search: 'Netflix', 'onUpdate:search': (value: string) => updates.push(value) },
+      beforeMount: () => seedFinance(),
+    })
+    await flushPromises()
+
+    expect(fetch).toHaveBeenCalledWith({ q: 'Netflix', page_size: 25, sort: '-date' })
+    expect(wrapper.find('[data-test="finder-search"] input').element).toHaveProperty(
+      'value',
+      'Netflix',
+    )
+    await wrapper.find('[data-test="finder-search"] input').setValue('Hulu')
+    expect(updates).toEqual(['Hulu'])
+  })
+
   it('searches once typing pauses, and again when the search is cleared', async () => {
     const { fetch, find } = await render()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
@@ -137,6 +172,43 @@ describe('TransactionFinder', () => {
       'Whole Foods',
       'Acme Corp',
     ])
+  })
+
+  it('lets the parent draw each row itself, in a plain list that still says how many there are', async () => {
+    const { wrapper, find } = await render(
+      {},
+      {
+        row: '<template #row="{ transaction, description }"><p class="mine">{{ transaction.payee }}: {{ description }}</p></template>',
+      },
+      makePage([wholeFoods, latte], { total: 40 }),
+    )
+
+    expect(find('finder-list').element.tagName).toBe('UL')
+    expect(wrapper.findAll('li[data-test="finder-row"]')).toHaveLength(2)
+    expect(wrapper.findAll('.mine').map((item) => item.text())).toEqual([
+      'Whole Foods: Sep 18 · Everyday checking · Groceries',
+      'Blue Bottle: Sep 19 · Rewards Visa · Coffee',
+    ])
+    expect(wrapper.find('.v-list').exists()).toBe(false)
+    expect(find('finder-more').text()).toContain('Showing the newest 2 of 40')
+  })
+
+  it('lets the parent say what finding nothing means, and put a hint under the search', async () => {
+    const { find } = await render(
+      {},
+      {
+        empty: '<p class="nothing">Nothing here yet</p>',
+        hint: '<p class="advice">Try the payee</p>',
+      },
+      makePage([]),
+    )
+
+    expect(find('finder-empty').text()).toBe('Nothing here yet')
+    expect(find('finder-hint').text()).toBe('Try the payee')
+    // Without them, the finder says it in its own words.
+    const plain = await render({}, {}, makePage([]))
+    expect(plain.find('finder-empty').text()).toContain('No transactions found')
+    expect(plain.find('finder-hint').exists()).toBe(false)
   })
 
   it('says why it could not load, and tries again', async () => {

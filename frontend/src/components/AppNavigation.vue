@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronLeft, ChevronRight, X } from '@lucide/vue'
 import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 
 import StatusIndicator from '@/components/StatusIndicator.vue'
 import { useConnectionAlerts } from '@/composables/useConnectionAlerts'
@@ -15,6 +16,7 @@ const emit = defineEmits<{ collapse: [] }>()
 const open = defineModel<boolean | null>({ default: null })
 const alerts = useConnectionAlerts()
 const auth = useAuthStore()
+const route = useRoute()
 /** The tabs this person can open: some are for admins only. */
 const items = computed(() => navItems.filter((item) => !item.admin || auth.isAdmin))
 </script>
@@ -79,6 +81,7 @@ const items = computed(() => navItems.filter((item) => !item.admin || auth.isAdm
           :to="item.path"
           :title="item.title"
           :aria-label="item.title"
+          :active="route.meta.nav === item.name || undefined"
           rounded="lg"
           class="app-nav__item mb-1"
         >

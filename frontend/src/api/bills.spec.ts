@@ -1,6 +1,7 @@
 import {
   createBill,
   deleteBill,
+  fetchBillOverview,
   fetchBills,
   linkBillPayments,
   unlinkBillPayment,
@@ -29,6 +30,19 @@ describe('bill API', () => {
       '/api/bills',
       '/api/bills?active=true',
       '/api/bills?active=false',
+    ])
+  })
+
+  it('reads one bill in full as of the day the person is in', async () => {
+    const fetch = vi.fn().mockResolvedValue(response({ summary: { total: '0.00' } }))
+    vi.stubGlobal('fetch', fetch)
+
+    await expect(fetchBillOverview('bill-1', '2026-10-14')).resolves.toEqual({
+      summary: { total: '0.00' },
+    })
+
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      '/api/bills/bill-1/overview?today=2026-10-14',
     ])
   })
 
