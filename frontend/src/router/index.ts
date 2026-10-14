@@ -10,6 +10,7 @@ import {
 import { onboardingStep } from '@/auth/onboarding'
 import { navItems, type NavName } from '@/navigation'
 import { useAuthStore } from '@/stores/auth'
+import { kinds } from '@/views/subscriptions/kinds'
 
 const views: Record<NavName, NonNullable<RouteRecordRaw['component']>> = {
   dashboard: () => import('@/views/DashboardView.vue'),
@@ -29,6 +30,16 @@ const views: Record<NavName, NonNullable<RouteRecordRaw['component']>> = {
 export const HOME = '/dashboard'
 /** Where a bank's own sign-in page sends people back to; Plaid's dashboard must allow it. */
 export const CONNECT_OAUTH = '/connect/oauth'
+
+/** One subscription or bill in full, at `/subscriptions/:id` or `/bills/:id`. */
+const recurringRoutes = (['subscription', 'bill'] as const).map((kind): RouteRecordRaw => ({
+  path: `/${kind}s/:id`,
+  name: kind,
+  component: () => import('@/views/SubscriptionView.vue'),
+  props: (route) => ({ kind, id: route.params.id }),
+  // Its tab stays lit in the navigation, since it's a page within it.
+  meta: { title: kinds[kind].title, nav: kinds[kind].tab },
+}))
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -68,6 +79,7 @@ export const routes: RouteRecordRaw[] = [
     component: views[item.name],
     meta: { title: item.title, access: item.admin ? 'admin' : 'member' },
   })),
+  ...recurringRoutes,
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
@@ -146,5 +158,7 @@ declare module 'vue-router' {
     access?: 'member' | 'admin' | 'guest' | 'setup' | 'public'
     /** Drawn without the app's navigation, e.g. the sign-in page. */
     bare?: boolean
+    /** The tab of the navigation a page belongs to, lit while it's open, e.g. one bill's page. */
+    nav?: NavName
   }
 }

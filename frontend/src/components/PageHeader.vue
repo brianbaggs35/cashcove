@@ -17,6 +17,9 @@ defineProps<{ item: NavItem }>()
         <p class="text-body-medium text-md-body-large text-medium-emphasis ma-0">
           {{ item.summary }}
         </p>
+        <div v-if="$slots.meta" class="page-header__meta d-flex flex-wrap ga-2 mt-3">
+          <slot name="meta" />
+        </div>
       </div>
     </div>
     <div v-if="$slots.actions" class="page-header__actions d-flex ga-2">

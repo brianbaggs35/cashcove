@@ -123,6 +123,8 @@ class TransactionQuery(BaseModel):
     # Only the transactions one import added.
     import_id: uuid.UUID | None = None
     subscription_id: uuid.UUID | None = None
+    # Everything but what one subscription or bill tracks, like the payments left to link to it.
+    not_subscription_id: uuid.UUID | None = None
     # How big the amount is, whichever way the money went.
     min_amount: PositiveAmount | None = None
     max_amount: PositiveAmount | None = None

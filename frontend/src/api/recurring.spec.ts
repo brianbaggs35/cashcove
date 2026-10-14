@@ -2,7 +2,7 @@ import * as bills from '@/api/bills'
 import { recurringApi } from '@/api/recurring'
 import * as subscriptions from '@/api/subscriptions'
 import type { SubscriptionInput } from '@/api/subscriptions'
-import { makeSubscription } from '@/test/subscriptions'
+import { makeOverview, makeSubscription } from '@/test/subscriptions'
 
 const input: SubscriptionInput = {
   name: 'Streamflix',
@@ -20,8 +20,10 @@ const input: SubscriptionInput = {
 describe('recurringApi', () => {
   it('makes every call for a subscription to the subscriptions API', async () => {
     const item = makeSubscription()
+    const full = makeOverview(item)
     const calls = {
       fetch: vi.spyOn(subscriptions, 'fetchSubscriptions').mockResolvedValue([item]),
+      overview: vi.spyOn(subscriptions, 'fetchSubscriptionOverview').mockResolvedValue(full),
       create: vi.spyOn(subscriptions, 'createSubscription').mockResolvedValue(item),
       update: vi.spyOn(subscriptions, 'updateSubscription').mockResolvedValue(item),
       remove: vi.spyOn(subscriptions, 'deleteSubscription').mockResolvedValue(undefined),
@@ -33,6 +35,7 @@ describe('recurringApi', () => {
     const api = recurringApi('subscription')
 
     await api.fetch(true)
+    await api.overview('s1', '2026-10-14')
     await api.create(input)
     await api.update('s1', { active: false })
     await api.remove('s1')
@@ -40,6 +43,7 @@ describe('recurringApi', () => {
     await api.unlink('s1', 't1')
 
     expect(calls.fetch).toHaveBeenCalledWith(true)
+    expect(calls.overview).toHaveBeenCalledWith('s1', '2026-10-14')
     expect(calls.create).toHaveBeenCalledWith(input)
     expect(calls.update).toHaveBeenCalledWith('s1', { active: false })
     expect(calls.remove).toHaveBeenCalledWith('s1')
@@ -49,8 +53,10 @@ describe('recurringApi', () => {
 
   it('makes every call for a bill to the bills API', async () => {
     const item = makeSubscription({ kind: 'bill' })
+    const full = makeOverview(item)
     const calls = {
       fetch: vi.spyOn(bills, 'fetchBills').mockResolvedValue([item]),
+      overview: vi.spyOn(bills, 'fetchBillOverview').mockResolvedValue(full),
       create: vi.spyOn(bills, 'createBill').mockResolvedValue(item),
       update: vi.spyOn(bills, 'updateBill').mockResolvedValue(item),
       remove: vi.spyOn(bills, 'deleteBill').mockResolvedValue(undefined),
@@ -60,6 +66,7 @@ describe('recurringApi', () => {
     const api = recurringApi('bill')
 
     await api.fetch(false)
+    await api.overview('b1', '2026-10-14')
     await api.create(input)
     await api.update('b1', { active: true })
     await api.remove('b1')
@@ -67,6 +74,7 @@ describe('recurringApi', () => {
     await api.unlink('b1', 't2')
 
     expect(calls.fetch).toHaveBeenCalledWith(false)
+    expect(calls.overview).toHaveBeenCalledWith('b1', '2026-10-14')
     expect(calls.create).toHaveBeenCalledWith(input)
     expect(calls.update).toHaveBeenCalledWith('b1', { active: true })
     expect(calls.remove).toHaveBeenCalledWith('b1')

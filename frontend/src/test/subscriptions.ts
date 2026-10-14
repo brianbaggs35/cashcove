@@ -1,4 +1,4 @@
-import type { Subscription } from '@/api/subscriptions'
+import type { RecurringOverview, Subscription } from '@/api/subscriptions'
 
 export function makeSubscription(changes: Partial<Subscription> = {}): Subscription {
   const amount = changes.amount ?? '14.99'
@@ -40,4 +40,38 @@ export function makeBill(changes: Partial<Subscription> = {}): Subscription {
     last_payment_amount: '96.40',
     ...changes,
   })
+}
+
+/**
+ * One in full, the way its own page gets it: three payments of a monthly subscription that have
+ * cost $44.97 so far, with the next two coming and nothing else referring to it.
+ */
+export function makeOverview(
+  subscription: Subscription = makeSubscription(),
+  changes: Partial<RecurringOverview> = {},
+): RecurringOverview {
+  const amount = subscription.amount
+  return {
+    subscription,
+    summary: {
+      total: '44.97',
+      average: '14.99',
+      highest: amount,
+      lowest: amount,
+      first_on: '2026-07-15',
+      this_year: '44.97',
+    },
+    history: [
+      { on: '2026-07-15', amount },
+      { on: '2026-08-15', amount },
+      { on: '2026-09-15', amount },
+    ],
+    upcoming: [
+      { due_on: '2026-10-15', amount },
+      { due_on: '2026-11-15', amount },
+    ],
+    automations: [],
+    budgets: [],
+    ...changes,
+  }
 }

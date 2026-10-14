@@ -21,6 +21,8 @@ from app.schemas.subscriptions import SubscriptionCreate, SubscriptionUpdate
 
 # How many of a subscription's latest payments its typical amount is the average of.
 RECENT_PAYMENTS = 6
+# How many of its coming payments a subscription's own page lists.
+UPCOMING_PAYMENTS = 6
 
 # How many months each frequency that repeats by the month steps by; the rest step by days.
 _MONTHS = {
@@ -137,6 +139,17 @@ def due_dates(subscription: Subscription, first: dt.date, last: dt.date) -> list
         days.append(day)
         cycles += 1
     return days
+
+
+def upcoming_dates(subscription: Subscription) -> list[dt.date]:
+    """The days its next payments fall due, from the next one on: never more than
+    `UPCOMING_PAYMENTS` of them, and none more than a year on from the first."""
+    first = subscription.next_due_date
+    last = _add_months(first, 12)
+    days = [
+        _due_after(first, subscription.frequency, cycles) for cycles in range(UPCOMING_PAYMENTS)
+    ]
+    return [day for day in days if day <= last]
 
 
 def advance_due_date(subscription: Subscription, paid_on: dt.date) -> None:

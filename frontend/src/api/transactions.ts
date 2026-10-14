@@ -46,6 +46,8 @@ export interface TransactionQuery {
   /** Only the transactions one import added. */
   import_id?: string
   subscription_id?: string
+  /** Everything but what this subscription or bill tracks, e.g. the payments left to link to it. */
+  not_subscription_id?: string
   /** However the money went, e.g. `50` matches both 50.00 in and 50.00 out. */
   min_amount?: string
   max_amount?: string

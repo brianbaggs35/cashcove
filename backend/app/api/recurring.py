@@ -6,6 +6,7 @@ and only ever sees that kind: a bill's ID isn't a subscription's, and asking for
 is as good as asking for something that isn't there.
 """
 
+import datetime as dt
 import uuid
 from collections.abc import Sequence
 from typing import Annotated
@@ -15,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import AdminAuth, ApiError, CurrentAuth, Db
+from app.finance.recurring_overview import recurring_overview
 from app.finance.subscriptions import (
     change_recurring,
     create_recurring,
@@ -25,8 +27,11 @@ from app.finance.subscriptions import (
     unlink_payment,
 )
 from app.models import RecurringKind, Subscription, Transaction
+from app.models.base import utcnow
+from app.schemas.budget import Day
 from app.schemas.subscriptions import (
     PaymentsLinked,
+    RecurringOverview,
     SubscriptionCreate,
     SubscriptionOut,
     SubscriptionUpdate,
@@ -105,6 +110,13 @@ def _link(
     return PaymentsLinked(count=count, subscription=_out(db, subscription))
 
 
+def _overview(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID, today: dt.date | None
+) -> RecurringOverview:
+    subscription = find_recurring(db, kind, subscription_id)
+    return recurring_overview(db, subscription, _out(db, subscription), today or utcnow().date())
+
+
 def recurring_router(kind: RecurringKind) -> APIRouter:
     """The routes for one kind of recurring payment: `/subscriptions` or `/bills`."""
     router = APIRouter(prefix=f"/{kind}s", tags=[f"{kind}s"])
@@ -119,6 +131,18 @@ def recurring_router(kind: RecurringKind) -> APIRouter:
 
     def read_payment(subscription_id: uuid.UUID, auth: CurrentAuth, db: Db) -> SubscriptionOut:
         return _out(db, find_recurring(db, kind, subscription_id))
+
+    def read_overview(
+        subscription_id: uuid.UUID,
+        auth: CurrentAuth,
+        db: Db,
+        today: Annotated[
+            Day | None,
+            Query(description="The date where the person is, which says which year they're in."),
+        ] = None,
+    ) -> RecurringOverview:
+        """It, what it has cost, what is coming and what refers to it, for its own page."""
+        return _overview(db, kind, subscription_id, today)
 
     def update_payment(
         subscription_id: uuid.UUID, body: SubscriptionUpdate, auth: AdminAuth, db: Db
@@ -149,6 +173,7 @@ def recurring_router(kind: RecurringKind) -> APIRouter:
     router.add_api_route("", list_payments, methods=["GET"])
     router.add_api_route("", create_payment, methods=["POST"], status_code=status.HTTP_201_CREATED)
     router.add_api_route(one, read_payment, methods=["GET"])
+    router.add_api_route(f"{one}/overview", read_overview, methods=["GET"])
     router.add_api_route(one, update_payment, methods=["PATCH"])
     router.add_api_route(
         one, delete_payment, methods=["DELETE"], status_code=status.HTTP_204_NO_CONTENT

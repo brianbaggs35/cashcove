@@ -10,7 +10,7 @@ async function render(changes: Partial<Parameters<typeof makeSubscription>[0]> =
   const edit = vi.fn()
   const remove = vi.fn()
   const toggle = vi.fn()
-  const { wrapper } = await mountWithPlugins(SubscriptionCard, {
+  const { wrapper, router } = await mountWithPlugins(SubscriptionCard, {
     props: {
       subscription: makeSubscription(changes),
       daysUntilDue: 8,
@@ -21,7 +21,7 @@ async function render(changes: Partial<Parameters<typeof makeSubscription>[0]> =
     beforeMount: () => seedFinance(),
   })
   await flushPromises()
-  return { wrapper, edit, remove, toggle }
+  return { wrapper, router, edit, remove, toggle }
 }
 
 describe('SubscriptionCard', () => {
@@ -198,6 +198,34 @@ describe('SubscriptionCard', () => {
     expect(wrapper.emitted('delete')?.[0]).toEqual([subscription])
   })
 
+  it('opens its own page from its name, which reaches across the whole card', async () => {
+    const { wrapper } = await render()
+
+    const link = wrapper.find('[data-test="subscription-open"]')
+    expect(link.attributes('href')).toBe('/subscriptions/subscription-streamflix')
+    expect(link.text()).toBe('Streamflix')
+    // The name is the card's heading, and the one link to the page, so nothing is nested.
+    expect(wrapper.find('h2 a').element).toBe(link.element)
+    expect(wrapper.findAll('a[href="/subscriptions/subscription-streamflix"]')).toHaveLength(1)
+  })
+
+  it('offers View first in its menu, above pausing, editing and deleting', async () => {
+    const { wrapper, router } = await render()
+    await wrapper.find('[data-test="subscription-actions"]').trigger('click')
+    await flushPromises()
+
+    const items = page().findAll('.v-list-item')
+    expect(items.map((item) => item.text())).toEqual(['View', 'Pause matching', 'Edit', 'Delete'])
+    const view = page().find('[data-test="subscription-view"]')
+    expect(view.element).toBe(items[0]!.element)
+    // Pressing it opens the page, with nothing for the page that holds the card to handle.
+    await view.trigger('click')
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe('/subscriptions/subscription-streamflix')
+    })
+    expect(wrapper.emitted()).not.toHaveProperty('view')
+  })
+
   it('asks to link payments from its button', async () => {
     const subscription = makeSubscription()
     const { wrapper } = await render()
@@ -284,6 +312,27 @@ describe('SubscriptionCard', () => {
 
       const soon = await renderBill({}, { daysUntilDue: 4 })
       expect(soon.find('[data-test="bill-due-alert"]').text()).toContain('5-day reminder window')
+    })
+
+    it('opens a bill’s page from its name and from the first item of its menu', async () => {
+      const wrapper = await renderBill()
+
+      expect(wrapper.find('[data-test="bill-open"]').attributes('href')).toBe('/bills/bill-power')
+      await wrapper.find('[data-test="bill-actions"]').trigger('click')
+      await flushPromises()
+      const items = page().findAll('.v-list-item')
+      expect(items[0]!.text()).toBe('View')
+      await page().find('[data-test="bill-view"]').trigger('click')
+      await vi.waitFor(() => {
+        expect(wrapper.vm.$router.currentRoute.value.path).toBe('/bills/bill-power')
+      })
+    })
+
+    it('leaves a viewer, who has no menu, the name to open it by', async () => {
+      const wrapper = await renderBill({}, { readonly: true })
+
+      expect(wrapper.find('[data-test="bill-actions"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="bill-open"]').exists()).toBe(true)
     })
 
     it('emits its actions with the bill', async () => {

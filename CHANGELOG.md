@@ -6,6 +6,53 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
+## 0.2.7 - 2026-10-14
+
+No database changes: this release has no migration to run.
+
+### Added
+
+- **A page for each bill and subscription.** Press a card's name, anywhere on the card, or
+  **View**, now the first item of its menu on both tabs, to open it. The page shows what it costs
+  (and what a bill that changes every time is expected to be), when it falls due and whether that
+  is late, what its payments have come to this year and in all, a chart of what each of the latest
+  payments cost against their average (with the same numbers as a table), the payments a page at a
+  time, the dates the next ones fall due, everything that was set up and when, and the automations
+  and budgets that refer to it. It tells you when a payment is overdue, due within your reminder
+  window or was not the price it should have been, with **Update amount** and the other fixes
+  beside it. Admins can change, pause, resume and delete it from the page; anyone signed in can
+  read it, and a viewer is told what only an admin can do. An item that isn't there (deleted, or
+  the other kind) says so instead of showing an error. The Bills or Subscriptions tab stays lit
+  while one of its pages is open.
+- **Breadcrumbs.** The page shows where it is, **Bills › City Power**, and every part of the
+  trail but the last is a link back; on a phone it is one **← Bills** button. It is a component
+  (`BreadcrumbTrail`) for any page that sits inside another.
+- **Link and unlink payments from the page.** **Link payments** sits on the payments card and in
+  the page's header, and the payments on the page each have a menu to see their details or take
+  them off.
+- **Read-only overview API.** `GET /api/bills/{id}/overview` and
+  `GET /api/subscriptions/{id}/overview` return the item with what its payments came to, its
+  latest payments, the dates of the next ones, and the automations and budgets that refer to it.
+  Any signed-in person can read them, a bill is never found as a subscription, and nothing in
+  them can be changed. Transactions can also be listed without the ones one subscription or bill
+  tracks (`not_subscription_id`), which is what is left to link to it.
+
+### Changed
+
+- **A better way to link payments.** The **Link payments** dialog opens already looking for
+  payments that look like the payee, so a bank's other spelling of it ("CITY POWER & LIGHT 0412
+  AUSTIN TX") is found at once, and leaves out what is linked already. Press any payment to tick
+  it, see what the ticked ones come to, and link them together; a payment linked to something
+  else says so and moves. **Linked here** lists what is linked, each with an **Unlink** button.
+  It works the same on a phone, on the Bills and Subscriptions tabs alike.
+- **Unlinking a payment asks first.** Taking a payment off a subscription or bill, from the dialog
+  or from its page, now asks you to confirm, says what stays (the payment, in your history, with
+  its category) and what goes (it no longer counts toward the subscription, its totals or the
+  budgets that count it), and stays open with the reason if it fails.
+- **Shared pieces.** Pausing, resuming, deleting, updating the price and unlinking are the same
+  code on the tab and on the page, and `TransactionFinder`, `PageHeader` and the navigation can
+  now be given a starting search, your own rows, a hint and a page's own place in the tabs.
+
 ## 0.2.6 - 2026-10-10
 
 ### Added
