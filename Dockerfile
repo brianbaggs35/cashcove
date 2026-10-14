@@ -15,11 +15,16 @@ ARG POSTGRES_VERSION=18
 ARG UV_VERSION=0.13.0
 ARG SUPERVISOR_VERSION=4.3.0
 
+# Every apk call goes through docker/apk-retry.sh: a package download that stalls on a CI
+# runner fails the whole build otherwise, and the script runs the call again. It's mounted
+# for just the steps that use it, so it never ends up in an image layer.
+
 # ---- Wolfi base, upgraded to the latest packages ----------------------------------------
 FROM ${WOLFI_BASE} AS wolfi
 # CI passes the date here so cached layers are refreshed at least daily.
 ARG APK_REFRESH=""
-RUN echo "apk refresh: ${APK_REFRESH:-none}" && apk upgrade --no-cache
+RUN --mount=type=bind,source=docker/apk-retry.sh,target=/apk-retry.sh \
+    echo "apk refresh: ${APK_REFRESH:-none}" && sh /apk-retry.sh apk upgrade --no-cache
 
 # ---- Frontend: type-check and build static assets ------------------------------------
 # The web app is the same on every CPU, so a multi-platform release builds it once, natively
@@ -27,8 +32,9 @@ RUN echo "apk refresh: ${APK_REFRESH:-none}" && apk upgrade --no-cache
 FROM --platform=$BUILDPLATFORM ${WOLFI_BASE} AS frontend-build
 ARG NODE_VERSION
 ARG APK_REFRESH=""
-RUN echo "apk refresh: ${APK_REFRESH:-none}" && apk upgrade --no-cache \
-    && apk add --no-cache "nodejs-${NODE_VERSION}" npm
+RUN --mount=type=bind,source=docker/apk-retry.sh,target=/apk-retry.sh \
+    echo "apk refresh: ${APK_REFRESH:-none}" && sh /apk-retry.sh apk upgrade --no-cache \
+    && sh /apk-retry.sh apk add --no-cache "nodejs-${NODE_VERSION}" npm
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
 # No package's install scripts run (none of these need one), and the Python stages below
@@ -44,7 +50,8 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 FROM wolfi AS backend-build
 ARG PYTHON_VERSION
 ARG SUPERVISOR_VERSION
-RUN apk add --no-cache "python-${PYTHON_VERSION}"
+RUN --mount=type=bind,source=docker/apk-retry.sh,target=/apk-retry.sh \
+    sh /apk-retry.sh apk add --no-cache "python-${PYTHON_VERSION}"
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -66,17 +73,18 @@ ARG PYTHON_VERSION
 ARG POSTGRES_VERSION
 # Wolfi packages don't create service accounts, so they're made here with fixed IDs that
 # stay the same across rebuilds (the database files on the volume belong to postgres).
-RUN set -eux; \
+RUN --mount=type=bind,source=docker/apk-retry.sh,target=/apk-retry.sh \
+    set -eux; \
     addgroup -S -g 10001 cashcove; \
     adduser -S -D -H -u 10001 -G cashcove -h /app -s /sbin/nologin cashcove; \
     addgroup -S -g 10002 postgres; \
     adduser -S -D -H -u 10002 -G postgres -h /var/lib/postgresql -s /sbin/nologin postgres; \
     addgroup -S -g 10003 nginx; \
     adduser -S -D -H -u 10003 -G nginx -h /var/lib/nginx -s /sbin/nologin nginx; \
-    apk add --no-cache ca-certificates-bundle nginx-mainline nginx-mainline-config openssl \
-        setpriv tzdata; \
-    apk add --no-cache "postgresql-${POSTGRES_VERSION}" "postgresql-${POSTGRES_VERSION}-client" \
-        "python-${PYTHON_VERSION}"; \
+    sh /apk-retry.sh apk add --no-cache ca-certificates-bundle nginx-mainline \
+        nginx-mainline-config openssl setpriv tzdata; \
+    sh /apk-retry.sh apk add --no-cache "postgresql-${POSTGRES_VERSION}" \
+        "postgresql-${POSTGRES_VERSION}-client" "python-${PYTHON_VERSION}"; \
     rm -f /etc/nginx/conf.d/default.conf
 ENV PATH=/opt/venv/bin:/opt/supervisor/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -103,7 +111,8 @@ ENTRYPOINT ["/app/docker/entrypoint.sh"]
 FROM runtime-base AS dev
 ARG NODE_VERSION
 ARG PYTHON_VERSION
-RUN apk add --no-cache "nodejs-${NODE_VERSION}" npm
+RUN --mount=type=bind,source=docker/apk-retry.sh,target=/apk-retry.sh \
+    sh /apk-retry.sh apk add --no-cache "nodejs-${NODE_VERSION}" npm
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON=/usr/bin/python${PYTHON_VERSION} \
     UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy \
