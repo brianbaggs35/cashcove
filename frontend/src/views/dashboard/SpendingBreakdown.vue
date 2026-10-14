@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ChartPie } from '@lucide/vue'
 import { computed } from 'vue'
-import { useDisplay } from 'vuetify'
 import { VPie } from 'vuetify/labs/VPie'
 
 import type { CategoryTotal } from '@/api/budget'
@@ -15,7 +14,6 @@ import { slices, type Slice } from '@/views/dashboard/summary'
 const props = defineProps<{ categories: CategoryTotal[] }>()
 
 const { money } = useHousehold()
-const { xs } = useDisplay()
 const categoryStore = useCategoriesStore()
 
 function nameOf(slice: Slice): string {
@@ -112,21 +110,19 @@ const items = computed(() =>
                 <th scope="col">Category</th>
                 <th scope="col">Spent</th>
                 <th scope="col">Share</th>
-                <th v-if="!xs" scope="col">Transactions</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in rows" :key="row.key" data-test="spending-row">
                 <th scope="row">
                   {{ row.name }}
-                  <!-- A phone has no room for every column, so the category carries the count. -->
-                  <span v-if="xs" class="spend__more" data-test="spending-more">
+                  <!-- The card is narrow beside the menu on a computer too, so the category carries the count. -->
+                  <span class="spend__more" data-test="spending-more">
                     {{ row.count }} {{ row.count === 1 ? 'transaction' : 'transactions' }}
                   </span>
                 </th>
                 <td>{{ row.amount }}</td>
                 <td>{{ row.share }}</td>
-                <td v-if="!xs">{{ row.count }}</td>
               </tr>
             </tbody>
           </table>

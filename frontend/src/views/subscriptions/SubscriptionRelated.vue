@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { PiggyBank, WandSparkles } from '@lucide/vue'
 
-import type { LinkedAutomation, LinkedBudget } from '@/api/subscriptions'
+import type { LinkedAutomation, LinkedBudget, RecurringKind } from '@/api/subscriptions'
 import { periodTitles } from '@/views/budget/periods'
 import { kinds } from '@/views/subscriptions/kinds'
-import type { RecurringKind } from '@/api/subscriptions'
 
 /** The automations that link payments to a subscription or a bill, and the budgets that count them. */
 defineProps<{

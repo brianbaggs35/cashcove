@@ -36,6 +36,26 @@ export async function unlinkPayment(
 }
 
 /**
+ * Deletes a subscription or a bill, once the person has confirmed it: its transactions stay in
+ * their history, but are no longer linked. Resolves to whether it was deleted, which is up to the
+ * caller to show.
+ */
+export async function deleteRecurring(subscription: Subscription): Promise<boolean> {
+  const done = await confirmAndRun(
+    {
+      title: `Delete ${subscription.name}?`,
+      text: 'Its tracked transactions will stay in your history, but will no longer be linked.',
+      confirmText: `Delete ${kinds[subscription.kind].noun}`,
+      tone: 'error',
+    },
+    () => recurringApi(subscription.kind).remove(subscription.id),
+  )
+  if (!done) return false
+  notify(`Deleted ${subscription.name}`)
+  return true
+}
+
+/**
  * What an admin does to a subscription or a bill in one go, from its card or from its own page:
  * pause it or resume it, take a price change on board, or delete it. `changed` runs after one of
  * the first two went through, to load it afresh, and `failed` hears why one didn't.
@@ -72,21 +92,5 @@ export function useRecurringActions(
     }
   }
 
-  /** Asks first. Resolves to whether it was deleted, which is up to the caller to show. */
-  async function remove(subscription: Subscription): Promise<boolean> {
-    const done = await confirmAndRun(
-      {
-        title: `Delete ${subscription.name}?`,
-        text: 'Its tracked transactions will stay in your history, but will no longer be linked.',
-        confirmText: `Delete ${kinds[subscription.kind].noun}`,
-        tone: 'error',
-      },
-      () => recurringApi(subscription.kind).remove(subscription.id),
-    )
-    if (!done) return false
-    notify(`Deleted ${subscription.name}`)
-    return true
-  }
-
-  return { toggle, updateAmount, remove }
+  return { toggle, updateAmount, remove: deleteRecurring }
 }

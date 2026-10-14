@@ -63,33 +63,37 @@ describe('SpendingBreakdown', () => {
 
     const rows = wrapper.findAll('[data-test="spending-row"]').map((row) => row.text())
     expect(rows).toEqual([
-      expect.stringMatching(/^Groceries\s*\$700\.00\s*56%\s*6$/),
-      expect.stringMatching(/^Coffee\s*\$350\.00\s*28%\s*12$/),
-      expect.stringMatching(/^Uncategorized\s*\$200\.00\s*16%\s*3$/),
+      expect.stringMatching(/^Groceries\s*6 transactions\s*\$700\.00\s*56%$/),
+      expect.stringMatching(/^Coffee\s*12 transactions\s*\$350\.00\s*28%$/),
+      expect.stringMatching(/^Uncategorized\s*3 transactions\s*\$200\.00\s*16%$/),
     ])
   })
 
-  it('fits its table on a phone by putting the count under the category', async () => {
-    const { wrapper, find } = await render(
-      [
-        { category_id: 'category-groceries', amount: '700.00', count: 6 },
-        { category_id: 'category-coffee', amount: '350.00', count: 1 },
-      ],
-      390,
-    )
+  it.each([390, 1280])(
+    'fits its table at any width, with the count under the category, at %i wide',
+    async (width) => {
+      // The card is narrow beside the menu on a computer too, so it never has a column for it.
+      const { wrapper, find } = await render(
+        [
+          { category_id: 'category-groceries', amount: '700.00', count: 6 },
+          { category_id: 'category-coffee', amount: '350.00', count: 1 },
+        ],
+        width,
+      )
 
-    await find('chart-view-table').trigger('click')
+      await find('chart-view-table').trigger('click')
 
-    expect(wrapper.findAll('thead th').map((heading) => heading.text())).toEqual([
-      'Category',
-      'Spent',
-      'Share',
-    ])
-    expect(wrapper.findAll('[data-test="spending-more"]').map((more) => more.text())).toEqual([
-      '6 transactions',
-      '1 transaction',
-    ])
-  })
+      expect(wrapper.findAll('thead th').map((heading) => heading.text())).toEqual([
+        'Category',
+        'Spent',
+        'Share',
+      ])
+      expect(wrapper.findAll('[data-test="spending-more"]').map((more) => more.text())).toEqual([
+        '6 transactions',
+        '1 transaction',
+      ])
+    },
+  )
 
   it('has no ring until money has gone out', async () => {
     const { find } = await render([])
