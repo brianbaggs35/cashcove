@@ -10,7 +10,7 @@ defineProps<{ icon: LucideIcon; label: string }>()
 
 <template>
   <v-card class="stat-tile h-100">
-    <v-card-text class="stat-tile__body d-flex align-center ga-4 pa-5">
+    <v-card-text class="stat-tile__body d-flex align-center ga-4">
       <v-avatar class="stat-tile__icon" color="primary" variant="tonal" rounded="lg">
         <v-icon :icon="icon" aria-hidden="true" />
       </v-avatar>
@@ -48,9 +48,13 @@ defineProps<{ icon: LucideIcon; label: string }>()
   font-variant-numeric: tabular-nums;
 }
 
+.stat-tile__body {
+  padding: 20px;
+}
+
 @media (max-width: 599px) {
   .stat-tile__body {
-    padding: 16px !important;
+    padding: 16px;
   }
 
   .stat-tile__icon {
