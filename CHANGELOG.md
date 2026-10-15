@@ -12,6 +12,13 @@ and give it a version and a date when you cut a release (see Releases in the
 
 - Added retries to the Dockerfile and Makefile for pulling images.
 
+### Changed
+
+- **Partly selected checkboxes.** Vuetify 4.2.6 marks a partly ticked checkbox with the browser's
+  own indeterminate state instead of `aria-checked="mixed"`, and screen readers still announce it
+  as mixed. The select-all boxes on the Transactions page and in the account picker rely on that
+  now, so the code that set the state by hand is gone.
+
 ### Dependency Updates
 
 - Updated fastapi to 0.143.1

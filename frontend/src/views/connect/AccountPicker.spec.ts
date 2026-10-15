@@ -37,11 +37,9 @@ describe('AccountPicker', () => {
     const { find, selected } = await render()
     const all = () => find('account-picker-all').find('input').element as HTMLInputElement
 
-    expect(all().getAttribute('aria-checked')).toBe('mixed')
     expect(all().indeterminate).toBe(true)
     await find('account-picker-all').find('input').trigger('click')
     expect(selected.value).toEqual([sharedCard.id, sharedChecking.id, sharedSavings.id])
-    expect(all().getAttribute('aria-checked')).toBeNull()
     expect(all().indeterminate).toBe(false)
     expect(all().checked).toBe(true)
     await find('account-picker-all').find('input').trigger('click')
