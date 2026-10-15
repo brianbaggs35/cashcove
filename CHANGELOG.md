@@ -18,6 +18,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated pydantic to 2.14.1
 - Updated pydantic-settings to 2.16.0
 - Updated pypdf to 6.20.1
+- Updated @lucide/vue to 1.57.0
 
 ## 0.2.7 - 2026-10-14
 
