@@ -112,7 +112,7 @@ onMounted(() => {
 <style scoped>
 .app-bar {
   backdrop-filter: saturate(180%) blur(12px);
-  background: rgba(var(--v-theme-background), 0.8) !important;
+  background: rgba(var(--v-theme-background), 0.8);
 }
 
 .app-bar__menu {

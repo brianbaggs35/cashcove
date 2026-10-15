@@ -127,7 +127,7 @@ async function save() {
 
 .settings-nav__group {
   min-height: 32px;
-  padding-inline-start: 12px !important;
+  padding-inline-start: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }

@@ -29,7 +29,7 @@ help: ## Show this help
 
 ## ---- Run -----------------------------------------------------------------------
 up: ## Build and start Cashcove in the background
-	$(COMPOSE) up -d --build
+	$(COMPOSE) up -d --build || { echo; echo "The build failed. For the whole error, run: $(COMPOSE) --progress=plain up -d --build"; exit 1; }
 	@echo "Cashcove is starting at https://$${CASHCOVE_SERVER_NAME:-localhost}"
 
 pull: ## Download and start the release in .env's CASHCOVE_IMAGE and CASHCOVE_VERSION

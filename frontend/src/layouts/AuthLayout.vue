@@ -117,7 +117,7 @@ const promises = [
 
 .auth-layout__brand :deep(.text-medium-emphasis),
 .auth-layout__muted {
-  color: rgba(248, 250, 252, 0.72) !important;
+  color: rgba(248, 250, 252, 0.72);
 }
 
 .auth-layout__headline {

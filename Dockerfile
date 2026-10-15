@@ -53,7 +53,11 @@ ARG SUPERVISOR_VERSION
 RUN --mount=type=bind,source=docker/apk-retry.sh,target=/apk-retry.sh \
     sh /apk-retry.sh apk add --no-cache "python-${PYTHON_VERSION}"
 COPY --from=uv /uv /usr/local/bin/uv
+# uv gives up on a download that stalls for 30 seconds, which a slow connection does when the
+# image's layers download at once, so it waits longer and tries more often.
 ENV UV_COMPILE_BYTECODE=1 \
+    UV_HTTP_RETRIES=5 \
+    UV_HTTP_TIMEOUT=300 \
     UV_LINK_MODE=copy \
     UV_NO_CACHE=1 \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
@@ -115,7 +119,7 @@ RUN --mount=type=bind,source=docker/apk-retry.sh,target=/apk-retry.sh \
     sh /apk-retry.sh apk add --no-cache "nodejs-${NODE_VERSION}" npm
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON=/usr/bin/python${PYTHON_VERSION} \
-    UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_HTTP_RETRIES=5 UV_HTTP_TIMEOUT=300 \
     CASHCOVE_MODE=development CASHCOVE_ENVIRONMENT=development
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock ./

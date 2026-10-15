@@ -4,7 +4,7 @@
 # running the same command again installs what's missing. Only used while building the image.
 set -eu
 
-attempts=5
+attempts=8
 attempt=1
 until "$@"; do
     if [ "$attempt" -ge "$attempts" ]; then
