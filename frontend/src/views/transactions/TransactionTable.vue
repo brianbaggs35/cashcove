@@ -6,7 +6,6 @@ import type { Transaction, TransactionSort } from '@/api/transactions'
 import CategoryChip from '@/components/finance/CategoryChip.vue'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
 import { useHousehold } from '@/composables/useHousehold'
-import { vPartlyChecked } from '@/directives/partlyChecked'
 import { useAccountsStore } from '@/stores/accounts'
 import { formatListDate } from '@/utils/dates'
 import { PAGE_SIZES } from '@/views/transactions/view'
@@ -126,7 +125,6 @@ function detail(transaction: Transaction): string | null {
   >
     <template #[`header.data-table-select`]="{ allSelected, someSelected, selectAll }">
       <v-checkbox-btn
-        v-partly-checked="someSelected && !allSelected"
         :model-value="allSelected"
         :indeterminate="someSelected && !allSelected"
         density="comfortable"

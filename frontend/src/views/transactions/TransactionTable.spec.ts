@@ -120,7 +120,6 @@ describe('TransactionTable', () => {
     const all = () => wrapper.find('[data-test="transaction-select-page"] input')
     const box = () => all().element as HTMLInputElement
     expect(all().attributes('aria-label')).toBe('Select all on this page')
-    expect(all().attributes('aria-checked')).toBe('mixed')
     expect(box().indeterminate).toBe(true)
 
     await all().trigger('click')
