@@ -26,6 +26,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated @vitest/coverage-v8 to 5.0.4
 - Updated vitest to 5.0.4
 - Updated typescript-eslint to 8.71.2
+- Updated vue-tsc to 3.3.13
 
 ## 0.2.7 - 2026-10-14
 
