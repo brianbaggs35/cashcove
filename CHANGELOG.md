@@ -15,6 +15,7 @@ and give it a version and a date when you cut a release (see Releases in the
 ### Dependency Updates
 
 - Updated fastapi to 0.143.1
+- Updated pydantic to 2.14.1
 
 ## 0.2.7 - 2026-10-14
 
