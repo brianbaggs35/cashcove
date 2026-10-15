@@ -815,7 +815,7 @@ function submit() {
 <style scoped>
 .automation-fine-tune {
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  border-radius: 16px !important;
+  border-radius: 16px;
 }
 
 .automation-rule {

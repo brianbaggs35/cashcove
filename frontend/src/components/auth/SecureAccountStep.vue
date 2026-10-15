@@ -170,7 +170,7 @@ const adding = useAction(async () => {
 }
 
 .secure-step__option--done {
-  border-color: rgba(var(--v-theme-success), 0.5) !important;
+  border-color: rgba(var(--v-theme-success), 0.5);
   background: rgba(var(--v-theme-success), 0.05);
 }
 </style>

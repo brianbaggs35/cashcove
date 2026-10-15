@@ -500,7 +500,7 @@ const nextSteps = [
 <style scoped>
 .welcome__brand :deep(.text-medium-emphasis),
 .welcome__muted {
-  color: rgba(248, 250, 252, 0.72) !important;
+  color: rgba(248, 250, 252, 0.72);
 }
 
 .welcome__rail {
