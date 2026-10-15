@@ -23,6 +23,8 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated vue to 3.5.44
 - Updated vuetify to 4.2.6
 - Updated @playwright/test to 1.64.1
+- Updated @vitest/coverage-v8 to 5.0.4
+- Updated vitest to 5.0.4
 
 ## 0.2.7 - 2026-10-14
 
