@@ -37,6 +37,8 @@ RUN --mount=type=bind,source=docker/apk-retry.sh,target=/apk-retry.sh \
     && sh /apk-retry.sh apk add --no-cache "nodejs-${NODE_VERSION}" npm
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
+# npm tries a failed download twice by default; a slow connection needs more.
+ENV NPM_CONFIG_FETCH_RETRIES=5
 # No package's install scripts run (none of these need one), and the Python stages below
 # install prebuilt wheels only, so installing dependencies never runs their code.
 RUN npm ci --ignore-scripts --no-audit --no-fund
