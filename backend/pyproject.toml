@@ -73,7 +73,7 @@ plugins = ["pydantic.mypy"]
 [tool.pyright]
 include = ["app", "e2e", "tests", "migrations", "../docker"]
 typeCheckingMode = "strict"
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 venvPath = "."
 venv = ".venv"
 
