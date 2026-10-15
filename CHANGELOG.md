@@ -21,6 +21,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated @lucide/vue to 1.57.0
 - Updated pinia to 4.1.0
 - Updated vue to 3.5.44
+- Updated vuetify to 4.2.6
 
 ## 0.2.7 - 2026-10-14
 
