@@ -6,6 +6,16 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
+## 0.2.8 - 2026-10-15
+
+### Added
+
+- Added retries to the Dockerfile and Makefile for pulling images.
+
+### Dependency Updates
+
+- Updated fastapi to 0.143.1
+
 ## 0.2.7 - 2026-10-14
 
 No database changes: this release has no migration to run.
