@@ -88,6 +88,14 @@ describe('SubscriptionStats', () => {
     expect(text('stat-cost')).toContain('CA$779.48 a year')
   })
 
+  it('counts what one paid every two months costs a month, from the six payments a year', async () => {
+    const { text } = await render({ frequency: 'bimonthly' })
+
+    expect(text('stat-expected')).toContain('Every two months')
+    expect(text('stat-cost')).toContain('$7.50')
+    expect(text('stat-cost')).toContain('$89.94 a year')
+  })
+
   it('reads a first payment that has not happened yet as just a count', async () => {
     const none = await render(
       { payment_count: 0 },

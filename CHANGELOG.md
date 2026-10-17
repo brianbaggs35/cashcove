@@ -6,6 +6,44 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
+## 0.2.9 - 2026-10-17
+
+### Upgrading
+
+- Migration `0020` lets a subscription or bill be paid every two months. The models have always
+  limited `subscriptions.frequency` to the frequencies there are, but the migration that made the
+  column never put that limit in a database, so `0020` does, with the new frequency among them.
+  Like the migrations before it, it can be run again on a database that already has some or all of
+  it, and changes nothing. To go back to 0.2.8, run `alembic downgrade 0019` first: that version
+  doesn't know the new frequency, so each payment every two months becomes one every month for half
+  as much, which comes to the same in a year.
+
+### Added
+
+- **Bi-monthly subscriptions and bills.** **Every two months** is a new choice in **Payment
+  frequency** when you add or change a subscription or a bill, between **Monthly** and **Every
+  three months**. Like **Every two weeks**, it means every second month, not twice a month. The
+  list is made tall enough to show all seven choices at once, where Vuetify's own select menu
+  would have cut the last one off. A card says how often it is paid and what that comes to a
+  month (half of one payment), the totals at the top of the Subscriptions and Bills tabs count six
+  payments a year, and the page of a bill or subscription lists the payments still to come two
+  months apart. They are counted from the same day each time, so one due on the 31st goes back to
+  the 31st after a short month. A payment made up to 30 days before it is due settles that due
+  date and moves it two months on; one from the cycle before changes nothing. The AI chat can set
+  one up, or change how often one is paid, too.
+- Playwright specs (`bimonthly.spec.ts`) for adding a bill and a subscription that are paid every
+  two months, changing how often one is paid, and a payment moving the due date.
+
+### Fixed
+
+- A test of the Subscriptions page took 15 October 2026, the due date its test data uses, to be
+  always in the future, so it failed once that day had passed. It now picks a day counted from
+  today.
+- The Playwright tests read time from the monotonic clock, as the unit tests already do. A clock
+  that steps back, as WSL2's does about every half minute, made Vue skip a click's later
+  handlers, so a menu stayed open behind the dialog its item had opened and the accessibility
+  spec failed now and then on such a computer.
+
 ## 0.2.8 - 2026-10-15
 
 ### Added

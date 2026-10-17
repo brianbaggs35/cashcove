@@ -68,11 +68,15 @@ _BUDGET_ROW = re.compile(r"^(?P<code>B[a-z]{2}\d+) \| (?P<name>.*?) \| \w+ \|", 
 _FREQUENCIES = (
     ("biweekly", r"biweekly|every two weeks|every other week"),
     ("weekly", r"weekly|every week|a week"),
+    # Before "monthly", which would take the "monthly" out of "bi-monthly".
+    ("bimonthly", r"bi-?monthly|every two months|every other month"),
     ("quarterly", r"quarterly|every three months"),
     ("annual", r"yearly|annual|annually|every year|a year"),
     ("monthly", r"monthly|every month|a month|per month"),
 )
 _PERIODS = {"week": "weekly", "two weeks": "biweekly", "month": "monthly", "year": "yearly"}
+# How many months apart the payments of each frequency that counts in months are.
+_MONTHS_BETWEEN = {"monthly": 1, "bimonthly": 2, "quarterly": 3, "semiannual": 6, "annual": 12}
 _NO_CATEGORY = "(no category)"
 
 
@@ -91,8 +95,7 @@ def _after(day: dt.date, frequency: str) -> dt.date:
     """The day a payment made on `day` is next due."""
     if frequency in {"weekly", "biweekly"}:
         return day + dt.timedelta(days=7 if frequency == "weekly" else 14)
-    months = {"monthly": 1, "quarterly": 3, "semiannual": 6, "annual": 12}[frequency]
-    year, month = divmod(day.year * 12 + day.month - 1 + months, 12)
+    year, month = divmod(day.year * 12 + day.month - 1 + _MONTHS_BETWEEN[frequency], 12)
     last = calendar.monthrange(year, month + 1)[1]
     return dt.date(year, month + 1, min(day.day, last))
 
