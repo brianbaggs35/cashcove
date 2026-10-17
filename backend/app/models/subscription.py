@@ -15,6 +15,8 @@ class PaymentFrequency(StrEnum):
     WEEKLY = "weekly"
     BIWEEKLY = "biweekly"
     MONTHLY = "monthly"
+    # Every two months, the way biweekly is every two weeks: not twice a month.
+    BIMONTHLY = "bimonthly"
     QUARTERLY = "quarterly"
     SEMIANNUAL = "semiannual"
     ANNUAL = "annual"

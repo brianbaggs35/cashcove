@@ -27,6 +27,7 @@ UPCOMING_PAYMENTS = 6
 # How many months each frequency that repeats by the month steps by; the rest step by days.
 _MONTHS = {
     PaymentFrequency.MONTHLY: 1,
+    PaymentFrequency.BIMONTHLY: 2,
     PaymentFrequency.QUARTERLY: 3,
     PaymentFrequency.SEMIANNUAL: 6,
     PaymentFrequency.ANNUAL: 12,
@@ -38,6 +39,7 @@ _EARLY = {
     PaymentFrequency.WEEKLY: dt.timedelta(days=3),
     PaymentFrequency.BIWEEKLY: dt.timedelta(days=7),
     PaymentFrequency.MONTHLY: dt.timedelta(days=15),
+    PaymentFrequency.BIMONTHLY: dt.timedelta(days=30),
     PaymentFrequency.QUARTERLY: dt.timedelta(days=45),
     PaymentFrequency.SEMIANNUAL: dt.timedelta(days=91),
     PaymentFrequency.ANNUAL: dt.timedelta(days=182),

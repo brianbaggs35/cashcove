@@ -139,6 +139,7 @@ describe('SubscriptionCard', () => {
       ['weekly', 'Weekly'],
       ['biweekly', 'Every two weeks'],
       ['monthly', 'Monthly'],
+      ['bimonthly', 'Every two months'],
       ['quarterly', 'Every three months'],
       ['semiannual', 'Every six months'],
       ['annual', 'Annually'],
@@ -150,6 +151,14 @@ describe('SubscriptionCard', () => {
         '1 payment tracked',
       )
     }
+  })
+
+  it('spreads what one paid every two months costs over the months between', async () => {
+    const { wrapper } = await render({ frequency: 'bimonthly', amount: '30.00' })
+
+    expect(wrapper.find('[data-test="subscription-amount"]').text()).toBe('$30.00')
+    expect(wrapper.text()).toContain('Every two months')
+    expect(wrapper.text()).toContain('$15.00 / month')
   })
 
   it('keeps paused and missing account/category states understandable', async () => {

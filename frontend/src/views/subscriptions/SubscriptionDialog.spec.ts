@@ -307,6 +307,59 @@ describe('SubscriptionDialog', () => {
     expect(open.value).toBe(false)
   })
 
+  it('offers every two months between monthly and every three months, and saves it', async () => {
+    const create = vi
+      .spyOn(subscriptionsApi, 'createSubscription')
+      .mockResolvedValue(makeSubscription({ frequency: 'bimonthly' }))
+    const { wrapper, field, input, component } = await render()
+    const frequency = component('SubscriptionDialog').findAllComponents({ name: 'VSelect' }).at(0)!
+
+    expect((frequency.props('items') as { title: string }[]).map((item) => item.title)).toEqual([
+      'Weekly',
+      'Every two weeks',
+      'Monthly',
+      'Every two months',
+      'Every three months',
+      'Every six months',
+      'Annually',
+    ])
+    // Taller than the 310px a select menu is cut off at, which would hide the seventh row.
+    const { maxHeight } = frequency.props('menuProps') as { maxHeight: number }
+    expect(maxHeight).toBeGreaterThanOrEqual(7 * 48 + 16)
+    await input('name').setValue('Town Water')
+    await input('amount').setValue('102.18')
+    frequency.vm.$emit('update:modelValue', 'bimonthly')
+    await flushPromises()
+    expect(field('frequency').text()).toContain('Every two months')
+    await makeFormValid(wrapper)
+    await field('save').trigger('click')
+    await flushPromises()
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ frequency: 'bimonthly' }))
+  })
+
+  it('changes how often an existing one is paid to every two months', async () => {
+    const subscription = makeSubscription({ frequency: 'monthly' })
+    const update = vi
+      .spyOn(subscriptionsApi, 'updateSubscription')
+      .mockResolvedValue({ ...subscription, frequency: 'bimonthly' })
+    const { wrapper, field, component } = await render({ subscription })
+    expect(field('frequency').text()).toContain('Monthly')
+
+    component('SubscriptionDialog')
+      .findAllComponents({ name: 'VSelect' })
+      .at(0)!
+      .vm.$emit('update:modelValue', 'bimonthly')
+    await makeFormValid(wrapper)
+    await field('save').trigger('click')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith(
+      subscription.id,
+      expect.objectContaining({ frequency: 'bimonthly' }),
+    )
+  })
+
   it('validates blank and overlong names and notes, and missing payment accounts', async () => {
     const closedAccount = makeAccount({
       id: 'closed-account',

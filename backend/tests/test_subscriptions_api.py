@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Account, Subscription, Transaction
+from app.models import Account, PaymentFrequency, Subscription, Transaction
 from tests.finance import TODAY, add_account, add_category, add_group, add_transaction
 from tests.helpers import error
 
@@ -382,6 +382,52 @@ def test_a_payment_that_arrives_settles_the_due_date_and_is_the_last_payment(
         admin_client.get(f"/api/subscriptions/{subscription['id']}").json()["next_due_date"]
         == TODAY.replace(month=10).isoformat()
     )
+
+
+def test_a_subscription_paid_every_two_months_is_due_again_two_months_on(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    subscription = create(
+        admin_client,
+        payload(account, name="Cloud Box", frequency="bimonthly", next_due_date=TODAY.isoformat()),
+    )
+    assert subscription["frequency"] == "bimonthly"
+    session.expire_all()
+    stored = session.get_one(Subscription, uuid.UUID(subscription["id"]))
+    assert stored.frequency == PaymentFrequency.BIMONTHLY
+
+    add_payment(admin_client, account, "Cloud Box")
+
+    updated = admin_client.get(f"/api/subscriptions/{subscription['id']}").json()
+    assert updated["next_due_date"] == TODAY.replace(month=11).isoformat()
+    # Another payment the same day is far from the next one, two months off, so it settles nothing.
+    add_payment(admin_client, account, "Cloud Box")
+    assert (
+        admin_client.get(f"/api/subscriptions/{subscription['id']}").json()["next_due_date"]
+        == TODAY.replace(month=11).isoformat()
+    )
+
+
+def test_a_subscription_changes_to_and_from_every_two_months_but_not_to_a_made_up_frequency(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    subscription = create(admin_client, payload(account, name="Cloud Box"))
+    path = f"/api/subscriptions/{subscription['id']}"
+
+    for frequency in ("bimonthly", "monthly", "bimonthly"):
+        changed = admin_client.patch(path, json={"frequency": frequency})
+        assert (changed.status_code, changed.json()["frequency"]) == (200, frequency)
+
+    # Twice a month, and the other ways of writing every two months, are not frequencies.
+    for frequency in ("semimonthly", "bi-monthly", "every two months", "BIMONTHLY"):
+        assert admin_client.patch(path, json={"frequency": frequency}).status_code == 422
+        made = admin_client.post(
+            "/api/subscriptions", json=payload(account, name="Other", frequency=frequency)
+        )
+        assert made.status_code == 422
+    assert admin_client.get(path).json()["frequency"] == "bimonthly"
 
 
 def test_old_payments_do_not_move_the_due_date(admin_client: TestClient, session: Session) -> None:

@@ -226,6 +226,32 @@ def test_what_is_coming_is_counted_on_from_the_next_payment(
 
 
 @KINDS
+def test_what_is_coming_when_it_is_paid_every_two_months_is_two_months_apart(
+    admin_client: TestClient, session: Session, path: str
+) -> None:
+    account = add_account(session)
+    item = create(
+        admin_client,
+        path,
+        payload(account, frequency="bimonthly", next_due_date="2026-10-31", amount="48.20"),
+    )
+
+    full = overview(admin_client, path, item, today=TODAY.isoformat())
+
+    assert full["subscription"]["frequency"] == "bimonthly"
+    # Counted on from the 31st each time, so a short month doesn't move it for good.
+    assert [payment["due_on"] for payment in full["upcoming"]] == [
+        "2026-10-31",
+        "2026-12-31",
+        "2027-02-28",
+        "2027-04-30",
+        "2027-06-30",
+        "2027-08-31",
+    ]
+    assert {payment["amount"] for payment in full["upcoming"]} == {"48.20"}
+
+
+@KINDS
 def test_a_payment_that_changes_every_time_is_expected_to_be_about_the_average(
     admin_client: TestClient, session: Session, path: str
 ) -> None:
@@ -257,6 +283,11 @@ def test_a_payment_that_changes_every_time_is_expected_to_be_about_the_average(
             PaymentFrequency.MONTHLY,
             "2026-09-21",
             ["09-21", "10-21", "11-21", "12-21", "2027-01-21", "2027-02-21"],
+        ),
+        (
+            PaymentFrequency.BIMONTHLY,
+            "2026-09-21",
+            ["09-21", "11-21", "2027-01-21", "2027-03-21", "2027-05-21", "2027-07-21"],
         ),
         (
             PaymentFrequency.QUARTERLY,

@@ -1,6 +1,7 @@
 import { test as base } from '@playwright/test'
 
 import { ApiClient } from './api'
+import { useMonotonicClock } from './clock'
 import { addWebCoverage, coverageEnabled } from './coverage'
 import {
   emailOf,
@@ -105,9 +106,11 @@ export const test = base.extend<CashcoveFixtures, CashcoveWorkerFixtures>({
     { scope: 'worker' },
   ],
 
-  // Every test's browser gets the stand-in for Plaid Link, so nothing reaches Plaid.
+  // Every test's browser gets the stand-in for Plaid Link, so nothing reaches Plaid, and a clock
+  // that never steps back.
   context: async ({ context }, use) => {
     await useLinkStandIn(context)
+    await useMonotonicClock(context)
     await use(context)
   },
 

@@ -35,6 +35,9 @@ def due(frequency: PaymentFrequency, day: dt.date) -> Subscription:
         (PaymentFrequency.WEEKLY, "2026-10-05", "2026-10-01", "2026-10-05"),
         (PaymentFrequency.BIWEEKLY, "2026-10-05", "2026-10-02", "2026-10-19"),
         (PaymentFrequency.BIWEEKLY, "2026-10-05", "2026-09-27", "2026-10-05"),
+        (PaymentFrequency.BIMONTHLY, "2026-10-15", "2026-10-16", "2026-12-15"),
+        (PaymentFrequency.BIMONTHLY, "2026-10-15", "2026-09-20", "2026-12-15"),
+        (PaymentFrequency.BIMONTHLY, "2026-10-15", "2026-09-10", "2026-10-15"),
         (PaymentFrequency.QUARTERLY, "2026-10-15", "2026-10-16", "2027-01-15"),
         (PaymentFrequency.SEMIANNUAL, "2026-10-15", "2026-10-16", "2027-04-15"),
         (PaymentFrequency.ANNUAL, "2026-10-15", "2026-10-16", "2027-10-15"),
@@ -45,6 +48,8 @@ def due(frequency: PaymentFrequency, day: dt.date) -> Subscription:
         (PaymentFrequency.MONTHLY, "2028-01-31", "2028-01-31", "2028-02-29"),
         (PaymentFrequency.ANNUAL, "2028-02-29", "2028-03-01", "2029-02-28"),
         (PaymentFrequency.MONTHLY, "2026-12-15", "2026-12-15", "2027-01-15"),
+        (PaymentFrequency.BIMONTHLY, "2026-12-31", "2026-12-31", "2027-02-28"),
+        (PaymentFrequency.BIMONTHLY, "2026-12-31", "2027-03-01", "2027-04-30"),
     ],
 )
 def test_a_payment_settles_the_due_date_it_is_for(
@@ -76,6 +81,13 @@ def test_a_payment_settles_the_due_date_it_is_for(
             ["09-25", "10-25", "11-25", "12-25"],
         ),
         (
+            PaymentFrequency.BIMONTHLY,
+            "2026-09-15",
+            "2026-09-01",
+            "2027-03-31",
+            ["09-15", "11-15", "2027-01-15", "2027-03-15"],
+        ),
+        (
             PaymentFrequency.QUARTERLY,
             "2026-09-15",
             "2026-09-01",
@@ -102,6 +114,7 @@ def test_a_payment_settles_the_due_date_it_is_for(
         # A payment that has been due for years doesn't mean counting every one since.
         (PaymentFrequency.WEEKLY, "2020-01-06", "2026-09-20", "2026-10-01", ["09-21", "09-28"]),
         (PaymentFrequency.MONTHLY, "2020-01-31", "2026-09-01", "2026-10-31", ["09-30", "10-31"]),
+        (PaymentFrequency.BIMONTHLY, "2020-01-31", "2026-09-01", "2026-12-31", ["09-30", "11-30"]),
     ],
 )
 def test_the_days_a_subscription_falls_due_are_counted_on_from_its_next_one(
