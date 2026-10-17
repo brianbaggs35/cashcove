@@ -577,6 +577,30 @@ def test_a_bill_whose_amount_changes_is_said_to_be_about_that_much(
     assert item.frequency == PaymentFrequency.QUARTERLY
 
 
+def test_a_subscription_paid_every_two_months_is_added_with_that_frequency(
+    session: Session, admin: User
+) -> None:
+    made, ctx = ready(session, admin)
+
+    prepared = prepare(
+        ctx,
+        "create_recurring",
+        name="Town Water",
+        kind="bill",
+        amount="$102.18",
+        frequency="bimonthly",
+        next_due="2026-11-15",
+        account=account_code(ctx, made.checking),
+        match_text="town water",
+    )
+
+    assert prepared.summary == "Town Water: 102.18 USD bimonthly, next due 2026-11-15."
+    apply(session, "create_recurring", prepared)
+    session.commit()
+    [item] = tracked(session)
+    assert (item.kind, item.frequency) == (RecurringKind.BILL, PaymentFrequency.BIMONTHLY)
+
+
 def test_with_one_open_account_it_is_not_asked_which(session: Session, admin: User) -> None:
     add_account(session, "Only account")
     ctx = context(session, admin)
@@ -688,7 +712,15 @@ def test_a_subscription_that_makes_no_sense_is_refused_for_the_ai_to_put_right(
 
 @pytest.mark.parametrize(
     "args",
-    [{"frequency": "daily"}, {"amount": "lots"}, {"amount": "NaN"}, {"kind": "loan"}, {}],
+    [
+        {"frequency": "daily"},
+        {"frequency": "bi-monthly"},
+        {"frequency": "semimonthly"},
+        {"amount": "lots"},
+        {"amount": "NaN"},
+        {"kind": "loan"},
+        {},
+    ],
 )
 def test_a_subscription_with_a_value_of_the_wrong_kind_is_a_validation_error(
     session: Session, admin: User, args: dict[str, object]
@@ -785,6 +817,22 @@ def test_a_subscription_can_be_changed_and_it_says_what_will_be(
     )
     assert item.next_due_date == dt.date(2027, 1, 3)
     assert payment.category_id == made.subscriptions.id
+
+
+def test_a_subscription_can_be_changed_to_be_paid_every_two_months(
+    session: Session, admin: User
+) -> None:
+    made, ctx = ready(session, admin)
+    item = add_item(session, made.checking.id, "Netflix", amount="15.49")
+    [code] = codes(look(ctx, "list_recurring"), "S")
+
+    prepared = prepare(ctx, "update_recurring", item=code, frequency="bimonthly")
+
+    assert prepared.details == ["How often: monthly → bimonthly."]
+    apply(session, "update_recurring", prepared)
+    session.commit()
+    session.refresh(item)
+    assert item.frequency == PaymentFrequency.BIMONTHLY
 
 
 def test_a_subscriptions_category_can_be_taken_off_and_tracking_started_again(

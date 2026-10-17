@@ -90,7 +90,9 @@ DEFAULT_EMOJI = "🏷️"
 _EMOJI = re.compile(r"^\S{1,16}$")
 MIN_TEXT = 3
 Match = Literal["contains", "starts_with", "exact"]
-Frequency = Literal["weekly", "biweekly", "monthly", "quarterly", "semiannual", "annual"]
+Frequency = Literal[
+    "weekly", "biweekly", "monthly", "bimonthly", "quarterly", "semiannual", "annual"
+]
 # How each way of matching is put in words.
 MATCHES = {
     AutomationMatch.CONTAINS: "has",
@@ -796,12 +798,13 @@ CHANGES: tuple[Change, ...] = (
         "create_recurring",
         "create_recurring {kind?, name, amount, frequency, next_due, category?, account?, "
         "from_transaction?, payee?, link_all?, match_text?, match?, amount_varies?, notes?}",
-        "Adds a subscription or a bill (kind). frequency is weekly, biweekly, monthly, quarterly, "
-        "semiannual or annual. Say which account its payments come from with account (a code "
-        "from the Accounts list) or take the account and payee from a payment with "
-        "from_transaction. With link_all (the default) it also adds an automation that finds "
-        "every payment whose payee has match_text (default: the name), past and future, and "
-        "links it. Ask the person for what you don't know.",
+        "Adds a subscription or a bill (kind). frequency is weekly, biweekly (every two weeks), "
+        "monthly, bimonthly (every two months), quarterly, semiannual or annual. Say which "
+        "account its payments come from with account (a code from the Accounts list) or take "
+        "the account and payee from a payment with from_transaction. With link_all (the "
+        "default) it also adds an automation that finds every payment whose payee has "
+        "match_text (default: the name), past and future, and links it. Ask the person for "
+        "what you don't know.",
         args=RecurringArgs,
         step=RecurringStep,
         resolve=_resolve_recurring,

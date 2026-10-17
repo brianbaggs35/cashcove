@@ -20,6 +20,12 @@ viewers, on both screen sizes and in both themes.
 The Bills spec adds bills from the payment that paid them and links payments to them by hand and
 by automation, from the bank and from a statement file, and checks their reminders, categories
 and place in a budget.
+The Bi-monthly spec adds a bill and a subscription that are paid every two months from their
+dialogs, checks what their cards, totals and pages say (the cost a month and a year, and the
+payments to come two months apart), moves a subscription to and from every two months, and makes
+sure every frequency can be seen in the list without scrolling, and that a payment settles the due
+date two months on, while one made too early for it, or the same day again, changes nothing and a
+frequency that isn't one is refused.
 The AI specs set each provider up as Settings > AI does (Ollama on the computer and in the cloud,
 Anthropic and OpenAI, each tried before it is saved), ask questions, have the AI look over how
 transactions are sorted (on the AI tab, and as the last step of an import) and apply or dismiss
@@ -430,6 +436,10 @@ transactions it was given and what was asked.
 - A spec runs on both screen sizes. `await shell.onPhone()` tells you which one you're on,
   and `test.skip(test.info().project.name === 'mobile', 'why')` skips one.
 - Put page objects for new tabs in `support/pages/` and export them from `support/index.ts`.
+- Time in the browser comes from the monotonic clock (`support/clock.ts`), as in the unit tests.
+  A clock that steps back, which WSL2's does every half minute, makes Vue skip a click's later
+  handlers, so a menu stayed open behind the dialog its item had opened and a spec failed at
+  random. If one does that to you, look at the clock before adding waits.
 
 ## Adding to the baseline
 

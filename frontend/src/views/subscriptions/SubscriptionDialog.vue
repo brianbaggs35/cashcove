@@ -40,6 +40,11 @@ const { locale, money } = useHousehold()
 const copy = computed(() => kinds[props.subscription?.kind ?? props.kind])
 const part = (name: string) => partOf(props.subscription?.kind ?? props.kind, name)
 
+// A select's menu is cut off at 310px, which is six rows, and scrolls past that, so the last
+// frequency would be out of sight. Tall enough for every row: 48px each, and 8px of padding at
+// the top and bottom.
+const frequencyMenu = { maxHeight: frequencies.length * 48 + 16 }
+
 interface SubscriptionForm {
   name: string
   payee: string
@@ -310,6 +315,7 @@ function submit() {
           <v-select
             v-model="form.frequency"
             :items="frequencies"
+            :menu-props="frequencyMenu"
             label="Payment frequency"
             :prepend-inner-icon="Repeat"
             :data-test="part('frequency')"

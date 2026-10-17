@@ -16,6 +16,7 @@ from app.models import (
     Account,
     Automation,
     BudgetLink,
+    PaymentFrequency,
     RecurringKind,
     Subscription,
     Transaction,
@@ -189,6 +190,28 @@ def test_a_bill_is_made_from_a_payment_and_links_every_payment_like_it_past_and_
     assert after["payment_count"] == 3
     assert after["last_payment_on"] == TODAY.isoformat()
     assert after["next_due_date"] > due
+
+
+def test_a_bill_billed_every_two_months_is_due_again_two_months_after_a_payment_is_linked(
+    admin_client: TestClient, session: Session
+) -> None:
+    account = add_account(session)
+    bill = create(
+        admin_client,
+        payload(
+            account, frequency="bimonthly", amount_varies=True, next_due_date=TODAY.isoformat()
+        ),
+    )
+    assert (bill["kind"], bill["frequency"]) == ("bill", "bimonthly")
+    session.expire_all()
+    assert session.get_one(Subscription, uuid.UUID(bill["id"])).frequency == (
+        PaymentFrequency.BIMONTHLY
+    )
+    payment = add_transaction(session, account, "-102.18", "Water utility")
+
+    linked = link(admin_client, bill, payment.id)
+
+    assert linked["subscription"]["next_due_date"] == TODAY.replace(month=11).isoformat()
 
 
 def test_bills_and_subscriptions_are_listed_and_opened_apart(

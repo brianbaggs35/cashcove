@@ -1,8 +1,9 @@
 import type { BudgetPeriodKind } from '@/api/budget'
 import { apiDelete, apiGet, apiPatch, apiPost, apiRequest } from '@/api/client'
 
+/** Bi-monthly is every two months, the way biweekly is every two weeks: not twice a month. */
 export type PaymentFrequency =
-  'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'semiannual' | 'annual'
+  'weekly' | 'biweekly' | 'monthly' | 'bimonthly' | 'quarterly' | 'semiannual' | 'annual'
 
 /**
  * What a recurring payment is called: a subscription, like a streaming plan, or a bill, like

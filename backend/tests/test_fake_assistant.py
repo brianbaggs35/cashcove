@@ -125,6 +125,10 @@ def test_a_bill_is_a_bill_and_its_category_may_be_none() -> None:
         ("make it every other week", "biweekly", "2026-08-17"),
         ("make it quarterly", "quarterly", "2026-11-03"),
         ("make it every month", "monthly", "2026-09-03"),
+        ("make it every two months", "bimonthly", "2026-10-03"),
+        ("make it every other month", "bimonthly", "2026-10-03"),
+        ("make it bimonthly", "bimonthly", "2026-10-03"),
+        ("make it bi-monthly", "bimonthly", "2026-10-03"),
     ],
 )
 def test_a_reason_for_turning_it_down_changes_how_often_it_is_paid(

@@ -173,8 +173,9 @@ accounts in other currencies are converted as the budgets do.
 
 ### Subscriptions, bills and automations
 
-The **Subscriptions** tab keeps track of recurring payments: what each costs, how often, which
-account pays it and when the next payment is due, with a reminder beforehand (**Settings >
+The **Subscriptions** tab keeps track of recurring payments: what each costs, how often (weekly,
+every two weeks, monthly, every two months, every three months, every six months or yearly),
+which account pays it and when the next payment is due, with a reminder beforehand (**Settings >
 Alerts** sets how many days). A subscription tracks the payments from its account that have
 its payee, and **Link payments** adds ones from any account by hand, or takes them off again.
 Linked payments take the subscription's category, and the latest of them moves its due date

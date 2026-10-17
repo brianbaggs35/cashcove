@@ -289,6 +289,14 @@ describe('SubscriptionsView', () => {
     expect(find('subscriptions-yearly').text()).toContain('$1,440.00')
   })
 
+  it('counts one paid every two months as six payments a year', async () => {
+    const water = makeSubscription({ name: 'Water', amount: '30.00', frequency: 'bimonthly' })
+    const { find } = await render({ items: [water] })
+
+    expect(find('subscriptions-monthly').text()).toContain('$15.00')
+    expect(find('subscriptions-yearly').text()).toContain('$180.00')
+  })
+
   it('updates a subscription to the amount last paid, once asked', async () => {
     const subscription = makeSubscription({ amount: '15.49', last_payment_amount: '17.99' })
     const update = vi
@@ -468,7 +476,10 @@ describe('SubscriptionsView', () => {
         '1 subscription is past its due date',
       )
 
-      const fine = await render({ items: [makeSubscription()] })
+      // Not the factory's fixed date, which stops being in the future once that day has come.
+      const fine = await render({
+        items: [makeSubscription({ next_due_date: addDays(todayIso(), 10) })],
+      })
       expect(fine.find('subscriptions-overdue-alert').exists()).toBe(false)
     })
 
