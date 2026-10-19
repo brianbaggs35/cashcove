@@ -1317,6 +1317,40 @@ def test_the_bills_still_to_come_are_the_payments_due_before_the_period_ends(
     assert view(admin_client, budget, "2026-10-10")["upcoming"] == []
 
 
+def test_nothing_is_still_to_come_on_or_after_the_day_a_bill_ends(
+    admin_client: TestClient, session: Session
+) -> None:
+    things = household(session)
+    ends = subscription(
+        session,
+        things.checking,
+        "Gym",
+        frequency=PaymentFrequency.WEEKLY,
+        next_due_date=dt.date(2026, 9, 22),
+        ends_on=dt.date(2026, 9, 29),
+    )
+    cancelled = subscription(
+        session,
+        things.checking,
+        "Old magazine",
+        next_due_date=dt.date(2026, 9, 25),
+        ends_on=dt.date(2026, 9, 25),
+        cancelled_on=dt.date(2026, 9, 1),
+    )
+    carries_on = subscription(session, things.checking, "Streaming")
+    budget = make_budget(admin_client)
+    for item in (ends, cancelled, carries_on):
+        count(admin_client, budget, "spending", subscription=item.id)
+
+    period = view(admin_client, budget)
+
+    # The gym is due on the 22nd, and not again on the 29th, the day it ends.
+    assert [(item["name"], item["due_on"]) for item in period["upcoming"]] == [
+        ("Gym", "2026-09-22"),
+        ("Streaming", "2026-09-25"),
+    ]
+
+
 def test_bills_still_to_come_in_other_currencies_are_converted_or_left_out(
     admin_client: TestClient, session: Session, rates: FakeRates
 ) -> None:

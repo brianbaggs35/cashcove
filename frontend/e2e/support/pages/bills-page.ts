@@ -2,8 +2,12 @@ import { expect, type Locator, type Page } from '@playwright/test'
 
 import { choose, exactly, openOverlays, startingWith } from './fields'
 
-/** What a bill's menu offers. Deleting asks to confirm first. */
-export type BillAction = 'toggle' | 'edit' | 'delete'
+/**
+ * What a bill's menu offers. Deleting asks to confirm first. Cancelling and reactivating each
+ * open a dialog to say a day, and only one is offered: a bill that has stopped can be
+ * reactivated, and any other can be cancelled.
+ */
+export type BillAction = 'toggle' | 'cancel' | 'reactivate' | 'edit' | 'delete'
 
 /** What the add and change dialog asks for, in the order it asks. Leave out what shouldn't change. */
 export interface BillFields {
@@ -15,6 +19,8 @@ export interface BillFields {
   frequency?: string
   /** The date of the next payment, as YYYY-MM-DD. */
   dueDate?: string
+  /** The day it ends, as YYYY-MM-DD, or an empty text to take the day away. */
+  endsOn?: string
   /** The account it's paid from; the account's name. */
   account?: string
   /** A past payment to start from, by its payee. It links the others like it, and later ones. */
@@ -76,22 +82,24 @@ export class BillsPage {
     }
     if (fields.amount !== undefined) await field('amount').getByRole('textbox').fill(fields.amount)
     if (fields.varies !== undefined) {
-      const box = field('varies').getByRole('checkbox')
-      if (fields.varies) await box.check()
-      else await box.uncheck()
+      await field('varies').getByRole('checkbox').setChecked(fields.varies)
     }
     if (fields.frequency !== undefined) await choose(field('frequency'), fields.frequency)
-    if (fields.dueDate !== undefined) {
-      // Tab rather than Enter, which would save the dialog.
-      const [year, month, day] = fields.dueDate.split('-')
-      const due = field('due-date').getByRole('textbox')
-      await due.fill(`${month}/${day}/${year}`)
-      await due.press('Tab')
-    }
+    if (fields.dueDate !== undefined) await this.typeDay('due-date', fields.dueDate)
+    if (fields.endsOn !== undefined) await this.typeDay('ends-on', fields.endsOn)
     if (fields.payee !== undefined) await field('payee').getByRole('textbox').fill(fields.payee)
     if (fields.category !== undefined) await choose(field('category'), fields.category)
     if (fields.notes !== undefined)
       await field('notes').locator('textarea').first().fill(fields.notes)
+  }
+
+  /** Types a day (YYYY-MM-DD) into one of the dialog's date fields, or an empty text to empty it. */
+  private async typeDay(testId: string, day: string): Promise<void> {
+    const [year, month, date] = day.split('-')
+    const input = this.dialog.getByTestId(`bill-${testId}`).getByRole('textbox')
+    await input.fill(day === '' ? '' : `${month}/${date}/${year}`)
+    // Tab rather than Enter, which would save the dialog.
+    await input.press('Tab')
   }
 
   /** Saves the dialog and waits for it to close. */

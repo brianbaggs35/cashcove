@@ -8,6 +8,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.models import BudgetPeriod, PaymentFrequency, RecurringKind
+from app.schemas.budget import Day
 from app.schemas.fields import STRICT, AmountOut, TransactionNotes
 
 SubscriptionName = Annotated[
@@ -31,6 +32,8 @@ class SubscriptionCreate(BaseModel):
     frequency: PaymentFrequency
     account_id: uuid.UUID
     next_due_date: dt.date
+    # The day it ends, when it's known: no payment is expected on or after it.
+    ends_on: Day | None = None
     category_id: uuid.UUID | None = None
     notes: TransactionNotes = None
     payee: SubscriptionPayee | None = None
@@ -46,11 +49,39 @@ class SubscriptionUpdate(BaseModel):
     frequency: PaymentFrequency | None = None
     account_id: uuid.UUID | None = None
     next_due_date: dt.date | None = None
+    # Null takes the end date away. A cancelled one can't do without: reactivate it instead.
+    ends_on: Day | None = None
     category_id: uuid.UUID | None = None
     notes: TransactionNotes = None
     payee: SubscriptionPayee | None = None
     active: bool | None = None
     seed_transaction_id: uuid.UUID | None = None
+
+
+class SubscriptionCancel(BaseModel):
+    """Cancelling a subscription or bill, which keeps it and everything it tracked."""
+
+    model_config = STRICT
+
+    # The day it was cancelled, where the person is. Today, when it isn't said.
+    cancelled_on: Day | None = None
+    # The day it ends: no payment is expected on or after it. The day it was cancelled, when it
+    # isn't said, which ends it at once. Usually it is the day it would next have been paid, as a
+    # service stays until what was paid for runs out.
+    ends_on: Day | None = None
+
+
+class SubscriptionReactivate(BaseModel):
+    """Picking a cancelled or ended subscription or bill up again, as a regular one."""
+
+    model_config = STRICT
+
+    # The day its next payment is due. When it isn't said, the first day on its old schedule that
+    # isn't before today, so it doesn't come back already late.
+    next_due_date: Day | None = None
+    # The day it is where the person is, which says whether it has ended and which days are past.
+    # Today where the server is, when it isn't said.
+    today: Day | None = None
 
 
 class SubscriptionOut(BaseModel):
@@ -69,6 +100,11 @@ class SubscriptionOut(BaseModel):
     category_id: uuid.UUID | None
     notes: str | None
     active: bool
+    # No payment is expected on or after this day, and once it has come it is over. Null when it
+    # carries on.
+    ends_on: dt.date | None = None
+    # When a person cancelled it, which a cancelled one always has, and has an end date with.
+    cancelled_on: dt.date | None = None
     payment_count: int = 0
     # The day of the latest payment linked to it, which is what moves its due date along, and
     # what that payment was for.

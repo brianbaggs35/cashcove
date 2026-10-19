@@ -5,8 +5,12 @@ import { openOverlays } from './fields'
 /** Which of the two a page is about. */
 export type RecurringKind = 'subscription' | 'bill'
 
-/** What the page's own menu offers, besides editing. Deleting asks to confirm first. */
-export type PageAction = 'toggle' | 'delete'
+/**
+ * What the page's own menu offers, besides editing. Deleting asks to confirm first. Cancelling and
+ * reactivating each open a dialog to say a day, and only one is offered: one that has stopped can
+ * be reactivated, and any other can be cancelled.
+ */
+export type PageAction = 'toggle' | 'cancel' | 'reactivate-item' | 'delete'
 
 /** What a payment's menu offers. Taking one off asks to confirm first. */
 export type PaymentAction = 'details' | 'unlink'

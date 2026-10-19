@@ -223,6 +223,7 @@ describe('SubscriptionDialog', () => {
       frequency: 'monthly',
       account_id: checking.id,
       next_due_date: addDays(todayIso(), 30),
+      ends_on: null,
       // The payment's own category, since the others like it should have it too.
       category_id: wholeFoods.category_id,
       notes: null,
@@ -300,6 +301,7 @@ describe('SubscriptionDialog', () => {
       frequency: 'quarterly',
       account_id: checking.id,
       next_due_date: dueDate,
+      ends_on: null,
       category_id: wholeFoods.category_id,
       notes: 'Family storage',
       seed_transaction_id: null,
@@ -358,6 +360,141 @@ describe('SubscriptionDialog', () => {
       subscription.id,
       expect.objectContaining({ frequency: 'bimonthly' }),
     )
+  })
+
+  describe('the day it ends', () => {
+    const endsDate = (component: (name: string) => VueWrapper) =>
+      component('SubscriptionDialog')
+        .findAllComponents({ name: 'DateField' })
+        .find((item) => item.attributes('data-test') === 'subscription-ends-on')!
+
+    it('is optional and empty when adding, with a hint that says what it means', async () => {
+      const { field, value } = await render()
+
+      expect(value('ends-on')).toBe('')
+      expect(field('ends-on').text()).toContain('End date (optional)')
+      expect(field('ends-on').text()).toContain(
+        'Optional. No payment is expected on or after this day.',
+      )
+    })
+
+    it('is sent with the rest when adding one that ends', async () => {
+      const create = vi
+        .spyOn(subscriptionsApi, 'createSubscription')
+        .mockResolvedValue(makeSubscription())
+      const { wrapper, field, input, component } = await render()
+      await input('name').setValue('Trial')
+      await input('amount').setValue('8.00')
+      endsDate(component).vm.$emit('update:modelValue', '2027-03-01')
+      await makeFormValid(wrapper)
+      await field('save').trigger('click')
+      await flushPromises()
+
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ ends_on: '2027-03-01' }))
+    })
+
+    it('shows the one it has when changing, and can move it', async () => {
+      const subscription = makeSubscription({ ends_on: '2027-03-01' })
+      const update = vi
+        .spyOn(subscriptionsApi, 'updateSubscription')
+        .mockResolvedValue(subscription)
+      const { wrapper, field, value, component } = await render({ subscription })
+      expect(value('ends-on')).not.toBe('')
+
+      endsDate(component).vm.$emit('update:modelValue', '2027-06-01')
+      await makeFormValid(wrapper)
+      await field('save').trigger('click')
+      await flushPromises()
+
+      expect(update).toHaveBeenCalledWith(
+        subscription.id,
+        expect.objectContaining({ ends_on: '2027-06-01' }),
+      )
+    })
+
+    it('can be taken away from one that is not cancelled', async () => {
+      const subscription = makeSubscription({ ends_on: '2027-03-01' })
+      const update = vi
+        .spyOn(subscriptionsApi, 'updateSubscription')
+        .mockResolvedValue(subscription)
+      const { wrapper, field, component } = await render({ subscription })
+
+      endsDate(component).vm.$emit('update:modelValue', null)
+      await makeFormValid(wrapper)
+      await field('save').trigger('click')
+      await flushPromises()
+
+      expect(update).toHaveBeenCalledWith(
+        subscription.id,
+        expect.objectContaining({ ends_on: null }),
+      )
+    })
+
+    it('says so when it ends on or before the next payment, as nothing more is expected', async () => {
+      const subscription = makeSubscription({
+        next_due_date: '2026-10-15',
+        ends_on: '2026-10-15',
+      })
+      const { field } = await render({ subscription })
+
+      expect(field('ends-on').text()).toContain(
+        'Nothing more is expected, as it ends on or before the next payment date.',
+      )
+    })
+
+    it('has to stay for one that is cancelled, and says when that was', async () => {
+      const subscription = makeSubscription({
+        cancelled_on: '2026-10-01',
+        ends_on: '2026-11-01',
+        next_due_date: '2026-10-15',
+      })
+      const update = vi.spyOn(subscriptionsApi, 'updateSubscription')
+      const { wrapper, field, component } = await render({ subscription })
+
+      expect(field('ends-on').text()).toContain('End date')
+      expect(field('ends-on').text()).not.toContain('optional')
+      expect(field('ends-on').text()).toContain(
+        'Cancelled on Oct 1, 2026. No payment is expected on or after this day.',
+      )
+      expect(endsDate(component).props('required')).toBe(true)
+      expect(endsDate(component).props('clearable')).toBe(true)
+
+      // The date it ends can be emptied, but the form then refuses to go on.
+      endsDate(component).vm.$emit('update:modelValue', null)
+      await wrapper.findComponent({ name: 'VForm' }).vm.$emit('update:modelValue', false)
+      await flushPromises()
+      expect(field('save').attributes('disabled')).toBeDefined()
+      expect(update).not.toHaveBeenCalled()
+    })
+
+    it('shows what the API says about it', async () => {
+      vi.spyOn(subscriptionsApi, 'createSubscription').mockRejectedValue(
+        new ApiError(422, 'Check the date.', { fields: { ends_on: 'Pick a sensible date.' } }),
+      )
+      const { wrapper, field, input } = await render()
+      await input('name').setValue('Trial')
+      await input('amount').setValue('8.00')
+      await makeFormValid(wrapper)
+      await field('save').trigger('click')
+      await flushPromises()
+
+      expect(field('ends-on').text()).toContain('Pick a sensible date.')
+    })
+
+    it('shows a cancelled one the API will not let lose its end as a problem with the form', async () => {
+      const subscription = makeSubscription({ cancelled_on: '2026-10-01', ends_on: '2026-11-01' })
+      vi.spyOn(subscriptionsApi, 'updateSubscription').mockRejectedValue(
+        new ApiError(422, 'A cancelled subscription needs the day it ends.', {
+          code: 'cancelled_needs_end',
+        }),
+      )
+      const { wrapper, field } = await render({ subscription })
+      await makeFormValid(wrapper)
+      await field('save').trigger('click')
+      await flushPromises()
+
+      expect(field('error').text()).toContain('needs the day it ends')
+    })
   })
 
   it('validates blank and overlong names and notes, and missing payment accounts', async () => {

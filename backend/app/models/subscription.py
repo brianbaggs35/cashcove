@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Date, ForeignKey, String, Uuid
+from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, Money, TimestampMixin, enum_type
@@ -39,6 +39,10 @@ class Subscription(TimestampMixin, Base):
     links to either kind the same way."""
 
     __tablename__ = "subscriptions"
+    __table_args__ = (
+        # Cancelling says when it ends, so a cancelled one always has an end date.
+        CheckConstraint("cancelled_on IS NULL OR ends_on IS NOT NULL", name="cancelled_has_an_end"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(120))
@@ -63,4 +67,13 @@ class Subscription(TimestampMixin, Base):
         ForeignKey("categories.id", ondelete="SET NULL"), index=True
     )
     notes: Mapped[str | None] = mapped_column(String(1000))
+    # Whether payments are matched to it and it is reminded of. Pausing is not cancelling: it says
+    # nothing about whether it carries on.
     active: Mapped[bool] = mapped_column(Boolean(), default=True)
+    # The day it ends, for a term that runs out or one that was cancelled. No payment is expected
+    # on or after it, and once the day has come it is over. Nothing says so but the date: there is
+    # no job that ends it, so whether it has is always read against today.
+    ends_on: Mapped[date | None] = mapped_column(Date())
+    # The day it was cancelled, which is how a cancelled one differs from one that ends on its own:
+    # it was ended by a person, who can reactivate it. Cancelling always sets `ends_on` too.
+    cancelled_on: Mapped[date | None] = mapped_column(Date())

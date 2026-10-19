@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.tools.base import Context, ToolError
+from app.ai.tools.registry import CHANGE_BY_NAME
 from app.ai.vault import Entity, Subject
 from app.auth.deps import ApiError
 from app.finance.automations import RuleBook
@@ -857,11 +858,213 @@ def test_a_subscriptions_category_can_be_taken_off_and_tracking_started_again(
     assert item.active
 
 
+def test_a_subscription_can_be_cancelled_and_it_says_what_will_happen(
+    session: Session, admin: User
+) -> None:
+    made, ctx = ready(session, admin)
+    item = add_item(session, made.checking.id, "Netflix", next_due_date=dt.date(2026, 10, 3))
+    payment = add_transaction(
+        session, made.checking, "-15.49", "Netflix", subscription_id=item.id, date=TODAY
+    )
+    [code] = codes(look(ctx, "list_recurring"), "S")
+
+    prepared = prepare(ctx, "update_recurring", item=code, cancel=True, ends_on="2026-10-03")
+
+    assert prepared.title == "Change the subscription Netflix"
+    assert prepared.details == [
+        "Cancelled: it ends on 2026-10-03, and no payment is expected from then. "
+        "It and its history are kept."
+    ]
+    assert apply(session, "update_recurring", prepared) == "Changed the subscription Netflix."
+    session.commit()
+    session.refresh(item)
+    session.refresh(payment)
+    assert (item.cancelled_on, item.ends_on) == (TODAY, dt.date(2026, 10, 3))
+    assert payment.subscription_id == item.id
+    assert "cancelled, ends 2026-10-03" in look(ctx, "list_recurring")
+
+
+def test_cancelling_a_subscription_without_a_day_ends_it_today(
+    session: Session, admin: User
+) -> None:
+    made, ctx = ready(session, admin)
+    item = add_item(session, made.checking.id, "Netflix")
+    [code] = codes(look(ctx, "list_recurring"), "S")
+
+    prepared = prepare(ctx, "update_recurring", item=code, cancel=True)
+
+    assert prepared.details == [
+        f"Cancelled: it ends on {TODAY}, and no payment is expected from then. "
+        "It and its history are kept."
+    ]
+    apply(session, "update_recurring", prepared)
+    reload(session, item)
+    assert (item.cancelled_on, item.ends_on) == (TODAY, TODAY)
+
+
+def test_a_subscription_can_be_changed_and_cancelled_in_one_go(
+    session: Session, admin: User
+) -> None:
+    made, ctx = ready(session, admin)
+    item = add_item(session, made.checking.id, "Netflix")
+    [code] = codes(look(ctx, "list_recurring"), "S")
+
+    prepared = prepare(
+        ctx, "update_recurring", item=code, name="Netflix Basic", cancel=True, ends_on="2026-11-01"
+    )
+
+    assert prepared.details[0] == "Name: Netflix → Netflix Basic."
+    apply(session, "update_recurring", prepared)
+    reload(session, item)
+    assert (item.name, item.cancelled_on, item.ends_on) == (
+        "Netflix Basic",
+        TODAY,
+        dt.date(2026, 11, 1),
+    )
+
+
+def test_a_subscription_can_be_given_a_day_it_ends_without_being_cancelled(
+    session: Session, admin: User
+) -> None:
+    made, ctx = ready(session, admin)
+    item = add_item(session, made.checking.id, "Gym")
+    [code] = codes(look(ctx, "list_recurring"), "S")
+
+    prepared = prepare(ctx, "update_recurring", item=code, ends_on="2027-03-01")
+
+    assert prepared.details == ["It ends on 2027-03-01: no payment is expected from then."]
+    apply(session, "update_recurring", prepared)
+    reload(session, item)
+    assert (item.cancelled_on, item.ends_on) == (None, dt.date(2027, 3, 1))
+
+
+def test_one_that_was_cancelled_can_be_reactivated_to_carry_on_like_a_regular_one(
+    session: Session, admin: User
+) -> None:
+    made, ctx = ready(session, admin)
+    item = add_item(
+        session,
+        made.checking.id,
+        "Netflix",
+        cancelled_on=dt.date(2026, 6, 1),
+        ends_on=dt.date(2026, 6, 5),
+        next_due_date=dt.date(2026, 6, 5),
+        active=False,
+    )
+    [code] = codes(look(ctx, "list_recurring"), "S")
+
+    prepared = prepare(ctx, "update_recurring", item=code, cancel=False)
+
+    assert prepared.details == [
+        "Reactivated: it carries on as a regular one, with no end date, and payments are "
+        "tracked again."
+    ]
+    apply(session, "update_recurring", prepared)
+    reload(session, item)
+    # Back as it was set up, tracked again, and not already late: its next payment is the first
+    # day on its old schedule that isn't before today.
+    assert (item.cancelled_on, item.ends_on, item.active) == (None, None, True)
+    assert item.next_due_date == dt.date(2026, 10, 5)
+
+
+def test_reactivating_can_say_when_the_next_payment_is_due(session: Session, admin: User) -> None:
+    made, ctx = ready(session, admin)
+    item = add_item(
+        session,
+        made.checking.id,
+        "Netflix",
+        cancelled_on=dt.date(2026, 6, 1),
+        ends_on=dt.date(2026, 6, 5),
+        next_due_date=dt.date(2026, 6, 5),
+    )
+    [code] = codes(look(ctx, "list_recurring"), "S")
+
+    prepared = prepare(ctx, "update_recurring", item=code, cancel=False, next_due="2026-11-12")
+
+    assert prepared.details == [
+        "Next due: 2026-06-05 → 2026-11-12.",
+        "Reactivated: it carries on as a regular one, with no end date, and payments are "
+        "tracked again.",
+    ]
+    apply(session, "update_recurring", prepared)
+    reload(session, item)
+    assert (item.cancelled_on, item.ends_on) == (None, None)
+    assert item.next_due_date == dt.date(2026, 11, 12)
+
+
+def test_a_cancellation_or_reactivation_that_does_not_apply_is_refused_when_it_is_approved(
+    session: Session, admin: User
+) -> None:
+    made, ctx = ready(session, admin)
+    kept = add_item(session, made.checking.id, "Netflix")
+    gone = add_item(
+        session, made.checking.id, "Hulu", cancelled_on=TODAY, ends_on=dt.date(2026, 10, 3)
+    )
+    cancel_kept, cancel_gone = (
+        prepare(ctx, "update_recurring", item=code, cancel=True)
+        for code in _codes_of(ctx, "Netflix", "Hulu")
+    )
+    reactivate_kept = prepare(
+        ctx, "update_recurring", item=_codes_of(ctx, "Netflix")[0], cancel=False
+    )
+
+    # It was cancelled by someone else since it was proposed, and another was never cancelled.
+    with pytest.raises(ApiError, match="already cancelled or has ended"):
+        apply(session, "update_recurring", cancel_gone)
+    with pytest.raises(ApiError, match="nothing to reactivate"):
+        apply(session, "update_recurring", reactivate_kept)
+    apply(session, "update_recurring", cancel_kept)
+    reload(session, kept)
+    assert kept.cancelled_on == TODAY
+    session.refresh(gone)
+    assert gone.ends_on == dt.date(2026, 10, 3)
+
+
+def _codes_of(ctx: Context, *names: str) -> list[str]:
+    """The codes the list look-up gives these subscriptions, in the order of the names."""
+    listing = look(ctx, "list_recurring")
+    by_name = dict(
+        zip(
+            [line.split(" | ")[2] for line in listing.splitlines()[1:]],
+            codes(listing, "S"),
+            strict=True,
+        )
+    )
+    return [by_name[name] for name in names]
+
+
+def test_a_proposal_made_before_cancelling_existed_can_still_be_approved(
+    session: Session, admin: User
+) -> None:
+    made, _ = ready(session, admin)
+    item = add_item(session, made.checking.id, "Netflix", amount="15.49")
+    # The way a step was kept before it could cancel anything.
+    step = {
+        "subscription_id": str(item.id),
+        "name": None,
+        "amount": "17.99",
+        "frequency": None,
+        "next_due": None,
+        "set_category": False,
+        "category": None,
+        "active": None,
+    }
+
+    said = CHANGE_BY_NAME["update_recurring"].apply(session, step)
+
+    assert said == "Changed the subscription Netflix."
+    reload(session, item)
+    assert (item.amount, item.cancelled_on, item.ends_on) == (Decimal("17.99"), None, None)
+
+
 @pytest.mark.parametrize(
     ("args", "message"),
     [
         ({}, "Say what to change"),
         ({"next_due": "2040-01-01"}, "too far from today"),
+        ({"ends_on": "2040-01-01"}, "end date 2040-01-01 is too far from today"),
+        ({"cancel": False, "ends_on": "2026-10-01"}, "Reactivating takes the end date away"),
+        ({"cancel": False, "active": False}, "can't be paused as well"),
         ({"amount": "0"}, "more than 0"),
         ({"name": "Bad #name"}, "can't have a code"),
         ({"category": "Hobbies"}, "no category called 'Hobbies'"),

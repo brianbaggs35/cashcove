@@ -19,10 +19,11 @@ import { notify } from '@/composables/notify'
 import { useAction } from '@/composables/useAction'
 import { useHousehold } from '@/composables/useHousehold'
 import { useAccountsStore } from '@/stores/accounts'
-import { addDays, formatListDate, todayIso } from '@/utils/dates'
+import { addDays, formatListDate, fromIsoDate, todayIso } from '@/utils/dates'
+import { formatShortDate } from '@/utils/format'
 import { negate } from '@/utils/money'
 import { kinds, partOf } from '@/views/subscriptions/kinds'
-import { frequencies } from '@/views/subscriptions/recurrence'
+import { FIRST_DAY, LAST_DAY, frequencies } from '@/views/subscriptions/recurrence'
 
 /**
  * Adds a subscription or a bill, or changes one: they're set up the same way, and it's `kind`
@@ -53,6 +54,7 @@ interface SubscriptionForm {
   frequency: PaymentFrequency
   accountId: string | null
   nextDueDate: string | null
+  endsOn: string | null
   categoryId: string | null
   notes: string
   active: boolean
@@ -67,6 +69,7 @@ const form = reactive<SubscriptionForm>({
   frequency: 'monthly',
   accountId: null as string | null,
   nextDueDate: null as string | null,
+  endsOn: null as string | null,
   categoryId: null as string | null,
   notes: '',
   active: true,
@@ -110,6 +113,19 @@ const paymentItems = computed(() => {
 const title = computed(() =>
   props.subscription ? `Edit ${copy.value.noun}` : `Add a ${copy.value.noun}`,
 )
+/** A cancelled one has to end somewhen, so its end date can be moved but not taken away. */
+const cancelledOn = computed(() => props.subscription?.cancelled_on ?? null)
+const endsHint = computed(() => {
+  const cancelled = cancelledOn.value
+  const said = cancelled
+    ? `Cancelled on ${formatShortDate(fromIsoDate(cancelled), locale.value)}. `
+    : 'Optional. '
+  const rule =
+    form.endsOn && form.nextDueDate && form.endsOn <= form.nextDueDate
+      ? 'Nothing more is expected, as it ends on or before the next payment date.'
+      : 'No payment is expected on or after this day.'
+  return said + rule
+})
 const notesRules = [(value: string) => value.length <= 1000 || 'Keep notes under 1,000 characters']
 const nameRules = [
   (value: string) => value.trim().length > 0 || `Give this ${copy.value.noun} a name`,
@@ -131,6 +147,7 @@ function reset() {
   form.frequency = subscription?.frequency ?? 'monthly'
   form.accountId = subscription?.account_id ?? accounts.open[0]?.id ?? null
   form.nextDueDate = subscription?.next_due_date ?? addDays(todayIso(), 30)
+  form.endsOn = subscription?.ends_on ?? null
   form.categoryId = subscription?.category_id ?? null
   form.notes = subscription?.notes ?? ''
   form.active = subscription?.active ?? true
@@ -249,6 +266,7 @@ const saving = useAction(async () => {
     frequency: form.frequency,
     account_id: form.accountId as string,
     next_due_date: form.nextDueDate as string,
+    ends_on: form.endsOn,
     category_id: form.categoryId,
     notes: form.notes.trim() || null,
     seed_transaction_id: form.seedTransactionId,
@@ -328,6 +346,20 @@ function submit() {
             required
             :error-messages="fieldError('next_due_date')"
             :data-test="part('due-date')"
+          />
+        </v-col>
+        <v-col cols="12">
+          <DateField
+            v-model="form.endsOn"
+            :label="cancelledOn ? 'End date' : 'End date (optional)'"
+            :required="!!cancelledOn"
+            clearable
+            :min="FIRST_DAY"
+            :max="LAST_DAY"
+            :hint="endsHint"
+            persistent-hint
+            :error-messages="fieldError('ends_on')"
+            :data-test="part('ends-on')"
           />
         </v-col>
         <v-col cols="12">

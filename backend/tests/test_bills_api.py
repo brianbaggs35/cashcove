@@ -82,9 +82,11 @@ def test_viewers_can_read_bills_but_cannot_manage_them(
         viewer_client.delete(path),
         viewer_client.post(f"{path}/payments", json={"ids": [str(payment.id)]}),
         viewer_client.delete(f"{path}/payments/{payment.id}"),
+        viewer_client.post(f"{path}/cancellation", json={}),
+        viewer_client.post(f"{path}/reactivation", json={}),
     ]
-    assert [error(response) for response in refused] == ["admin_only"] * 5
-    assert [response.status_code for response in refused] == [403] * 5
+    assert [error(response) for response in refused] == ["admin_only"] * 7
+    assert [response.status_code for response in refused] == [403] * 7
     session.expire_all()
     assert session.get_one(Subscription, bill.id).name == "City Power"
 
@@ -98,6 +100,8 @@ def changes(account: Account, bill_id: object, payment_id: object) -> list[tuple
         ("DELETE", path, None),
         ("POST", f"{path}/payments", {"ids": [str(payment_id)]}),
         ("DELETE", f"{path}/payments/{payment_id}", None),
+        ("POST", f"{path}/cancellation", {}),
+        ("POST", f"{path}/reactivation", {}),
     ]
 
 

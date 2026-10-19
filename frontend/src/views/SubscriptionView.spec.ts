@@ -13,10 +13,12 @@ import { checking, makePage, seedFinance } from '@/test/finance'
 import { makeSessionState, makeUser } from '@/test/fixtures'
 import { mountWithPlugins } from '@/test/mount'
 import { makeBill, makeOverview, makeSubscription } from '@/test/subscriptions'
-import { addDays, todayIso } from '@/utils/dates'
+import { addDays, fromIsoDate, todayIso } from '@/utils/dates'
+import { formatShortDate } from '@/utils/format'
 import SubscriptionView from '@/views/SubscriptionView.vue'
 
 const inDays = (days: number) => addDays(todayIso(), days)
+const shown = (value: string) => formatShortDate(fromIsoDate(value))
 
 interface Options {
   kind?: RecurringKind
@@ -331,6 +333,159 @@ describe('SubscriptionView', () => {
       expect(router.currentRoute.value.name).toBe('subscriptions')
     })
     expect(notices.value.at(-1)?.text).toBe('Deleted Streamflix')
+  })
+
+  describe('when it ends', () => {
+    /** What the actions menu offers, as a person reads it. */
+    const menu = async (find: Awaited<ReturnType<typeof render>>['find']): Promise<string[]> => {
+      await find('show-actions').trigger('click')
+      await flushPromises()
+      return page()
+        .findAll('.v-list-item')
+        .map((item) => item.text())
+    }
+    const cancelled = () => ({
+      cancelled_on: inDays(-1),
+      ends_on: inDays(10),
+      next_due_date: inDays(10),
+    })
+
+    it('says it is cancelled and when it ends, and does not warn of a payment', async () => {
+      const { find } = await render({ changes: { ...cancelled(), next_due_date: inDays(-2) } })
+
+      expect(find('show-status').text()).toBe('Cancelled')
+      expect(find('show-ends').text()).toBe(`Ends ${shown(inDays(10))}`)
+      expect(find('show-end-alert').text()).toContain(
+        `Cancelled on ${shown(inDays(-1))}. It ends on ${shown(inDays(10))}, and no payment is expected on or after that day.`,
+      )
+      expect(find('show-overdue-alert').exists()).toBe(false)
+      expect(find('show-due-alert').exists()).toBe(false)
+      expect(find('show-paused-alert').exists()).toBe(false)
+      expect(find('upcoming-ends').exists()).toBe(true)
+    })
+
+    it('offers to reactivate it, from the menu and from what says it ended, where it offered to cancel', async () => {
+      const { find, component } = await render({ changes: cancelled() })
+
+      // The one place in the menu is for cancelling or reactivating, so it is never both, and a
+      // cancelled one is not paused.
+      expect(await menu(find)).toEqual(['Reactivate subscription', 'Delete'])
+      expect(find('show-change-end').exists()).toBe(false)
+      expect(component('SubscriptionReactivateDialog').props('modelValue')).toBe(false)
+
+      await page().find('[data-test="show-reactivate-item"]').trigger('click')
+      await flushPromises()
+      expect(component('SubscriptionReactivateDialog').props('modelValue')).toBe(true)
+      expect(component('SubscriptionReactivateDialog').props('subscription')).toMatchObject({
+        name: 'Streamflix',
+      })
+      component('SubscriptionReactivateDialog').vm.$emit('update:modelValue', false)
+      await flushPromises()
+      expect(component('SubscriptionReactivateDialog').props('modelValue')).toBe(false)
+
+      await find('show-reactivate').trigger('click')
+      expect(component('SubscriptionReactivateDialog').props('modelValue')).toBe(true)
+    })
+
+    it('loads it afresh once it has been reactivated', async () => {
+      const { component, spy } = await render({ changes: cancelled() })
+
+      component('SubscriptionReactivateDialog').vm.$emit('saved')
+      await flushPromises()
+
+      expect(spy).toHaveBeenCalledTimes(2)
+    })
+
+    it('says a cancelled one is over once the day has come, and what it kept', async () => {
+      const { find } = await render({
+        changes: { cancelled_on: inDays(-20), ends_on: inDays(-3), next_due_date: inDays(-3) },
+      })
+
+      expect(find('show-status').text()).toBe('Cancelled')
+      expect(find('show-ends').exists()).toBe(false)
+      expect(find('show-end-alert').text()).toContain(
+        `Cancelled on ${shown(inDays(-20))} and ended on ${shown(inDays(-3))}. Everything it tracked stays here.`,
+      )
+    })
+
+    it('says one that ran its course has ended, and offers to reactivate it or to change the date', async () => {
+      const { find, component } = await render({
+        changes: { ends_on: inDays(-3), next_due_date: inDays(-3) },
+      })
+
+      expect(find('show-status').text()).toBe('Ended')
+      expect(find('show-end-alert').text()).toContain(
+        `Ended on ${shown(inDays(-3))}. Everything it tracked stays here.`,
+      )
+      // It can't be cancelled, as it has stopped, so the menu offers to reactivate it.
+      expect(await menu(find)).toEqual(['Reactivate subscription', 'Delete'])
+
+      await find('show-reactivate').trigger('click')
+      expect(component('SubscriptionReactivateDialog').props('modelValue')).toBe(true)
+      await find('show-change-end').trigger('click')
+      expect(component('SubscriptionDialog').props('modelValue')).toBe(true)
+    })
+
+    it('says one that is to end does, while it carries on, and offers to cancel it', async () => {
+      const { find, component, spy } = await render({ changes: { ends_on: inDays(60) } })
+
+      expect(find('show-status').text()).toBe('Active')
+      expect(find('show-ends').text()).toBe(`Ends ${shown(inDays(60))}`)
+      expect(find('show-end-alert').text()).toContain(
+        `Ends on ${shown(inDays(60))}, and no payment is expected on or after that day.`,
+      )
+      expect(await menu(find)).toEqual(['Pause matching', 'Cancel subscription', 'Delete'])
+      // Nothing to reactivate, as it hasn't stopped: it can only have its end date moved.
+      expect(find('show-reactivate').exists()).toBe(false)
+      expect(find('show-change-end').exists()).toBe(true)
+
+      await page().find('[data-test="show-cancel"]').trigger('click')
+      await flushPromises()
+      expect(component('SubscriptionCancelDialog').props('modelValue')).toBe(true)
+      expect(component('SubscriptionCancelDialog').props('subscription')).toMatchObject({
+        name: 'Streamflix',
+      })
+      component('SubscriptionCancelDialog').vm.$emit('saved')
+      await flushPromises()
+      expect(spy).toHaveBeenCalledTimes(2)
+
+      component('SubscriptionCancelDialog').vm.$emit('update:modelValue', false)
+      await flushPromises()
+      expect(component('SubscriptionCancelDialog').props('modelValue')).toBe(false)
+    })
+
+    it('offers to cancel one that carries on, in the words of its kind, and has no alert', async () => {
+      const { find } = await render({ kind: 'bill' })
+
+      expect(await menu(find)).toEqual(['Pause matching', 'Cancel bill', 'Delete'])
+      expect(find('show-end-alert').exists()).toBe(false)
+      expect(find('show-ends').exists()).toBe(false)
+    })
+
+    it('still offers to resume one that is paused and not cancelled', async () => {
+      const { find } = await render({ changes: { active: false } })
+      expect(await menu(find)).toEqual(['Resume matching', 'Cancel subscription', 'Delete'])
+    })
+
+    it('shows a viewer how it ends, without a way to change it', async () => {
+      const { find, component } = await render({ role: 'viewer', changes: cancelled() })
+
+      expect(find('show-end-alert').exists()).toBe(true)
+      expect(find('show-reactivate').exists()).toBe(false)
+      expect(find('show-change-end').exists()).toBe(false)
+      expect(component('SubscriptionCancelDialog').exists()).toBe(false)
+      expect(component('SubscriptionReactivateDialog').exists()).toBe(false)
+    })
+
+    it('shows one ending later that is also overdue as overdue', async () => {
+      const { find } = await render({ changes: { ends_on: inDays(30), next_due_date: inDays(-2) } })
+      expect(find('show-overdue-alert').exists()).toBe(true)
+    })
+
+    it('does not warn that a payment is due when it ends the day it would be', async () => {
+      const { find } = await render({ changes: { ends_on: inDays(1), next_due_date: inDays(1) } })
+      expect(find('show-due-alert').exists()).toBe(false)
+    })
   })
 
   it('warns of a payment that is overdue, and gives an admin the ways to put it right', async () => {

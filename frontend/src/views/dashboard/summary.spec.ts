@@ -106,6 +106,29 @@ describe('dueSoon', () => {
     ])
   })
 
+  it('leaves out what has ended, or ends before it is next due, but not what ends after', () => {
+    const found = dueSoon(
+      [
+        item({ id: 'carries-on', next_due_date: '2026-09-24' }),
+        item({ id: 'ends-later', next_due_date: '2026-09-24', ends_on: '2026-12-01' }),
+        item({ id: 'last-one', next_due_date: '2026-09-22', ends_on: '2026-09-23' }),
+        // Nothing is paid on the day it ends.
+        item({ id: 'ends-that-day', next_due_date: '2026-09-24', ends_on: '2026-09-24' }),
+        item({
+          id: 'cancelled',
+          next_due_date: '2026-09-24',
+          ends_on: '2026-09-21',
+          cancelled_on: '2026-09-01',
+        }),
+        // Ended already, however long ago its next date was.
+        item({ id: 'ended', next_due_date: '2026-09-10', ends_on: '2026-09-20' }),
+      ],
+      '2026-09-20',
+    )
+
+    expect(found.map(({ id }) => id)).toEqual(['last-one', 'carries-on', 'ends-later'])
+  })
+
   it('breaks ties by name and says what each is expected to cost', () => {
     const found = dueSoon(
       [

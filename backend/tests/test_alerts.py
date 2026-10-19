@@ -534,6 +534,42 @@ def test_recurring_notices_use_each_due_window_and_ignore_inactive_or_overdue_pa
     )
 
 
+def test_nothing_is_reminded_of_that_is_not_paid_because_it_has_ended(session: Session) -> None:
+    account = add_account(session)
+    today = dt.date(2026, 10, 9)
+
+    def add(name: str, due: int, ends: int | None) -> None:
+        session.add(
+            Subscription(
+                name=name,
+                kind=RecurringKind.SUBSCRIPTION,
+                payee=name,
+                amount=Decimal("10"),
+                frequency=PaymentFrequency.MONTHLY,
+                account_id=account.id,
+                next_due_date=today + dt.timedelta(days=due),
+                ends_on=None if ends is None else today + dt.timedelta(days=ends),
+                cancelled_on=None if ends is None else today,
+            )
+        )
+
+    add("Carries on", 2, None)
+    # Paid once more before it ends, so it is reminded of.
+    add("Ends later", 2, 20)
+    # Nothing is paid on the day it ends, or after it.
+    add("Ends that day", 2, 2)
+    add("Ended already", 2, -3)
+    session.commit()
+    alerts = AlertPreferences(subscription_due_enabled=True, subscription_due_days_before=3)
+
+    notices = worker.recurring_notices(session, today, alerts)
+
+    assert sorted(notice.title for notice in notices) == [
+        "Subscription due: Carries on",
+        "Subscription due: Ends later",
+    ]
+
+
 def test_budget_notices_skip_empty_disabled_or_below_threshold_budgets(
     session: Session, settings: Settings
 ) -> None:

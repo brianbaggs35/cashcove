@@ -1,9 +1,11 @@
 import {
+  cancelSubscription,
   createSubscription,
   deleteSubscription,
   fetchSubscriptionOverview,
   fetchSubscriptions,
   linkSubscriptionPayments,
+  reactivateSubscription,
   unlinkSubscriptionPayment,
   updateSubscription,
   type SubscriptionInput,
@@ -61,6 +63,7 @@ describe('subscription API', () => {
       frequency: 'monthly',
       account_id: 'account-checking',
       next_due_date: '2026-10-15',
+      ends_on: null,
       category_id: null,
       notes: null,
       seed_transaction_id: 'transaction-1',
@@ -104,5 +107,33 @@ describe('subscription API', () => {
       ['/api/subscriptions/sub-1/payments/t1', 'DELETE'],
     ])
     expect(JSON.parse(fetch.mock.calls[0]![1].body as string)).toEqual({ ids: ['t1', 't2'] })
+  })
+
+  it('cancels one with the days it was cancelled and ends, and reactivates it with its next payment', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ id: 'sub-1', cancelled_on: '2026-10-19' }))
+      .mockResolvedValueOnce(response({ id: 'sub-1', cancelled_on: null }))
+    vi.stubGlobal('fetch', fetch)
+
+    await expect(
+      cancelSubscription('sub-1', { cancelled_on: '2026-10-19', ends_on: '2026-11-05' }),
+    ).resolves.toEqual({ id: 'sub-1', cancelled_on: '2026-10-19' })
+    await expect(
+      reactivateSubscription('sub-1', { next_due_date: '2027-01-05', today: '2026-12-20' }),
+    ).resolves.toEqual({ id: 'sub-1', cancelled_on: null })
+
+    expect(fetch.mock.calls.map(([url, init]) => [url, init.method])).toEqual([
+      ['/api/subscriptions/sub-1/cancellation', 'POST'],
+      ['/api/subscriptions/sub-1/reactivation', 'POST'],
+    ])
+    expect(JSON.parse(fetch.mock.calls[0]![1].body as string)).toEqual({
+      cancelled_on: '2026-10-19',
+      ends_on: '2026-11-05',
+    })
+    expect(JSON.parse(fetch.mock.calls[1]![1].body as string)).toEqual({
+      next_due_date: '2027-01-05',
+      today: '2026-12-20',
+    })
   })
 })
