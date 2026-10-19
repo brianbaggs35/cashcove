@@ -8,6 +8,7 @@ import type {
   DecimalMark,
   Delimiter,
   PreviewRow,
+  SavedFormat,
 } from '@/api/imports'
 
 export interface ColumnFieldInfo {
@@ -93,6 +94,11 @@ export function assignColumn(
     amounts,
     money_in_values: sameDirection ? layout.money_in_values : [],
   }
+}
+
+/** The column names of the files a saved format reads, or that it reads files without any. */
+export function formatColumns(format: SavedFormat): string {
+  return format.headers.length ? format.headers.join(' · ') : 'Files without column names'
 }
 
 /** Whether the row's day is one the bank's own transactions cover, so it's likely a repeat. */

@@ -236,7 +236,10 @@ export interface BaselineTransaction {
 export interface BaselineSavedFormat {
   id: string
   name: string
-  /** The column names of the files it reads, which is how it recognizes them. */
+  /**
+   * The column names of the files it reads, which is how it recognizes them. A format for files
+   * without a row of column names has none, so nothing recognizes its files: it is chosen.
+   */
   headers: string[]
   /** The account it was last used for, by key in `baseline.accounts`. */
   account: BaselineAccountKey | null
@@ -374,6 +377,8 @@ export interface BaselineData {
   saved_formats: {
     /** Harbor Credit Union checking: date, description, amount, balance and ID columns. */
     harbor_checking: BaselineSavedFormat
+    /** Harbor Credit Union savings: files without column names; never used, for the savings. */
+    harbor_savings: BaselineSavedFormat
     /** Maple store card: charges as positive amounts, with the bank's categories; never used. */
     maple_card: BaselineSavedFormat
   }

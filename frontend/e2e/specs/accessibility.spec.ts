@@ -292,6 +292,33 @@ test.describe('Accessibility', () => {
                 [[bankDate(1), 'NORTHWIND HEALTH PAYROLL', '1875.00', 'CR']],
               ),
             ),
+          'choosing a saved format to read it with': async () => {
+            await importPage.chooseFile(statement)
+            await importPage.formatChoice.locator('.v-field').click()
+            // The menu on top of the dialog, as well as the dialog.
+            await expect(page.getByRole('option', { name: /^New format/ })).toBeVisible()
+            await expect(
+              page.getByRole('option', { name: /^Harbor Credit Union savings/ }),
+            ).toBeVisible()
+            await expectAccessible(page, { include: OVERLAY })
+            await page.keyboard.press('Escape')
+            await expect(page.locator('.v-menu .v-overlay__content:visible')).toHaveCount(0)
+          },
+          'a saved format that doesn’t fit a new file': async () => {
+            await importPage.chooseFile(statement)
+            await importPage.chooseFormat(baseline.saved_formats.maple_card.name)
+            await expect(importPage.formatProblem).toBeVisible()
+          },
+          'a saved format that doesn’t fit a file read with another': async () => {
+            await importPage.chooseFile(
+              csvFile('harbor-checking.csv', baseline.saved_formats.harbor_checking.headers, [
+                [bankDate(1), 'HARBOR CU ATM FEE', '-3.00', '2447.18', 'H9001'],
+              ]),
+            )
+            await importPage.dialog.getByTestId('import-back').click()
+            await importPage.chooseFormat(baseline.saved_formats.maple_card.name)
+            await expect(importPage.formatProblem.getByTestId('format-create-new')).toBeVisible()
+          },
           'reviewing its rows': async () => {
             await importPage.chooseFile(statement)
             await importPage.continue()

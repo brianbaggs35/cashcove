@@ -22,6 +22,7 @@ import {
   fieldOf,
 } from '@/views/import/columns'
 import { transactionCount } from '@/views/import/file'
+import FormatPicker from '@/views/import/FormatPicker.vue'
 
 /** Matching a CSV file's columns to what they hold, with its first rows as they read. */
 const wizard = useImportWizard()
@@ -89,6 +90,8 @@ function lineClass(index: number): string | undefined {
 
 <template>
   <div data-test="import-columns">
+    <FormatPicker />
+
     <v-alert
       v-if="wizard.profileName"
       :icon="BookmarkCheck"

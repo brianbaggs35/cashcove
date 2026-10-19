@@ -456,12 +456,14 @@ def test_the_baseline_has_the_imports_that_brought_in_the_older_history(
     assert all(item["file_import"] for item in history if item["source"] == "file")
     assert not [item for item in history if item["source"] != "file" and item["file_import"]]
     saved = baseline["saved_formats"]
-    assert list(saved) == ["harbor_checking", "maple_card"]
+    assert list(saved) == ["harbor_checking", "harbor_savings", "maple_card"]
     assert imports["checking_history"]["saved_format"] == "harbor_checking"
     for described in saved.values():
         profile = session.get(ImportProfile, uuid.UUID(described["id"]))
         assert profile is not None
         assert (profile.name, profile.headers) == (described["name"], described["headers"])
+        # Files are recognized by their column names, so those without any aren't.
+        assert (profile.signature is None) == (not described["headers"])
         account = baseline["accounts"][described["account"]]["id"]
         assert str(profile.account_id) == account
 
@@ -480,13 +482,17 @@ def test_people_see_the_baseline_imports_through_the_api(e2e: TestClient) -> Non
     assert [item["created_by"] for item in imports] == ["Alex Rivera"] * 2
     assert [profile["name"] for profile in profiles] == [
         "Harbor Credit Union checking",
+        "Harbor Credit Union savings",
         "Maple store card",
     ]
     # The checking account's saved format reads its files.
     harbor = profiles[0]
     assert harbor["options"]["csv"]["columns"]["id"] == 4
     assert harbor["last_used_at"] is not None
-    assert profiles[1]["last_used_at"] is None
+    # The savings account's reads files without column names, and neither has been used.
+    savings = profiles[1]
+    assert (savings["headers"], savings["options"]["csv"]["header"]) == ([], False)
+    assert [profile["last_used_at"] for profile in profiles[1:]] == [None, None]
 
 
 def test_the_baseline_has_budgets_set_up_with_cashcove(

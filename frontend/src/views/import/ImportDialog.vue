@@ -23,6 +23,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useAiStore } from '@/stores/ai'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
+import { useImportsStore } from '@/stores/imports'
 import { useSubscriptionsStore } from '@/stores/subscriptions'
 import { useImportWizard } from '@/stores/importWizard'
 import { formatDateRange } from '@/utils/dates'
@@ -48,6 +49,7 @@ const ai = useAiStore()
 const auth = useAuthStore()
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
+const imports = useImportsStore()
 const subscriptions = useSubscriptionsStore()
 const { locale, money } = useHousehold()
 
@@ -101,7 +103,9 @@ const heading = computed((): { title: string; subtitle?: string; icon: LucideIco
     case 'columns':
       return {
         title: 'Match the columns',
-        subtitle: 'Say what each column holds. Cashcove remembers it for the bank’s next file.',
+        subtitle: imports.formats.length
+          ? 'Choose a saved format, or say what each column holds. Cashcove remembers it for the bank’s next file.'
+          : 'Say what each column holds. Cashcove remembers it for the bank’s next file.',
         icon: Columns3,
       }
     case 'review':
@@ -217,6 +221,8 @@ watch(open, (value) => {
     void ai.ensureLoaded()
     void accounts.ensureLoaded()
     void categories.ensureLoaded()
+    // The saved formats a CSV file can be read with.
+    void imports.ensureLoaded()
     // Rows an automation links to a subscription or a bill say which.
     void subscriptions.ensureLoaded()
   } else {

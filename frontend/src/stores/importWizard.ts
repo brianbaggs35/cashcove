@@ -116,6 +116,8 @@ export const useImportWizard = defineStore('import-wizard', () => {
   const nameChanged = ref(false)
   const refreshing = ref(false)
   const notice = ref<string | null>(null)
+  /** Why the saved format that was just chosen can't read this file, which is read as before. */
+  const formatProblem = ref<string | null>(null)
   const nameError = ref<string | null>(null)
   const record = shallowRef<FileImport | null>(null)
   /** Where the rows came from: a file Cashcove read, or a PDF statement the AI read. */
@@ -187,6 +189,7 @@ export const useImportWizard = defineStore('import-wizard', () => {
     nameChanged.value = false
     refreshing.value = false
     notice.value = null
+    formatProblem.value = null
     nameError.value = null
     record.value = null
     source.value = 'file'
@@ -288,14 +291,30 @@ export const useImportWizard = defineStore('import-wizard', () => {
     }
   }
 
-  /** Reads the file again, with the changes asked for and everything else as it was. */
-  async function refresh(changes: Partial<PreviewRequest> = {}) {
+  /**
+   * Says why the file couldn't be read again. A saved format that doesn't fit it is told apart
+   * from the rest, and one that has gone is gone from the list too.
+   */
+  function readFailed(error: unknown) {
+    const code = error instanceof ApiError ? error.code : null
+    if (code === 'format_mismatch') formatProblem.value = errorMessage(error)
+    else notice.value = errorMessage(error)
+    if (code === 'not_found') void imports.load()
+  }
+
+  /**
+   * Reads the file again, with the changes asked for and everything else as it was. Says whether
+   * the new reading is the one shown now.
+   */
+  async function refresh(changes: Partial<PreviewRequest> = {}): Promise<boolean> {
     const current = preview.value as ImportPreview
     const ticked = selected.value
     const request = ++latest
     clearTimeout(timer)
     refreshing.value = true
     notice.value = null
+    formatProblem.value = null
+    let shown = false
     try {
       const next = await previewImport({
         ...(upload.value as ImportFile),
@@ -308,12 +327,14 @@ export const useImportWizard = defineStore('import-wizard', () => {
       if (request === latest) {
         show(next)
         if (source.value === 'statement') selected.value = retained(current, ticked, next)
+        shown = true
       }
     } catch (error) {
-      if (request === latest) notice.value = errorMessage(error)
+      if (request === latest) readFailed(error)
     } finally {
       if (request === latest) refreshing.value = false
     }
+    return shown
   }
 
   /** Reads the statement's rows again once they've stopped changing. */
@@ -351,6 +372,17 @@ export const useImportWizard = defineStore('import-wizard', () => {
     refreshing.value = true
     clearTimeout(timer)
     timer = setTimeout(() => void refresh(), REREAD_DELAY)
+  }
+
+  /**
+   * Reads the CSV file with a saved format, or as a new format with `null`. A saved format that
+   * doesn't fit the file is refused and the file stays read as it was, with the reason in
+   * `formatProblem`.
+   */
+  async function chooseFormat(id: string | null) {
+    if (id === (preview.value as ImportPreview).profile_id) return
+    // Without the options it's read with now, which the format or the file's own layout replaces.
+    if (await refresh({ profile_id: id, options: null, match_saved: false })) edited.value = false
   }
 
   function chooseAccount(id: string) {
@@ -433,6 +465,7 @@ export const useImportWizard = defineStore('import-wizard', () => {
     formatName,
     refreshing,
     notice,
+    formatProblem,
     nameError,
     record,
     source,
@@ -457,6 +490,7 @@ export const useImportWizard = defineStore('import-wizard', () => {
     editRow,
     flipSigns,
     changeOptions,
+    chooseFormat,
     chooseAccount,
     chooseStatement,
     renameFormat,

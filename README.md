@@ -336,7 +336,11 @@ setting up.
   any order, amounts in one column, in separate money in and money out columns, or beside a
   column saying which way the money went (Debit or Credit, CR or DR), decimal commas, and
   lines to skip above the transactions. You check or change what each column holds, and it's
-  saved as a format for that bank, so its next file goes straight to review.
+  saved as a format for that bank, so its next file with the same column names goes straight to
+  review. A file nothing recognizes that way (some banks don't name their columns, or add one)
+  can be read with a saved format by choosing it under **Read this file with**. If the format
+  doesn't fit the file, Cashcove says which columns are different and keeps the columns it
+  found, and you can make a new format instead.
 - **Review:** Choose the account (an OFX file or a PDF statement finds it by its last four
   digits), see which rows are new, which the account already has and which it might, and tick
   what to import. Possible duplicates, including rows with the same date, payee and amount,

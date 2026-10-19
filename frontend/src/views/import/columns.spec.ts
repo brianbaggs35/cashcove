@@ -7,8 +7,9 @@ import {
   decimalMarks,
   delimiters,
   fieldOf,
+  formatColumns,
 } from '@/views/import/columns'
-import { makeLayout, makeRow } from '@/test/imports'
+import { harborFormat, makeFormat, makeLayout, makeRow } from '@/test/imports'
 
 const layout = makeLayout()
 
@@ -79,6 +80,13 @@ describe('CSV columns', () => {
     expect(assignColumn(direction, 1, 'memo').money_in_values).toEqual(['CR'])
     expect(assignColumn(direction, 6, 'direction').money_in_values).toEqual([])
     expect(assignColumn(direction, 5, null).money_in_values).toEqual([])
+  })
+
+  it('says which columns a saved format reads, or that its files have no names', () => {
+    expect(formatColumns(harborFormat)).toBe(
+      'Date · Description · Amount · Balance · Transaction ID',
+    )
+    expect(formatColumns(makeFormat({ headers: [] }))).toBe('Files without column names')
   })
 
   it('knows the days the bank already shared', () => {

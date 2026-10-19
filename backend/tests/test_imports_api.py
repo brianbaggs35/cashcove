@@ -18,6 +18,7 @@ from app.models import (
     TransactionSource,
 )
 from app.models.base import utcnow
+from app.schemas.imports import ImportOptions
 from tests.finance import add_account, add_category, add_group, add_transaction, linked_account
 from tests.helpers import error
 from tests.imports import (
@@ -825,6 +826,160 @@ def test_files_without_column_names_use_their_saved_format_when_its_chosen(
     chosen = previewed(admin_client, HEADERLESS_CSV, profile_id=record["profile_id"])
     assert chosen["profile_id"] == record["profile_id"]
     assert statuses(chosen) == ["possible_duplicate"] * 3
+
+
+# The next month's file from the bank of CHECKING_CSV, with a column added: its column names are no
+# longer the ones the saved format is recognized by.
+LONGER_CSV = """Date,Description,Amount,Balance,Transaction ID,Note
+10/01/2026,NORTHWIND HEALTH PAYROLL PPD,1875.00,4656.88,T2001,
+10/02/2026,CITY POWER & LIGHT,-96.40,4560.48,T2002,autopay
+"""
+
+
+def saved_format(client: TestClient, text: str, account: Account, name: str = "Harbor") -> str:
+    """Saves how a file is read, by importing it, and says the format's ID."""
+    profile_id: str = imported(client, text, account, save_profile={"name": name})["profile_id"]
+    return profile_id
+
+
+def refused_preview(client: TestClient, text: str, **fields: Any) -> Any:
+    response = client.post("/api/imports/preview", json=upload(text, **fields))
+    assert (response.status_code, error(response)) == (422, "format_mismatch"), response.text
+    return response.json()["detail"]["message"]
+
+
+def test_a_saved_format_can_be_chosen_for_a_file_its_columns_dont_match(
+    admin_client: TestClient, checking: Account
+) -> None:
+    harbor = saved_format(admin_client, CHECKING_CSV, checking)
+    assert previewed(admin_client, LONGER_CSV)["profile_id"] is None
+
+    chosen = previewed(admin_client, LONGER_CSV, profile_id=harbor)
+
+    assert chosen["profile_id"] == harbor
+    assert chosen["account_id"] == str(checking.id)
+    assert [row["amount"] for row in chosen["rows"]] == ["1875.00", "-96.40"]
+    assert statuses(chosen) == ["new", "new"]
+    assert chosen["csv"]["missing"] == []
+    [profile] = admin_client.get("/api/imports/profiles").json()
+    assert chosen["options"] == profile["options"]
+
+
+def test_changing_how_a_saved_format_reads_a_file_shows_what_cant_be_read_instead_of_refusing(
+    admin_client: TestClient, checking: Account
+) -> None:
+    harbor = saved_format(admin_client, CHECKING_CSV, checking)
+    options = previewed(admin_client, LONGER_CSV, profile_id=harbor)["options"]
+    # The amounts taken from the descriptions, so that no row can be read.
+    columns = {**options["csv"]["columns"], "payee": None, "amount": 1}
+
+    edited = previewed(
+        admin_client,
+        LONGER_CSV,
+        profile_id=harbor,
+        options={**options, "csv": {**options["csv"], "columns": columns}},
+    )
+
+    assert (edited["profile_id"], statuses(edited)) == (harbor, ["invalid", "invalid"])
+
+
+def test_a_chosen_saved_format_is_used_to_import_and_can_be_updated_for_the_next_file(
+    admin_client: TestClient, session: Session, checking: Account
+) -> None:
+    harbor = saved_format(admin_client, CHECKING_CSV, checking)
+    [before] = admin_client.get("/api/imports/profiles").json()
+    chosen = previewed(admin_client, LONGER_CSV, profile_id=harbor)
+
+    # What the preview read is sent back to import, as the web app does: it isn't checked again.
+    body = upload(
+        LONGER_CSV,
+        "harbor-october.csv",
+        options=chosen["options"],
+        profile_id=harbor,
+        account_id=str(checking.id),
+        lines=new_lines(chosen),
+        balance="keep",
+        save_profile={"id": harbor, "name": "Harbor"},
+    )
+    response = admin_client.post("/api/imports", json=body)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["profile_id"] == harbor
+    [after] = admin_client.get("/api/imports/profiles").json()
+    assert after["headers"] == [*before["headers"], "Note"]
+    assert after["last_used_at"] > before["last_used_at"]
+    # Updated for the longer file, so its next one is recognized without choosing.
+    assert previewed(admin_client, LONGER_CSV)["profile_id"] == harbor
+
+
+def test_a_saved_format_that_doesnt_fit_the_file_says_what_is_different(
+    admin_client: TestClient, checking: Account
+) -> None:
+    harbor = saved_format(admin_client, CHECKING_CSV, checking)
+
+    # A column of the format that the file calls something else, and one it doesn't have.
+    assert refused_preview(admin_client, CARD_CSV, profile_id=harbor) == (
+        "The Harbor format doesn't fit this file: "
+        "column 4 is “Balance” in the format but “Category” in this file; "
+        "column 5 is “Transaction ID” in the format but blank in this file."
+    )
+    # Nothing is read with it, and nothing was changed.
+    [profile] = admin_client.get("/api/imports/profiles").json()
+    assert profile["last_used_at"] is not None
+    assert len(admin_client.get("/api/imports").json()) == 1
+
+
+def test_a_format_for_files_without_column_names_refuses_files_it_cant_read(
+    admin_client: TestClient, checking: Account
+) -> None:
+    wells = saved_format(admin_client, HEADERLESS_CSV, checking, "Wells")
+
+    assert refused_preview(admin_client, CHECKING_CSV, profile_id=wells) == (
+        "The Wells format doesn't fit this file: none of this file's lines can be read with it."
+    )
+    assert previewed(admin_client, HEADERLESS_CSV, profile_id=wells)["profile_id"] == wells
+
+
+def test_a_saved_format_that_never_said_where_the_columns_are_fits_no_file(
+    admin_client: TestClient, session: Session
+) -> None:
+    odd = ImportProfile(name="Odd", headers=[], options=ImportOptions().model_dump(mode="json"))
+    session.add(odd)
+    session.commit()
+
+    assert refused_preview(admin_client, CHECKING_CSV, profile_id=str(odd.id)) == (
+        "The Odd format doesn't fit this file: "
+        "it doesn't say which columns hold the date and the amount."
+    )
+
+
+def test_a_file_can_be_read_as_a_new_format_whichever_saved_formats_match(
+    admin_client: TestClient, checking: Account
+) -> None:
+    detected = previewed(admin_client, CHECKING_CSV)
+    harbor = saved_format(admin_client, CHECKING_CSV, checking)
+    assert previewed(admin_client, CHECKING_CSV)["profile_id"] == harbor
+
+    fresh = previewed(admin_client, CHECKING_CSV, match_saved=False)
+
+    assert fresh["profile_id"] is None
+    assert fresh["options"] == detected["options"]
+    # Choosing one is a choice, though, and so are the options sent with the file.
+    assert (
+        previewed(admin_client, CHECKING_CSV, profile_id=harbor, match_saved=False)["profile_id"]
+        == harbor
+    )
+    flipped = {**detected["options"], "flip": True}
+    sent = previewed(admin_client, CHECKING_CSV, options=flipped, match_saved=False)
+    assert (sent["profile_id"], sent["options"]["flip"]) == (None, True)
+
+
+def test_whether_to_look_for_a_saved_format_is_yes_or_no(admin_client: TestClient) -> None:
+    response = admin_client.post(
+        "/api/imports/preview", json=upload(CHECKING_CSV, match_saved="sometimes")
+    )
+
+    assert response.status_code == 422
 
 
 def test_formats_are_only_saved_for_csv_files(

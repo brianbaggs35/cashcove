@@ -10,6 +10,7 @@ import { notify } from '@/composables/notify'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useImportsStore } from '@/stores/imports'
+import { formatColumns } from '@/views/import/columns'
 import RenameFormatDialog from '@/views/import/RenameFormatDialog.vue'
 
 /** How banks' CSV files are laid out, remembered so their next files read the same way. */
@@ -19,10 +20,6 @@ const accounts = useAccountsStore()
 
 const renaming = ref<SavedFormat | null>(null)
 const renameOpen = ref(false)
-
-function columns(format: SavedFormat): string {
-  return format.headers.length ? format.headers.join(' · ') : 'Files without column names'
-}
 
 /** The account it was last used for, if it's still there. */
 const usedFor = (format: SavedFormat) => accounts.find(format.account_id)?.name ?? null
@@ -59,7 +56,8 @@ async function remove(format: SavedFormat) {
         </v-chip>
       </div>
       <p v-if="store.formats.length" class="text-body-small text-medium-emphasis mt-1 mb-0">
-        A bank’s next CSV file with the same columns is read the way its last one was.
+        A bank’s next CSV file with the same columns is read the way its last one was. For any other
+        file, choose one when you import it.
       </p>
     </div>
 
@@ -86,7 +84,7 @@ async function remove(format: SavedFormat) {
             {{ format.name }}
           </div>
           <div class="saved-formats__columns text-body-small" data-test="saved-format-columns">
-            {{ columns(format) }}
+            {{ formatColumns(format) }}
           </div>
           <div class="text-body-small text-medium-emphasis mt-1" data-test="saved-format-used">
             <template v-if="format.last_used_at">

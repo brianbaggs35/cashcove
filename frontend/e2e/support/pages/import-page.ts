@@ -52,6 +52,12 @@ export class ImportPage {
   readonly notice: Locator
   /** The columns step's rows, one for each of the file's columns. */
   readonly columnRows: Locator
+  /** What the columns step offers for reading a CSV file, once there's a saved format to choose. */
+  readonly formatPicker: Locator
+  /** The menu in it: a saved format, or a new format. */
+  readonly formatChoice: Locator
+  /** What says why the saved format that was chosen can't read the file. */
+  readonly formatProblem: Locator
   /** The review step's rows, one for each of the file's rows the filter shows. */
   readonly reviewRows: Locator
   /** The dialog asking to confirm undoing an import, while it's open. */
@@ -83,6 +89,9 @@ export class ImportPage {
     })
     this.notice = this.dialog.getByTestId('import-notice')
     this.columnRows = this.dialog.getByTestId('column-row')
+    this.formatPicker = this.dialog.getByTestId('format-picker')
+    this.formatChoice = this.dialog.getByTestId('format-choice')
+    this.formatProblem = this.dialog.getByTestId('format-problem')
     this.reviewRows = this.dialog.getByTestId('review-row')
     this.undoDialog = page.getByRole('dialog', { name: /^Undo importing/ })
     this.statementNote = this.dialog.getByTestId('review-statement-note')
@@ -123,6 +132,21 @@ export class ImportPage {
   /** Says what a column holds, and waits for the file to be read again that way. */
   async matchColumn(column: string, to: ColumnMatch): Promise<void> {
     await this.rereading(() => choose(this.columnMatch(column), to))
+  }
+
+  /**
+   * Chooses what the CSV file is read with, a saved format by its name or `'New format'`, and
+   * waits for the file to be read again that way, or for the format to be turned down.
+   */
+  async chooseFormat(name: string): Promise<void> {
+    await this.rereading(() => choose(this.formatChoice, name))
+    // So a second choice doesn't click the field while the menu is still fading out.
+    await expect(this.page.locator('.v-menu .v-overlay__content:visible')).toHaveCount(0)
+  }
+
+  /** Turns down a saved format for a new one, from the message that one didn't fit the file. */
+  async createNewFormat(): Promise<void> {
+    await this.rereading(() => this.formatProblem.getByTestId('format-create-new').click())
   }
 
   /** Goes on from the columns to reviewing the rows. */

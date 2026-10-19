@@ -416,6 +416,104 @@ def test_saved_layouts_follow_their_column_names_down_the_file() -> None:
     assert CsvFile(CHECKING_CSV).relocate(saved, headers).skip_rows == 6
 
 
+def saved_from(text: str) -> tuple[CsvLayout, list[str]]:
+    """A layout and column names as they're saved after reading a bank's file."""
+    csv_file = CsvFile(text)
+    layout = csv_file.detect("en-US").csv
+    assert layout is not None
+    return layout, csv_file.headers(layout)
+
+
+def misfit(text: str, layout: CsvLayout, headers: list[str]) -> str | None:
+    """Why a saved layout doesn't suit the file, as it's read with it."""
+    csv_file = CsvFile(text)
+    placed = csv_file.relocate(layout, headers) if headers else layout
+    statement = csv_file.read(ImportOptions(csv=placed), TODAY)
+    return csv_file.misfit(placed, headers, statement)
+
+
+def test_a_saved_layout_suits_files_that_name_the_columns_it_reads_the_same_way() -> None:
+    layout, headers = saved_from(CHASE_CHECKING)
+    assert misfit(CHASE_CHECKING, layout, headers) is None
+    # The columns it leaves out can be named anything, or added to.
+    other = CHASE_CHECKING.replace("Details", "Kind").replace("Check or Slip #", "Check no.")
+    assert misfit(other, layout, headers) is None
+    # Names are compared the way signatures are: ignoring case and punctuation.
+    assert misfit(CHASE_CHECKING.replace("Posting Date", "POSTING DATE"), layout, headers) is None
+    # A longer summary above the names doesn't matter either.
+    assert misfit(f"Summary\n\n\n{CHASE_CHECKING}", layout, headers) is None
+    # A file with no transactions yet isn't a different layout.
+    assert misfit(CHASE_CHECKING.splitlines()[0] + "\n", layout, headers) is None
+
+
+def test_a_saved_layout_doesnt_suit_a_file_that_names_the_columns_it_reads_differently() -> None:
+    layout, headers = saved_from(CHECKING_CSV)
+
+    assert misfit(CHECKING_CSV.replace("Amount", "Amt"), layout, headers) == (
+        "column 3 is “Amount” in the format but “Amt” in this file."
+    )
+    # A column the file doesn't have, and the file's own name for another.
+    assert misfit(CARD_CSV, layout, headers) == (
+        "column 4 is “Balance” in the format but “Category” in this file; "
+        "column 5 is “Transaction ID” in the format but blank in this file."
+    )
+    # Only the first couple are named.
+    assert misfit("a,b,c,d,e\n" + CHECKING_CSV.split("\n", 1)[1], layout, headers) == (
+        "column 1 is “Date” in the format but “a” in this file; "
+        "column 2 is “Description” in the format but “b” in this file (and 3 more)."
+    )
+
+
+def test_a_saved_layout_can_read_a_column_whose_name_was_blank() -> None:
+    text = "Date,,Amount\n09/01/2026,PAYROLL,1875.00\n09/02/2026,RENT,-300.00\n"
+    layout, headers = saved_from(text)
+    assert headers == ["Date", "", "Amount"]
+
+    assert misfit(text, layout, headers) is None
+    assert misfit(text.replace(",,", ",Memo,"), layout, headers) == (
+        "column 2 is blank in the format but “Memo” in this file."
+    )
+
+
+def test_a_long_column_name_is_shortened_when_a_saved_layout_is_refused() -> None:
+    layout, headers = saved_from(CHECKING_CSV)
+    long_name = "Amount " + "x" * 100
+
+    message = misfit(CHECKING_CSV.replace("Amount", long_name), layout, headers)
+
+    assert message == f"column 3 is “Amount” in the format but “{long_name[:59]}…” in this file."
+
+
+def test_a_saved_layout_that_kept_no_column_names_is_not_held_to_them() -> None:
+    layout, headers = saved_from(CHECKING_CSV)
+    assert layout.header
+    assert misfit(CHECKING_CSV.replace("Amount", "Amt"), layout, headers) is not None
+
+    # Nothing to compare with, so whether it reads the lines is all there is to go by.
+    assert misfit(CHECKING_CSV.replace("Amount", "Amt"), layout, []) is None
+    assert misfit(HEADERLESS_CSV, layout, []) == "none of this file's lines can be read with it."
+
+
+def test_a_saved_layout_without_column_names_goes_by_whether_it_reads_the_lines() -> None:
+    layout, headers = saved_from(HEADERLESS_CSV)
+    assert (layout.header, headers) == (False, [])
+
+    assert misfit(HEADERLESS_CSV, layout, headers) is None
+    assert misfit(HEADERLESS_CSV.replace("09/2", "09/1"), layout, headers) is None
+    # A file with another shape has nothing at those columns that reads as a date or an amount.
+    assert misfit(CHECKING_CSV, layout, headers) == "none of this file's lines can be read with it."
+    # Nothing to read isn't a different layout.
+    assert misfit("\n\n", layout, headers) is None
+
+
+def test_a_layout_that_doesnt_say_where_the_date_and_amount_are_suits_no_file() -> None:
+    csv_file = CsvFile(CHECKING_CSV)
+
+    assert csv_file.misfit(CsvLayout(), [], csv_file.read(ImportOptions(), TODAY)) == (
+        "it doesn't say which columns hold the date and the amount."
+    )
+
+
 def test_signatures_ignore_case_and_punctuation() -> None:
     assert signature(["Date", "Running Bal."]) == signature(["DATE", "running bal"])
     assert signature(["Date", "Amount"]) != signature(["Amount", "Date"])

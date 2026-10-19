@@ -1,6 +1,6 @@
 import { flushPromises } from '@vue/test-utils'
 
-import type { ImportOptions, ImportPreview } from '@/api/imports'
+import type { ImportOptions, ImportPreview, SavedFormat } from '@/api/imports'
 import { useImportWizard } from '@/stores/importWizard'
 import { page } from '@/test/dom'
 import { seedFinance } from '@/test/finance'
@@ -17,12 +17,12 @@ import {
 import { mountWithPlugins } from '@/test/mount'
 import ColumnsStep from '@/views/import/ColumnsStep.vue'
 
-async function render(preview: ImportPreview = makePreview()) {
+async function render(preview: ImportPreview = makePreview(), formats?: SavedFormat[]) {
   const mounted = await mountWithPlugins(ColumnsStep, {
     width: 1280,
     beforeMount: () => {
       seedFinance()
-      seedImports()
+      seedImports(formats && { formats })
       seedWizard(preview)
     },
   })
@@ -62,6 +62,20 @@ describe('ColumnsStep', () => {
     expect(
       findAll('column-choice').map((choice) => choice.find('.v-select__selection-text').text()),
     ).toEqual(['Date', 'Payee or description', 'Amount', 'Balance', 'Transaction ID'])
+  })
+
+  it('offers the saved formats first, once there are some to choose from', async () => {
+    const { find, wrapper } = await render()
+    expect(find('format-picker').exists()).toBe(true)
+    // Above what it says about how the file was read.
+    const html = wrapper.html()
+    expect(html.indexOf('data-test="format-picker"')).toBeLessThan(
+      html.indexOf('data-test="columns-detected"'),
+    )
+
+    const none = await render(makePreview(), [])
+    expect(none.find('format-picker').exists()).toBe(false)
+    expect(none.find('columns-detected').exists()).toBe(true)
   })
 
   it('says a saved format read it, and which columns are still needed', async () => {
