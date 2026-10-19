@@ -8,6 +8,7 @@ import { confirmAndRun } from '@/composables/confirm'
 import { notify } from '@/composables/notify'
 import { useHousehold } from '@/composables/useHousehold'
 import { kinds } from '@/views/subscriptions/kinds'
+import { standing } from '@/views/subscriptions/recurrence'
 
 /**
  * Takes a payment off a subscription or a bill, once the person has confirmed it: the payment
@@ -36,15 +37,20 @@ export async function unlinkPayment(
 }
 
 /**
- * Deletes a subscription or a bill, once the person has confirmed it: its transactions stay in
- * their history, but are no longer linked. Resolves to whether it was deleted, which is up to the
- * caller to show.
+ * Deletes a subscription or a bill, once the person has confirmed it, which removes it and
+ * everything set up for it: its payments stay in their history, but are no longer linked. One that
+ * can still be cancelled is pointed to that, which keeps it and what it tracked. Resolves to
+ * whether it was deleted, which is up to the caller to show.
  */
 export async function deleteRecurring(subscription: Subscription): Promise<boolean> {
+  const cancelInstead =
+    standing(subscription) === 'cancelled'
+      ? ''
+      : ` To keep it and its history here, cancel the ${kinds[subscription.kind].noun} instead.`
   const done = await confirmAndRun(
     {
       title: `Delete ${subscription.name}?`,
-      text: 'Its tracked transactions will stay in your history, but will no longer be linked.',
+      text: `This removes ${subscription.name} and everything set up for it: its settings, its notes and which payments are linked to it. It also comes out of any budget that counts it, and automations stop linking to it. The payments themselves will stay in your history, but will no longer be linked.${cancelInstead}`,
       confirmText: `Delete ${kinds[subscription.kind].noun}`,
       tone: 'error',
     },
@@ -57,8 +63,9 @@ export async function deleteRecurring(subscription: Subscription): Promise<boole
 
 /**
  * What an admin does to a subscription or a bill in one go, from its card or from its own page:
- * pause it or resume it, take a price change on board, or delete it. `changed` runs after one of
- * the first two went through, to load it afresh, and `failed` hears why one didn't.
+ * pause it or resume it, take a price change on board, or delete it. Cancelling and reactivating
+ * each ask for a day, so they have dialogs of their own. `changed` runs after one of the first two
+ * went through, to load it afresh, and `failed` hears why one didn't.
  */
 export function useRecurringActions(
   changed: () => Promise<void>,

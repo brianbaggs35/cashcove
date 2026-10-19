@@ -7,9 +7,10 @@ import type { Subscription } from '@/api/subscriptions'
 import AccountAvatar from '@/components/finance/AccountAvatar.vue'
 import CategoryChip from '@/components/finance/CategoryChip.vue'
 import { useHousehold } from '@/composables/useHousehold'
-import { formatCount, formatDateTime } from '@/utils/format'
+import { fromIsoDate } from '@/utils/dates'
+import { formatCount, formatDateTime, formatShortDate } from '@/utils/format'
 import { kinds } from '@/views/subscriptions/kinds'
-import { frequencyTitle } from '@/views/subscriptions/recurrence'
+import { frequencyTitle, hasEnded } from '@/views/subscriptions/recurrence'
 
 /** Everything that was set up about a subscription or a bill, and when it was. */
 const props = defineProps<{
@@ -34,6 +35,8 @@ const reminderText = computed(() => {
   return days === 0 ? 'On the day it is due' : `${formatCount(days, 'day')} before it is due`
 })
 const when = (value: string) => formatDateTime(value, locale.value)
+const day = (value: string) => formatShortDate(fromIsoDate(value), locale.value)
+const ended = computed(() => hasEnded(props.subscription))
 </script>
 
 <template>
@@ -98,6 +101,23 @@ const when = (value: string) => formatDateTime(value, locale.value)
               }}
             </span>
           </dd>
+        </div>
+        <div v-if="subscription.ends_on" class="details__row">
+          <dt>{{ ended ? 'Ended' : 'Ends' }}</dt>
+          <dd data-test="detail-ends">
+            {{ day(subscription.ends_on) }}
+            <span class="d-block text-medium-emphasis">
+              {{
+                ended
+                  ? 'Everything it tracked stays here.'
+                  : 'No payment is expected on or after this day.'
+              }}
+            </span>
+          </dd>
+        </div>
+        <div v-if="subscription.cancelled_on" class="details__row">
+          <dt>Cancelled</dt>
+          <dd data-test="detail-cancelled">{{ day(subscription.cancelled_on) }}</dd>
         </div>
         <div class="details__row">
           <dt>Reminder</dt>

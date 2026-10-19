@@ -345,6 +345,29 @@ def test_subscriptions_and_bills_are_listed_with_what_they_cost_and_when(
         assert secret.lower() not in listed.lower()
 
 
+def test_where_each_one_stands_is_listed_with_when_it_ends(session: Session, admin: User) -> None:
+    made = household(session)
+    ends = dt.date(2026, 10, 31)
+    add_item(session, made.checking.id, "Carries on")
+    add_item(session, made.checking.id, "Has a term", ends_on=ends)
+    add_item(session, made.checking.id, "Cancelled", ends_on=ends, cancelled_on=TODAY)
+    add_item(session, made.checking.id, "Over", ends_on=TODAY, cancelled_on=TODAY)
+    add_item(session, made.checking.id, "Term over", ends_on=TODAY)
+    ctx = context(session, admin)
+
+    states = {
+        line.split(" | ")[2]: line.split(" | ")[6] for line in rows(look(ctx, "list_recurring"))
+    }
+
+    assert states == {
+        "Carries on": "active",
+        "Has a term": "ends 2026-10-31",
+        "Cancelled": "cancelled, ends 2026-10-31",
+        "Over": "cancelled, ended 2026-09-20",
+        "Term over": "ended 2026-09-20",
+    }
+
+
 def test_subscriptions_and_bills_can_be_listed_apart_or_found_by_name(
     session: Session, admin: User
 ) -> None:

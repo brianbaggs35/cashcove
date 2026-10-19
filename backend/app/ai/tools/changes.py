@@ -50,10 +50,12 @@ from app.finance.budget import change_budget as update_budget
 from app.finance.categories import new_category, new_group
 from app.finance.periods import period_start
 from app.finance.subscriptions import (
+    cancel_recurring,
     change_recurring,
     create_recurring,
     ensure_untracked,
     payee_is,
+    reactivate_recurring,
 )
 from app.finance.text import text_key
 from app.finance.transactions import SORT_ORDERS, categorize
@@ -76,7 +78,12 @@ from app.models.base import CENT
 from app.schemas.automations import AutomationCreate
 from app.schemas.budget import BudgetCreate, BudgetSourceIn, BudgetUpdate
 from app.schemas.fields import MAX_AMOUNT, STRICT
-from app.schemas.subscriptions import SubscriptionCreate, SubscriptionUpdate
+from app.schemas.subscriptions import (
+    SubscriptionCancel,
+    SubscriptionCreate,
+    SubscriptionReactivate,
+    SubscriptionUpdate,
+)
 
 AMOUNT_LABEL = "The amount"
 
@@ -539,6 +546,12 @@ class UpdateRecurringArgs(_Args):
     next_due: dt.date | None = None
     category: str | None = None
     active: bool | None = None
+    # True cancels it, which keeps it and its history; false reactivates one that was cancelled or
+    # has ended, with next_due as its next payment if that is given.
+    cancel: bool | None = None
+    # The day it ends: no payment is expected on or after it. When cancelling, the day the
+    # cancellation takes effect, which is today if this is left out.
+    ends_on: dt.date | None = None
 
 
 class UpdateRecurringStep(_Step):
@@ -551,12 +564,23 @@ class UpdateRecurringStep(_Step):
     set_category: bool
     category: str | None
     active: bool | None
+    # These came later than the rest, so a proposal made before them still reads.
+    cancel: bool | None = None
+    ends_on: dt.date | None = None
+    # The day it is cancelled or reactivated, which is the day the person is in.
+    today: dt.date | None = None
 
 
 def _resolve_update_recurring(ctx: Context, args: UpdateRecurringArgs) -> UpdateRecurringStep:
     subscription_id = ctx.codes.resolve(Row.RECURRING, args.item)
     if args.next_due and not ctx.today - OVERDUE <= args.next_due <= ctx.today + AHEAD:
         raise ToolError(f"The next payment date {args.next_due} is too far from today.")
+    if args.ends_on and not ctx.today - OVERDUE <= args.ends_on <= ctx.today + AHEAD:
+        raise ToolError(f"The end date {args.ends_on} is too far from today.")
+    if args.cancel is False and args.ends_on:
+        raise ToolError("Reactivating takes the end date away, so don't give one.")
+    if args.cancel is False and args.active is False:
+        raise ToolError("Reactivating tracks its payments again, so it can't be paused as well.")
     step = UpdateRecurringStep(
         subscription_id=subscription_id,
         name=ctx.written(args.name, "The name", longest=120) if args.name else None,
@@ -566,11 +590,17 @@ def _resolve_update_recurring(ctx: Context, args: UpdateRecurringArgs) -> Update
         set_category="category" in args.model_fields_set,
         category=ctx.optional_category(args.category),
         active=args.active,
+        cancel=args.cancel,
+        ends_on=args.ends_on,
+        today=ctx.today,
     )
-    changes = step.model_dump(exclude={"subscription_id", "set_category"}, exclude_none=True)
+    changes = step.model_dump(
+        exclude={"subscription_id", "set_category", "today"}, exclude_none=True
+    )
     if not changes and not step.set_category:
         raise ToolError(
-            "Say what to change: name, amount, frequency, next_due, category or active."
+            "Say what to change: name, amount, frequency, next_due, category, active, cancel "
+            "or ends_on."
         )
     return step
 
@@ -598,6 +628,18 @@ def _describe_update_recurring(db: Session, step: UpdateRecurringStep) -> Descri
         lines.append(f"Category: {step.category or 'none'}; its linked payments get it too.")
     if step.active is not None:
         lines.append("Payments will be tracked again." if step.active else "Tracking is paused.")
+    if step.cancel:
+        lines.append(
+            f"Cancelled: it ends on {step.ends_on or step.today}, and no payment is expected "
+            "from then. It and its history are kept."
+        )
+    elif step.cancel is False:
+        lines.append(
+            "Reactivated: it carries on as a regular one, with no end date, and payments are "
+            "tracked again."
+        )
+    elif step.ends_on:
+        lines.append(f"It ends on {step.ends_on}: no payment is expected from then.")
     return Described(f"Change the {item.kind} {item.name}", "These will change:", lines)
 
 
@@ -605,13 +647,25 @@ def _run_update_recurring(db: Session, step: UpdateRecurringStep) -> str:
     item = _recurring(db, step.subscription_id)
     was = f"{item.kind} {item.name}"
     fields = step.model_dump(
-        exclude={"subscription_id", "set_category", "category", "next_due"}, exclude_none=True
+        exclude={"subscription_id", "set_category", "category", "next_due", "cancel", "today"},
+        exclude_none=True,
     )
-    if step.next_due:
+    # Reactivating says when it is next due itself, as that has to be the day it comes back with.
+    if step.next_due and step.cancel is not False:
         fields["next_due_date"] = step.next_due
     if step.set_category:
         fields["category_id"] = _category_id(db, step.category) if step.category else None
-    change_recurring(db, item.kind, item.id, SubscriptionUpdate(**fields))
+    if step.cancel:
+        # The end date goes with the cancellation, which also says when it was.
+        fields.pop("ends_on", None)
+    if fields:
+        change_recurring(db, item.kind, item.id, SubscriptionUpdate(**fields))
+    if step.cancel:
+        cancelled = SubscriptionCancel(cancelled_on=step.today, ends_on=step.ends_on)
+        cancel_recurring(db, item.kind, item.id, cancelled)
+    elif step.cancel is False:
+        reactivated = SubscriptionReactivate(next_due_date=step.next_due, today=step.today)
+        reactivate_recurring(db, item.kind, item.id, reactivated)
     return f"Changed the {was}."
 
 
@@ -813,9 +867,15 @@ CHANGES: tuple[Change, ...] = (
     ),
     change(
         "update_recurring",
-        "update_recurring {item: code, name?, amount?, frequency?, next_due?, category?, active?}",
+        "update_recurring {item: code, name?, amount?, frequency?, next_due?, category?, active?, "
+        "cancel?, ends_on?}",
         "Changes a subscription or bill, such as its price or when it is next due, or pauses it "
-        "(active: false).",
+        "(active: false). cancel: true cancels it, which keeps it and its history, and "
+        "ends_on is the day it ends (default today; usually the day it would next have been "
+        "paid): no payment is expected on or after it. ends_on alone sets an end date without "
+        "cancelling, for something with a fixed term. cancel: false reactivates one that was "
+        "cancelled or has ended, so it carries on like a regular one (next_due is when it is "
+        "next paid; by default, the next day on its old schedule).",
         args=UpdateRecurringArgs,
         step=UpdateRecurringStep,
         resolve=_resolve_update_recurring,

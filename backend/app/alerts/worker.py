@@ -5,7 +5,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.alerts.service import amount_text, deliver_alert, deliver_large_transaction
@@ -85,6 +85,11 @@ def recurring_notices(db: Session, today: dt.date, alerts: AlertPreferences) -> 
                 Subscription.active.is_(True),
                 Subscription.next_due_date >= today,
                 Subscription.next_due_date <= latest,
+                # Nothing is paid on or after the day it ends, so there is nothing to remind of.
+                or_(
+                    Subscription.ends_on.is_(None),
+                    Subscription.next_due_date < Subscription.ends_on,
+                ),
             )
         ):
             alert_type = (

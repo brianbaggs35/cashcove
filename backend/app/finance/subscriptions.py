@@ -16,8 +16,13 @@ from sqlalchemy.orm import Session
 from app.auth.deps import ApiError
 from app.finance.categories import find_category
 from app.models import Account, PaymentFrequency, RecurringKind, Subscription, Transaction
-from app.models.base import CENT
-from app.schemas.subscriptions import SubscriptionCreate, SubscriptionUpdate
+from app.models.base import CENT, utcnow
+from app.schemas.subscriptions import (
+    SubscriptionCancel,
+    SubscriptionCreate,
+    SubscriptionReactivate,
+    SubscriptionUpdate,
+)
 
 # How many of a subscription's latest payments its typical amount is the average of.
 RECENT_PAYMENTS = 6
@@ -33,6 +38,8 @@ _MONTHS = {
     PaymentFrequency.ANNUAL: 12,
 }
 _DAYS = {PaymentFrequency.WEEKLY: 7, PaymentFrequency.BIWEEKLY: 14}
+# What a change may take away with null; any other field it leaves be.
+_CLEARABLE = frozenset({"category_id", "notes", "ends_on"})
 # A payment settles the next due date when it's made up to this long before it: half of
 # what separates two payments, so an early payment counts and last cycle's doesn't.
 _EARLY = {
@@ -128,9 +135,12 @@ def _due_after(due: dt.date, frequency: PaymentFrequency, cycles: int) -> dt.dat
 
 
 def due_dates(subscription: Subscription, first: dt.date, last: dt.date) -> list[dt.date]:
-    """The days from `first` to `last` its payments are due, counted on from the next one."""
+    """The days from `first` to `last` its payments are due, counted on from the next one, up to
+    the day it ends."""
     frequency = subscription.frequency
     due = subscription.next_due_date
+    if subscription.ends_on is not None:
+        last = min(last, subscription.ends_on - dt.timedelta(days=1))
     # Starts a little before `first`, so a payment that's been due for years isn't counted up to.
     longest = _DAYS[frequency] if frequency in _DAYS else 31 * _MONTHS[frequency]
     cycles = max(0, (first - due).days // longest - 1)
@@ -145,13 +155,32 @@ def due_dates(subscription: Subscription, first: dt.date, last: dt.date) -> list
 
 def upcoming_dates(subscription: Subscription) -> list[dt.date]:
     """The days its next payments fall due, from the next one on: never more than
-    `UPCOMING_PAYMENTS` of them, and none more than a year on from the first."""
+    `UPCOMING_PAYMENTS` of them, none more than a year on from the first, and none on or after
+    the day it ends."""
     first = subscription.next_due_date
     last = _add_months(first, 12)
+    if subscription.ends_on is not None:
+        last = min(last, subscription.ends_on - dt.timedelta(days=1))
     days = [
         _due_after(first, subscription.frequency, cycles) for cycles in range(UPCOMING_PAYMENTS)
     ]
     return [day for day in days if day <= last]
+
+
+def is_stopped(subscription: Subscription, today: dt.date) -> bool:
+    """Whether it has stopped: it was cancelled, or the day it ends has come."""
+    ends_on = subscription.ends_on
+    return subscription.cancelled_on is not None or (ends_on is not None and ends_on <= today)
+
+
+def standing(subscription: Subscription, today: dt.date) -> str:
+    """Where it stands, in words: active or paused, and if it is to end, cancelled or not, and
+    whether it has ended yet."""
+    ends_on = subscription.ends_on
+    if ends_on is None:
+        return "active" if subscription.active else "paused"
+    came = "ended" if ends_on <= today else "ends"
+    return f"{'cancelled, ' if subscription.cancelled_on else ''}{came} {ends_on}"
 
 
 def advance_due_date(subscription: Subscription, paid_on: dt.date) -> None:
@@ -263,19 +292,24 @@ def ensure_untracked(
 ) -> None:
     """A payee is tracked once from an account, as a subscription or as a bill, since a payment
     can only be one of them."""
-    query = select(Subscription.kind).where(
+    query = select(Subscription.kind, Subscription.cancelled_on).where(
         Subscription.account_id == account_id,
         func.lower(func.trim(Subscription.payee)) == normalized_payee(payee),
     )
     if except_id is not None:
         query = query.where(Subscription.id != except_id)
-    tracked_as = db.scalar(query)
-    if tracked_as is not None:
-        raise ApiError(
-            status.HTTP_409_CONFLICT,
-            "duplicate_rule",
-            f"A {tracked_as} already tracks this payee from this account.",
-        )
+    found = db.execute(query).first()
+    if found is None:
+        return
+    tracked_as, cancelled_on = found
+    # A cancelled one still tracks it, so it can be reactivated rather than started over.
+    cancelled = "cancelled " if cancelled_on is not None else ""
+    advice = " Reactivate it, or delete it, to track this payee again." if cancelled else ""
+    raise ApiError(
+        status.HTTP_409_CONFLICT,
+        "duplicate_rule",
+        f"A {cancelled}{tracked_as} already tracks this payee from this account.{advice}",
+    )
 
 
 def seed_payee(
@@ -311,9 +345,10 @@ def seed_payee(
 
 
 def set_fields(subscription: Subscription, changes: dict[str, Any]) -> None:
-    """Sets what a change mentions. Only the category and notes can be cleared, with null."""
+    """Sets what a change mentions. Only the category, the notes and the end date can be
+    cleared, with null."""
     for name, value in changes.items():
-        if value is not None or name in {"category_id", "notes"}:
+        if value is not None or name in _CLEARABLE:
             setattr(subscription, name, value)
 
 
@@ -334,6 +369,7 @@ def create_recurring(db: Session, kind: RecurringKind, body: SubscriptionCreate)
         frequency=body.frequency,
         account_id=body.account_id,
         next_due_date=body.next_due_date,
+        ends_on=body.ends_on,
         category_id=body.category_id,
         notes=body.notes,
     )
@@ -343,6 +379,21 @@ def create_recurring(db: Session, kind: RecurringKind, body: SubscriptionCreate)
     return subscription
 
 
+def keep_end(subscription: Subscription, changes: dict[str, Any]) -> None:
+    """A cancelled one has to end somewhen, so its end date can be moved but not taken away."""
+    if (
+        subscription.cancelled_on is not None
+        and "ends_on" in changes
+        and changes["ends_on"] is None
+    ):
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "cancelled_needs_end",
+            f"A cancelled {subscription.kind} needs the day it ends. "
+            "Reactivate it to take the end date away.",
+        )
+
+
 def change_recurring(
     db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionUpdate
 ) -> Subscription:
@@ -350,6 +401,7 @@ def change_recurring(
     and a new category goes on the payments already linked."""
     subscription = find_recurring(db, kind, subscription_id, lock=True)
     changes = body.model_dump(exclude_unset=True)
+    keep_end(subscription, changes)
     seed_transaction_id = changes.pop("seed_transaction_id", None)
     account_id = changes.get("account_id") or subscription.account_id
     payee = changes.get("payee") or subscription.payee
@@ -380,5 +432,59 @@ def change_recurring(
         )
     # Payments that arrived while matching was paused are caught up when it resumes.
     if subscription.active and (matcher_changed or resumed):
+        backfill_subscription(db, subscription)
+    return subscription
+
+
+def cancel_recurring(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionCancel
+) -> Subscription:
+    """Cancels it, which keeps it and everything it tracked: it ends on the day given, or the day
+    it's cancelled. Its payments carry on being matched, so a last one that arrives late is
+    still its own. One that has stopped already, cancelled or ended, can't be cancelled again."""
+    subscription = find_recurring(db, kind, subscription_id, lock=True)
+    cancelled_on = body.cancelled_on or utcnow().date()
+    if is_stopped(subscription, cancelled_on):
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "already_stopped",
+            f"This {kind} is already cancelled or has ended.",
+        )
+    subscription.cancelled_on = cancelled_on
+    subscription.ends_on = body.ends_on or cancelled_on
+    return subscription
+
+
+def reactivate_recurring(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionReactivate
+) -> Subscription:
+    """Picks a cancelled or ended one up again, to work like any regular one: it carries on with
+    no end date, its payments are matched again (those that came while it was paused are caught
+    up) and its next payment is the day given, or the first day on its old schedule that isn't
+    before today, so it doesn't come back already late."""
+    subscription = find_recurring(db, kind, subscription_id, lock=True)
+    today = body.today or utcnow().date()
+    if not is_stopped(subscription, today):
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "not_stopped",
+            f"This {kind} hasn't been cancelled or ended, so there is nothing to reactivate.",
+        )
+    if db.get_one(Account, subscription.account_id).is_closed:
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "closed_account",
+            f"This {kind} is paid from an account that is closed. "
+            "Choose an open account for it in Edit, then reactivate it.",
+        )
+    resumed = not subscription.active
+    subscription.cancelled_on = None
+    subscription.ends_on = None
+    subscription.active = True
+    # Counted on from the date it had, now that no end date cuts the days short.
+    subscription.next_due_date = (
+        body.next_due_date or due_dates(subscription, today, _add_months(today, 13))[0]
+    )
+    if resumed:
         backfill_subscription(db, subscription)
     return subscription

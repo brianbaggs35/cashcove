@@ -1,6 +1,7 @@
 import { checking, makeAccount, seedFinance } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
 import { makeBill, makeSubscription } from '@/test/subscriptions'
+import { addDays, todayIso } from '@/utils/dates'
 import { formatDateTime } from '@/utils/format'
 import SubscriptionDetails from '@/views/subscriptions/SubscriptionDetails.vue'
 
@@ -95,5 +96,38 @@ describe('SubscriptionDetails', () => {
     const { text } = await render(makeSubscription({ active: false }))
 
     expect(text('detail-payee')).toContain('Paused, so new payments are not linked.')
+  })
+
+  describe('when it ends', () => {
+    const inDays = (days: number) => addDays(todayIso(), days)
+
+    it('has nothing about an end for one that carries on', async () => {
+      const { wrapper } = await render()
+      expect(wrapper.find('[data-test="detail-ends"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="detail-cancelled"]').exists()).toBe(false)
+    })
+
+    it('says when one that is to end does, and that nothing is expected from then', async () => {
+      const { text, wrapper } = await render(makeSubscription({ ends_on: '2999-03-01' }))
+
+      expect(
+        wrapper.find('[data-test="detail-ends"]').element.previousElementSibling?.textContent,
+      ).toBe('Ends')
+      expect(text('detail-ends')).toContain('Mar 1, 2999')
+      expect(text('detail-ends')).toContain('No payment is expected on or after this day.')
+      expect(wrapper.find('[data-test="detail-cancelled"]').exists()).toBe(false)
+    })
+
+    it('says when one has ended, and when it was cancelled', async () => {
+      const { text, wrapper } = await render(
+        makeSubscription({ ends_on: inDays(-2), cancelled_on: '2026-10-01' }),
+      )
+
+      expect(
+        wrapper.find('[data-test="detail-ends"]').element.previousElementSibling?.textContent,
+      ).toBe('Ended')
+      expect(text('detail-ends')).toContain('Everything it tracked stays here.')
+      expect(text('detail-cancelled')).toBe('Oct 1, 2026')
+    })
   })
 })

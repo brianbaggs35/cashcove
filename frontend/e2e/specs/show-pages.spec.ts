@@ -173,10 +173,10 @@ test.describe('Bill and subscription pages', () => {
     await expect(page).toHaveURL(new RegExp(`/bills/${bill.id}$`))
     await recurringPage.back.click()
 
-    // And so does View, which comes first in the menu, above pausing, editing and deleting.
+    // And so does View, which comes first in the menu, above pausing, cancelling, editing and deleting.
     await billsPage.card('City Power').getByTestId('bill-actions').click()
     const menu = openOverlays(page).locator('.v-list-item')
-    await expect(menu).toHaveText(['View', 'Pause matching', 'Edit', 'Delete'])
+    await expect(menu).toHaveText(['View', 'Pause matching', 'Cancel bill', 'Edit', 'Delete'])
     await openOverlays(page).getByTestId('bill-view').click()
     await expect(page).toHaveURL(new RegExp(`/bills/${bill.id}$`))
 

@@ -1,7 +1,9 @@
 import * as bills from '@/api/bills'
 import * as subscriptions from '@/api/subscriptions'
 import type {
+  CancelInput,
   PaymentsLinked,
+  ReactivateInput,
   RecurringKind,
   RecurringOverview,
   Subscription,
@@ -17,6 +19,10 @@ export interface RecurringApi {
   create: (input: SubscriptionInput) => Promise<Subscription>
   update: (id: string, changes: SubscriptionChanges) => Promise<Subscription>
   remove: (id: string) => Promise<void>
+  /** Ends it without deleting it: it and its payments are kept. */
+  cancel: (id: string, input: CancelInput) => Promise<Subscription>
+  /** Picks a cancelled or ended one up again, to work like a regular one. */
+  reactivate: (id: string, input: ReactivateInput) => Promise<Subscription>
   link: (id: string, transactionIds: string[]) => Promise<PaymentsLinked>
   unlink: (id: string, transactionId: string) => Promise<Subscription>
 }
@@ -33,6 +39,8 @@ export function recurringApi(kind: RecurringKind): RecurringApi {
       create: (input) => bills.createBill(input),
       update: (id, changes) => bills.updateBill(id, changes),
       remove: (id) => bills.deleteBill(id),
+      cancel: (id, input) => bills.cancelBill(id, input),
+      reactivate: (id, input) => bills.reactivateBill(id, input),
       link: (id, ids) => bills.linkBillPayments(id, ids),
       unlink: (id, transactionId) => bills.unlinkBillPayment(id, transactionId),
     }
@@ -43,6 +51,8 @@ export function recurringApi(kind: RecurringKind): RecurringApi {
     create: (input) => subscriptions.createSubscription(input),
     update: (id, changes) => subscriptions.updateSubscription(id, changes),
     remove: (id) => subscriptions.deleteSubscription(id),
+    cancel: (id, input) => subscriptions.cancelSubscription(id, input),
+    reactivate: (id, input) => subscriptions.reactivateSubscription(id, input),
     link: (id, ids) => subscriptions.linkSubscriptionPayments(id, ids),
     unlink: (id, transactionId) => subscriptions.unlinkSubscriptionPayment(id, transactionId),
   }

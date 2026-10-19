@@ -28,6 +28,13 @@ export interface Subscription {
   category_id: string | null
   notes: string | null
   active: boolean
+  /**
+   * The day it ends: no payment is expected on or after it, and once it has come it is over. Null
+   * when it carries on. Nothing ends it but the date, so whether it has is read against today.
+   */
+  ends_on: string | null
+  /** The day it was cancelled. A cancelled one always has an `ends_on`, and can be reactivated. */
+  cancelled_on: string | null
   payment_count: number
   /** The day of the latest payment linked to it, which moves its due date along, and what it was for. */
   last_payment_on: string | null
@@ -102,10 +109,28 @@ export interface SubscriptionInput {
   frequency: PaymentFrequency
   account_id: string
   next_due_date: string
+  /** When it ends, if it does; null for one that carries on. */
+  ends_on: string | null
   category_id: string | null
   notes: string | null
   payee: string
   seed_transaction_id: string | null
+}
+
+/** Cancelling keeps a subscription and everything it tracked. */
+export interface CancelInput {
+  /** The day it was cancelled, where the person is. */
+  cancelled_on: string
+  /** The day it ends: no payment is expected on or after it. */
+  ends_on: string
+}
+
+/** Reactivating picks a cancelled or ended subscription up again, to work like a regular one. */
+export interface ReactivateInput {
+  /** The day its next payment is due. */
+  next_due_date: string
+  /** The day it is where the person is, which says whether it has ended. */
+  today: string
 }
 
 export type SubscriptionChanges = Partial<SubscriptionInput> & { active?: boolean }
@@ -123,6 +148,12 @@ export const createSubscription = (input: SubscriptionInput) =>
 export const updateSubscription = (id: string, changes: SubscriptionChanges) =>
   apiPatch<Subscription>(`/subscriptions/${id}`, changes)
 export const deleteSubscription = (id: string) => apiDelete(`/subscriptions/${id}`)
+/** Cancels it, which keeps it and its payments: it just ends on the day given. */
+export const cancelSubscription = (id: string, input: CancelInput) =>
+  apiPost<Subscription>(`/subscriptions/${id}/cancellation`, input)
+/** Picks a cancelled or ended one up again: no end date, tracked again, next due as given. */
+export const reactivateSubscription = (id: string, input: ReactivateInput) =>
+  apiPost<Subscription>(`/subscriptions/${id}/reactivation`, input)
 /** Links payments, from any account, to a subscription. They take its category. */
 export const linkSubscriptionPayments = (id: string, transactionIds: string[]) =>
   apiPost<PaymentsLinked>(`/subscriptions/${id}/payments`, { ids: transactionIds })

@@ -23,7 +23,7 @@ from app.ai.privacy import Text
 from app.ai.tools.base import NO_CATEGORY, Context, Look, Money, Row, look
 from app.ai.vault import Entity, Subject
 from app.finance.budget import budget_links, find_budget, list_budgets
-from app.finance.subscriptions import payment_stats
+from app.finance.subscriptions import payment_stats, standing
 from app.finance.text import text_key
 from app.finance.transactions import SORT_ORDERS, like_pattern
 from app.models import Account, Category, RecurringKind, Subscription, Transaction
@@ -204,7 +204,7 @@ def list_recurring(ctx: Context, args: RecurringArgs) -> str:
                     f"{item.frequency}",
                     f"next {item.next_due_date}",
                     ctx.shown(category_name, Text.LABEL) if category_name else NOTHING,
-                    "active" if item.active else "paused",
+                    standing(item, ctx.today),
                     f"{count} payments",
                     f"payee {ctx.shown(item.payee)}",
                     _account_code(ctx, item.account_id, account_name),

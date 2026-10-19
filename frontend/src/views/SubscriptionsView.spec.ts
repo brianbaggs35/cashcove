@@ -391,6 +391,175 @@ describe('SubscriptionsView', () => {
     expect(find('subscription-card').text()).toContain('Account unavailable')
   })
 
+  describe('when they end', () => {
+    const today = todayIso()
+    const active = makeSubscription({ next_due_date: addDays(today, 2) })
+    const cancelled = makeSubscription({
+      id: 'subscription-cancelled',
+      name: 'Cancelled stream',
+      payee: 'Cancelled stream',
+      amount: '30.00',
+      next_due_date: addDays(today, 1),
+      cancelled_on: addDays(today, -1),
+      ends_on: addDays(today, 10),
+    })
+    const ended = makeSubscription({
+      id: 'subscription-ended',
+      name: 'Old gym',
+      payee: 'Old gym',
+      amount: '40.00',
+      next_due_date: addDays(today, -5),
+      ends_on: addDays(today, -2),
+    })
+    const names = (wrapper: Awaited<ReturnType<typeof render>>['wrapper']) =>
+      wrapper.findAll('[data-test="subscription-title"]').map((title) => title.text())
+
+    it('lists the cancelled and the ended apart, and keeps them out of the totals and reminders', async () => {
+      const { find, wrapper } = await render({ items: [active, cancelled, ended] })
+
+      expect(names(wrapper)).toEqual(['Streamflix'])
+      expect(find('subscriptions-count').text()).toContain('1')
+      expect(find('subscriptions-monthly').text()).toContain('$14.99')
+      expect(find('subscriptions-monthly').text()).not.toContain('$44.99')
+      expect(find('subscriptions-due-alert').text()).toContain('1 payment is due')
+      expect(find('subscriptions-overdue-alert').exists()).toBe(false)
+
+      await find('subscription-filter').findAll('button').at(2)!.trigger('click')
+      await flushPromises()
+      expect(names(wrapper).sort()).toEqual(['Cancelled stream', 'Old gym'])
+      await find('subscription-filter').findAll('button').at(1)!.trigger('click')
+      await flushPromises()
+      expect(find('subscriptions-none-match').exists()).toBe(true)
+    })
+
+    it('keeps one that is to end later with the active ones, and counts it', async () => {
+      const ending = makeSubscription({
+        ends_on: addDays(today, 90),
+        next_due_date: addDays(today, 2),
+      })
+      const { find, wrapper } = await render({ items: [ending] })
+
+      expect(names(wrapper)).toEqual(['Streamflix'])
+      expect(find('subscriptions-count').text()).toContain('1')
+      expect(find('subscriptions-due-alert').exists()).toBe(true)
+    })
+
+    it('does not warn of a payment that is not due, as it ends the day it would be', async () => {
+      const lastOne = makeSubscription({
+        next_due_date: addDays(today, 1),
+        ends_on: addDays(today, 1),
+      })
+      const { find } = await render({ items: [lastOne], alerts: { days: 3 } })
+
+      expect(find('subscription-card').exists()).toBe(true)
+      expect(find('subscriptions-due-alert').exists()).toBe(false)
+      expect(find('subscription-due-alert').exists()).toBe(false)
+    })
+
+    it('says to try cancelled ones too when nothing matches', async () => {
+      const { find } = await render({ items: [active] })
+      await find('subscription-search').find('input').setValue('not here')
+      await flushPromises()
+      expect(find('subscriptions-none-match').text()).toContain('active, paused and cancelled')
+    })
+
+    it('opens the cancel dialog from a card, and loads the list again once it has cancelled', async () => {
+      const { component, fetch } = await render({ items: [active] })
+      expect(component('SubscriptionCancelDialog').props('modelValue')).toBe(false)
+
+      component('SubscriptionCard').vm.$emit('cancel', active)
+      await flushPromises()
+      const dialog = component('SubscriptionCancelDialog')
+      expect(dialog.props('modelValue')).toBe(true)
+      expect(dialog.props('subscription')).toEqual(active)
+
+      dialog.vm.$emit('saved', { ...active, cancelled_on: today, ends_on: today })
+      await flushPromises()
+      expect(fetch).toHaveBeenCalledTimes(2)
+
+      dialog.vm.$emit('update:modelValue', false)
+      await flushPromises()
+      expect(component('SubscriptionCancelDialog').props('modelValue')).toBe(false)
+    })
+
+    it('opens the reactivate dialog from a cancelled card, and loads the list again once it has reactivated', async () => {
+      const { component, fetch, find } = await render({ items: [cancelled] })
+      await find('subscription-filter').findAll('button').at(2)!.trigger('click')
+      await flushPromises()
+      expect(component('SubscriptionReactivateDialog').props('modelValue')).toBe(false)
+
+      component('SubscriptionCard').vm.$emit('reactivate', cancelled)
+      await flushPromises()
+      const dialog = component('SubscriptionReactivateDialog')
+      expect(dialog.props('modelValue')).toBe(true)
+      expect(dialog.props('subscription')).toEqual(cancelled)
+      // Nothing was asked of the API until the dialog says so.
+      expect(fetch).toHaveBeenCalledTimes(1)
+
+      dialog.vm.$emit('saved', active)
+      await flushPromises()
+      expect(fetch).toHaveBeenCalledTimes(2)
+
+      dialog.vm.$emit('update:modelValue', false)
+      await flushPromises()
+      expect(component('SubscriptionReactivateDialog').props('modelValue')).toBe(false)
+    })
+
+    it('hands a bill to the reactivate dialog, which takes it to the bills API', async () => {
+      const bill = makeBill({ cancelled_on: addDays(today, -1), ends_on: addDays(today, 10) })
+      const { component, find } = await render({ kind: 'bill', items: [bill] })
+      await find('bill-filter').findAll('button').at(2)!.trigger('click')
+      await flushPromises()
+
+      component('SubscriptionCard').vm.$emit('reactivate', bill)
+      await flushPromises()
+
+      expect(component('SubscriptionReactivateDialog').props('subscription')).toEqual(bill)
+    })
+
+    it('leaves cancelling and reactivating to admins', async () => {
+      const { component } = await render({ role: 'viewer', items: [active] })
+      expect(component('SubscriptionCancelDialog').exists()).toBe(false)
+      expect(component('SubscriptionReactivateDialog').exists()).toBe(false)
+    })
+
+    // Active, Paused and Cancelled are the filter's buttons in order. Each is empty when the only
+    // subscription is in another: the cancelled one for the first, the active one for the others.
+    it.each([
+      [
+        0,
+        [cancelled],
+        'No active subscriptions',
+        'Everything you track here is paused or cancelled',
+      ],
+      [1, [active], 'No paused subscriptions', "Pause matching from a subscription's menu"],
+      [2, [active], 'No cancelled subscriptions', 'is kept here, with every payment'],
+    ])(
+      'says what filter %i is for when nothing is in it, rather than that nothing matches',
+      async (button, items, title, text) => {
+        const { find } = await render({ items })
+        await find('subscription-filter').findAll('button').at(button)!.trigger('click')
+        await flushPromises()
+
+        expect(find('subscriptions-none-match').text()).toContain(title)
+        expect(find('subscriptions-none-match').text()).toContain(text)
+        expect(find('subscriptions-none-match').text()).not.toContain('No matches')
+      },
+    )
+
+    it('says what the filters are for in a bill’s words, and that nothing matches a search', async () => {
+      const { find } = await render({ kind: 'bill', items: [makeBill()] })
+      await find('bill-filter').findAll('button').at(2)!.trigger('click')
+      await flushPromises()
+      expect(find('bills-none-match').text()).toContain('No cancelled bills')
+      expect(find('bills-none-match').text()).toContain('Cancel a bill from its menu')
+
+      await find('bill-search').find('input').setValue('nothing like it')
+      await flushPromises()
+      expect(find('bills-none-match').text()).toContain('No matches')
+    })
+  })
+
   describe('for bills', () => {
     const overdue = (days: number) => addDays(todayIso(), -days)
 
@@ -502,7 +671,7 @@ describe('SubscriptionsView', () => {
 
       await find('bill-search').find('input').setValue('nothing like it')
       await flushPromises()
-      expect(find('bills-none-match').text()).toContain('active and paused bills')
+      expect(find('bills-none-match').text()).toContain('active, paused and cancelled bills')
     })
 
     it('changes, pauses, links and deletes through the bills API', async () => {

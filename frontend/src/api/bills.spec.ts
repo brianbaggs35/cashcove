@@ -1,9 +1,11 @@
 import {
+  cancelBill,
   createBill,
   deleteBill,
   fetchBillOverview,
   fetchBills,
   linkBillPayments,
+  reactivateBill,
   unlinkBillPayment,
   updateBill,
 } from '@/api/bills'
@@ -61,6 +63,7 @@ describe('bill API', () => {
       frequency: 'monthly',
       account_id: 'account-checking',
       next_due_date: '2026-10-15',
+      ends_on: null,
       category_id: 'category-utilities',
       notes: null,
       seed_transaction_id: 'transaction-1',
@@ -103,5 +106,25 @@ describe('bill API', () => {
       ['/api/bills/bill-1/payments/t1', 'DELETE'],
     ])
     expect(JSON.parse(fetch.mock.calls[0]![1].body as string)).toEqual({ ids: ['t1', 't2'] })
+  })
+
+  it('cancels one and reactivates it with its next payment', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ id: 'bill-1', cancelled_on: '2026-10-19' }))
+      .mockResolvedValueOnce(response({ id: 'bill-1', cancelled_on: null }))
+    vi.stubGlobal('fetch', fetch)
+
+    await cancelBill('bill-1', { cancelled_on: '2026-10-19', ends_on: '2026-11-05' })
+    await reactivateBill('bill-1', { next_due_date: '2027-01-05', today: '2026-12-20' })
+
+    expect(fetch.mock.calls.map(([url, init]) => [url, init.method])).toEqual([
+      ['/api/bills/bill-1/cancellation', 'POST'],
+      ['/api/bills/bill-1/reactivation', 'POST'],
+    ])
+    expect(JSON.parse(fetch.mock.calls[1]![1].body as string)).toEqual({
+      next_due_date: '2027-01-05',
+      today: '2026-12-20',
+    })
   })
 })

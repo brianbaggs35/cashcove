@@ -18,6 +18,7 @@ import { fromIsoDate } from '@/utils/dates'
 import { formatCount, formatShortDate } from '@/utils/format'
 import { negate, sumAmounts } from '@/utils/money'
 import { kinds } from '@/views/subscriptions/kinds'
+import { paysAgain } from '@/views/subscriptions/recurrence'
 
 /**
  * Links payments, from any account, to a subscription or a bill and takes them off again. It
@@ -73,6 +74,10 @@ watch(scope, (value) => {
 function summaryOf(subscription: Subscription): string {
   const linked = `${formatCount(subscription.payment_count, 'payment', locale.value)} linked.`
   const due = formatShortDate(fromIsoDate(subscription.next_due_date), locale.value)
+  if (subscription.ends_on && !paysAgain(subscription)) {
+    const ends = formatShortDate(fromIsoDate(subscription.ends_on), locale.value)
+    return `${linked} No more payments are due: it ends on ${ends}.`
+  }
   return `${linked} Next payment due ${due}.`
 }
 

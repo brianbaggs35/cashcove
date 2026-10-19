@@ -18,12 +18,14 @@ from sqlalchemy.orm import Session
 from app.auth.deps import AdminAuth, ApiError, CurrentAuth, Db
 from app.finance.recurring_overview import recurring_overview
 from app.finance.subscriptions import (
+    cancel_recurring,
     change_recurring,
     create_recurring,
     expected_amount,
     find_recurring,
     link_payments,
     payment_stats,
+    reactivate_recurring,
     unlink_payment,
 )
 from app.models import RecurringKind, Subscription, Transaction
@@ -32,8 +34,10 @@ from app.schemas.budget import Day
 from app.schemas.subscriptions import (
     PaymentsLinked,
     RecurringOverview,
+    SubscriptionCancel,
     SubscriptionCreate,
     SubscriptionOut,
+    SubscriptionReactivate,
     SubscriptionUpdate,
 )
 from app.schemas.transactions import TransactionIds
@@ -88,6 +92,22 @@ def _update(
     db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionUpdate
 ) -> SubscriptionOut:
     subscription = change_recurring(db, kind, subscription_id, body)
+    db.commit()
+    return _out(db, subscription)
+
+
+def _cancel(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionCancel
+) -> SubscriptionOut:
+    subscription = cancel_recurring(db, kind, subscription_id, body)
+    db.commit()
+    return _out(db, subscription)
+
+
+def _reactivate(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionReactivate
+) -> SubscriptionOut:
+    subscription = reactivate_recurring(db, kind, subscription_id, body)
     db.commit()
     return _out(db, subscription)
 
@@ -153,6 +173,18 @@ def recurring_router(kind: RecurringKind) -> APIRouter:
         db.delete(find_recurring(db, kind, subscription_id, lock=True))
         db.commit()
 
+    def cancel_payment(
+        subscription_id: uuid.UUID, body: SubscriptionCancel, auth: AdminAuth, db: Db
+    ) -> SubscriptionOut:
+        """Cancels it, keeping it and everything it tracked. It ends on the day given."""
+        return _cancel(db, kind, subscription_id, body)
+
+    def reactivate_payment(
+        subscription_id: uuid.UUID, body: SubscriptionReactivate, auth: AdminAuth, db: Db
+    ) -> SubscriptionOut:
+        """Picks a cancelled or ended one up again, to work like any regular one."""
+        return _reactivate(db, kind, subscription_id, body)
+
     def link_payment_transactions(
         subscription_id: uuid.UUID, body: TransactionIds, auth: AdminAuth, db: Db
     ) -> PaymentsLinked:
@@ -178,6 +210,8 @@ def recurring_router(kind: RecurringKind) -> APIRouter:
     router.add_api_route(
         one, delete_payment, methods=["DELETE"], status_code=status.HTTP_204_NO_CONTENT
     )
+    router.add_api_route(f"{one}/cancellation", cancel_payment, methods=["POST"])
+    router.add_api_route(f"{one}/reactivation", reactivate_payment, methods=["POST"])
     router.add_api_route(f"{one}/payments", link_payment_transactions, methods=["POST"])
     router.add_api_route(
         f"{one}/payments/{{transaction_id}}", unlink_payment_transaction, methods=["DELETE"]

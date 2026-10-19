@@ -59,6 +59,14 @@ def test_viewers_can_read_subscriptions_but_cannot_manage_them(
         == "admin_only"
     )
     assert error(viewer_client.delete(f"/api/subscriptions/{subscription_id}")) == "admin_only"
+    assert (
+        error(viewer_client.post(f"/api/subscriptions/{subscription_id}/cancellation", json={}))
+        == "admin_only"
+    )
+    assert (
+        error(viewer_client.post(f"/api/subscriptions/{subscription_id}/reactivation", json={}))
+        == "admin_only"
+    )
 
 
 def test_linking_a_payment_backfills_only_the_matching_outgoing_account_payee(

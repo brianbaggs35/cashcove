@@ -10,8 +10,15 @@ import { fromIsoDate, toIsoDate } from '@/utils/dates'
  */
 const model = defineModel<string | null>({ required: true })
 const props = withDefaults(
-  defineProps<{ label: string; min?: string; max?: string; required?: boolean }>(),
-  { min: undefined, max: undefined, required: false },
+  defineProps<{
+    label: string
+    min?: string
+    max?: string
+    required?: boolean
+    /** Shows a button that empties it, for a day that is optional. */
+    clearable?: boolean
+  }>(),
+  { min: undefined, max: undefined, required: false, clearable: false },
 )
 
 const { locale } = useHousehold()
@@ -67,6 +74,7 @@ const rules = [
     :min="min"
     :max="max"
     :rules="rules"
+    :clearable="clearable"
     prepend-icon=""
     prepend-inner-icon="$calendar"
     variant="outlined"

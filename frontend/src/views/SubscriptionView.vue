@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import {
   CalendarClock,
+  CalendarX,
   CircleCheck,
   CirclePause,
   CirclePlay,
   EllipsisVertical,
   Link2,
   Pencil,
+  RotateCcw,
   SearchX,
   Trash2,
   TriangleAlert,
@@ -28,17 +30,27 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import { usePreferencesStore } from '@/stores/preferences'
-import { todayIso } from '@/utils/dates'
+import { fromIsoDate, todayIso } from '@/utils/dates'
+import { formatShortDate } from '@/utils/format'
 import { dueText } from '@/views/dashboard/summary'
+import SubscriptionCancelDialog from '@/views/subscriptions/SubscriptionCancelDialog.vue'
 import SubscriptionDetails from '@/views/subscriptions/SubscriptionDetails.vue'
 import SubscriptionDialog from '@/views/subscriptions/SubscriptionDialog.vue'
 import SubscriptionPaymentsDialog from '@/views/subscriptions/SubscriptionPaymentsDialog.vue'
 import SubscriptionPayments from '@/views/subscriptions/SubscriptionPayments.vue'
+import SubscriptionReactivateDialog from '@/views/subscriptions/SubscriptionReactivateDialog.vue'
 import SubscriptionRelated from '@/views/subscriptions/SubscriptionRelated.vue'
 import SubscriptionStats from '@/views/subscriptions/SubscriptionStats.vue'
 import UpcomingPayments from '@/views/subscriptions/UpcomingPayments.vue'
 import { dueReminder, kinds } from '@/views/subscriptions/kinds'
-import { daysUntil, frequencyTitle, priceChange } from '@/views/subscriptions/recurrence'
+import {
+  daysUntil,
+  frequencyTitle,
+  hasEnded,
+  paysAgain,
+  priceChange,
+  standing,
+} from '@/views/subscriptions/recurrence'
 
 /**
  * One subscription or bill in full: what it costs and when it falls due, every payment linked to
@@ -52,7 +64,7 @@ const auth = useAuthStore()
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const preferences = usePreferencesStore()
-const { money } = useHousehold()
+const { money, locale } = useHousehold()
 
 const copy = computed(() => kinds[props.kind])
 /** The tab it is in: the first of the pages above it. */
@@ -66,6 +78,8 @@ const missing = ref(false)
 const loads = ref(0)
 const editing = ref(false)
 const linking = ref(false)
+const cancelling = ref(false)
+const reactivating = ref(false)
 let request = 0
 
 async function load() {
@@ -114,15 +128,42 @@ const subscription = computed(() => (overview.value as RecurringOverview).subscr
 const account = computed(() => accounts.find(subscription.value.account_id))
 const days = computed(() => daysUntil(subscription.value.next_due_date))
 const reminder = computed(() => dueReminder(preferences.saved?.alerts, props.kind))
-const overdue = computed(() => subscription.value.active && days.value < 0)
+const state = computed(() => standing(subscription.value))
+const ended = computed(() => hasEnded(subscription.value))
+const day = (value: string) => formatShortDate(fromIsoDate(value), locale.value)
+/** What the page says about its end, which is only read for one that has one. */
+const endText = computed(() => {
+  const { ends_on: endsOn, cancelled_on: cancelled } = subscription.value
+  const ends = day(endsOn as string)
+  if (cancelled) {
+    return ended.value
+      ? `Cancelled on ${day(cancelled)} and ended on ${ends}. Everything it tracked stays here.`
+      : `Cancelled on ${day(cancelled)}. It ends on ${ends}, and no payment is expected on or after that day.`
+  }
+  return ended.value
+    ? `Ended on ${ends}. Everything it tracked stays here.`
+    : `Ends on ${ends}, and no payment is expected on or after that day.`
+})
+/** The chip that says where it stands. */
+const status = computed(() => {
+  if (state.value === 'active') return { text: 'Active', color: 'success', icon: CircleCheck }
+  if (state.value === 'paused') return { text: 'Paused', color: 'secondary', icon: CirclePause }
+  const text = subscription.value.cancelled_on ? 'Cancelled' : 'Ended'
+  return { text, color: 'secondary', icon: CalendarX }
+})
+// Only what is being tracked and paid is warned of, and not a payment that falls after it ends.
+const overdue = computed(() => state.value === 'active' && days.value < 0)
 const dueSoon = computed(
   () =>
-    subscription.value.active &&
+    state.value === 'active' &&
+    paysAgain(subscription.value) &&
     reminder.value.enabled &&
     days.value >= 0 &&
     days.value <= reminder.value.days,
 )
-const changedPrice = computed(() => priceChange(subscription.value))
+const changedPrice = computed(() =>
+  state.value === 'cancelled' ? null : priceChange(subscription.value),
+)
 
 /** The page's header: the tab's, with this one's name and where it's paid from. */
 const header = computed<NavItem>(() => ({
@@ -204,13 +245,22 @@ async function remove(item: Subscription) {
       <PageHeader :item="header">
         <template #meta>
           <v-chip
-            :color="subscription.active ? 'success' : 'secondary'"
-            :prepend-icon="subscription.active ? CircleCheck : CirclePause"
+            :color="status.color"
+            :prepend-icon="status.icon"
             size="small"
             variant="tonal"
             data-test="show-status"
           >
-            {{ subscription.active ? 'Active' : 'Paused' }}
+            {{ status.text }}
+          </v-chip>
+          <v-chip
+            v-if="subscription.ends_on && !ended"
+            size="small"
+            variant="tonal"
+            color="info"
+            data-test="show-ends"
+          >
+            Ends {{ day(subscription.ends_on) }}
           </v-chip>
           <v-chip size="small" variant="tonal" data-test="show-frequency">
             {{ frequencyTitle(subscription.frequency) }}
@@ -249,10 +299,26 @@ async function remove(item: Subscription) {
             </template>
             <v-list density="compact" nav min-width="200">
               <v-list-item
+                v-if="state !== 'cancelled'"
                 :prepend-icon="subscription.active ? CirclePause : CirclePlay"
                 :title="subscription.active ? 'Pause matching' : 'Resume matching'"
                 data-test="show-toggle"
                 @click="actions.toggle(subscription)"
+              />
+              <!-- One that has stopped can't be cancelled, and one that hasn't can't be reactivated. -->
+              <v-list-item
+                v-if="state === 'cancelled'"
+                :prepend-icon="RotateCcw"
+                :title="`Reactivate ${copy.noun}`"
+                data-test="show-reactivate-item"
+                @click="reactivating = true"
+              />
+              <v-list-item
+                v-else
+                :prepend-icon="CalendarX"
+                :title="`Cancel ${copy.noun}`"
+                data-test="show-cancel"
+                @click="cancelling = true"
               />
               <v-list-item
                 :prepend-icon="Trash2"
@@ -267,7 +333,39 @@ async function remove(item: Subscription) {
       </PageHeader>
 
       <v-alert
-        v-if="!subscription.active"
+        v-if="subscription.ends_on"
+        :color="state === 'cancelled' ? 'secondary' : 'info'"
+        variant="tonal"
+        :icon="CalendarX"
+        class="mb-4"
+        data-test="show-end-alert"
+      >
+        <p class="ma-0">{{ endText }}</p>
+        <div v-if="auth.isAdmin" class="show-alert__actions">
+          <v-btn
+            v-if="state === 'cancelled'"
+            variant="text"
+            size="small"
+            data-test="show-reactivate"
+            @click="reactivating = true"
+          >
+            Reactivate
+          </v-btn>
+          <!-- A cancelled one has to end, so its date is changed by reactivating it, not here. -->
+          <v-btn
+            v-if="!subscription.cancelled_on"
+            variant="text"
+            size="small"
+            data-test="show-change-end"
+            @click="editing = true"
+          >
+            Change the end date
+          </v-btn>
+        </div>
+      </v-alert>
+
+      <v-alert
+        v-if="state === 'paused'"
         color="secondary"
         variant="tonal"
         :icon="CirclePause"
@@ -369,7 +467,8 @@ async function remove(item: Subscription) {
           <UpcomingPayments
             :upcoming="overview.upcoming"
             :varies="subscription.amount_varies"
-            :paused="!subscription.active"
+            :paused="state === 'paused'"
+            :ends-on="subscription.ends_on"
             :currency="account?.currency"
           />
           <SubscriptionDetails
@@ -390,6 +489,18 @@ async function remove(item: Subscription) {
         v-model="editing"
         :subscription="subscription"
         :kind="kind"
+        @saved="load"
+      />
+      <SubscriptionCancelDialog
+        v-if="auth.isAdmin"
+        v-model="cancelling"
+        :subscription="subscription"
+        @saved="load"
+      />
+      <SubscriptionReactivateDialog
+        v-if="auth.isAdmin"
+        v-model="reactivating"
+        :subscription="subscription"
         @saved="load"
       />
       <SubscriptionPaymentsDialog

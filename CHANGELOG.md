@@ -8,6 +8,54 @@ and give it a version and a date when you cut a release (see Releases in the
 
 ## 0.3.0 - 2026-10-19
 
+### Upgrading
+
+- Migration `0021` gives subscriptions and bills two new days, when they end and when they were
+  cancelled, and a rule that a cancelled one always has the day it ends. Like the migrations
+  before it, it can be run again on a database that already has some or all of it, and changes
+  nothing. To go back to 0.2.9, run `alembic downgrade 0020` first: that version can't cancel
+  anything, so each one that was cancelled is paused instead, which is the nearest it has (it is no
+  longer matched to payments or reminded of), and the days it ends on are dropped.
+
+### Added
+
+- **Cancel a subscription or a bill instead of deleting it.** Deleting one removes it and
+  everything set up for it. **Cancel subscription** (or **Cancel bill**), in the menu on its card
+  and on its page, keeps it, every payment linked to it, its chart and what refers to it, so you
+  can look back on it later, and asks the day it ends: the day it would next be paid unless you
+  choose another, or **Today**. The dialog says what it stops costing you. It stops counting toward
+  the totals at the top of the page as soon as you cancel it, and no payment is expected on or
+  after the day it ends: the reminders, the Dashboard's Coming up list, a budget's bills still to
+  come and the payments to come on its page all stop there. Its card moves to a new **Cancelled**
+  filter beside Active and Paused, each of which says what it is for when it is empty, and its page
+  says it was cancelled, when, and when it ends, lists no payments to come, says what each payment
+  was and what it used to cost, and keeps every payment and the chart. Payments that arrive after
+  it was cancelled are still matched to it, so a last one that comes in late is not lost. Deleting
+  a subscription or bill now says everything it removes, and points to cancelling when it can
+  still be cancelled.
+- **Reactivate a subscription or a bill** that was cancelled or has ended, so it just picks up and
+  works like a regular one. The place in the menu that says **Cancel** says **Reactivate** once it
+  has stopped, on its card and on its page, and never both. The dialog asks when its next payment is
+  due, starting from the day it would fall due by its old schedule, so it does not come back
+  already late, and says what it costs again. It then has no end date, its payments are matched
+  again (including any that came while it was paused), reminders are sent and it counts in the
+  totals. Adding another for the same payee and account while one is cancelled is refused with a
+  message that says to reactivate it instead, and reactivating one paid from an account that has
+  been closed says to choose another in **Edit** first.
+- **An end date for any subscription or bill**, in the dialog that adds or changes one, for one
+  with a fixed term like a trial or a contract. It is optional and carries on until then; no payment
+  is expected on or after that day, the payments still to come on its page stop there, and once the
+  day has come it shows as **Ended** and is counted like a cancelled one, which can be reactivated
+  the same way. A cancelled one can have its end date moved but not taken away. The date of the next
+  payment is still its renewal date.
+- The AI chat can cancel a subscription or bill, set an end date or reactivate one, as a proposal
+  that says what will happen and waits for your approval, and what it is told about the household's
+  subscriptions and bills says which have ended or will.
+- Playwright specs (`cancelling.spec.ts`) for cancelling and reactivating from a card and a page,
+  including one cancelled long ago that comes back on its old schedule, an end date from a dialog,
+  what no longer warns of a payment or shows on the dashboard, and the API refusing what it
+  should, and accessibility scans of the new dialogs and states in both themes.
+
 ### Fixed
 
 - **Top payees** on the Dashboard no longer cuts off the amounts when a payee's name is long. The

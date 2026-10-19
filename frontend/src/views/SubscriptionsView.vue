@@ -3,6 +3,8 @@ import {
   CalendarClock,
   CalendarDays,
   CalendarRange,
+  CalendarX,
+  CirclePause,
   Plus,
   Search,
   TriangleAlert,
@@ -22,11 +24,20 @@ import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import { usePreferencesStore } from '@/stores/preferences'
 import { toCents, fromCents } from '@/utils/money'
+import SubscriptionCancelDialog from '@/views/subscriptions/SubscriptionCancelDialog.vue'
 import SubscriptionCard from '@/views/subscriptions/SubscriptionCard.vue'
 import SubscriptionDialog from '@/views/subscriptions/SubscriptionDialog.vue'
 import SubscriptionPaymentsDialog from '@/views/subscriptions/SubscriptionPaymentsDialog.vue'
+import SubscriptionReactivateDialog from '@/views/subscriptions/SubscriptionReactivateDialog.vue'
 import { dueReminder, kinds, partOf, partsOf } from '@/views/subscriptions/kinds'
-import { daysUntil, estimatedAmount, expectedAmount } from '@/views/subscriptions/recurrence'
+import {
+  daysUntil,
+  estimatedAmount,
+  expectedAmount,
+  paysAgain,
+  standing,
+  type Standing,
+} from '@/views/subscriptions/recurrence'
 
 /**
  * The page of subscriptions or of bills: tracked, matched to the transactions that pay them and
@@ -47,11 +58,15 @@ const loading = ref(false)
 const loaded = ref(false)
 const error = ref<string | null>(null)
 const search = ref('')
-const activeFilter = ref<'active' | 'paused'>('active')
+const activeFilter = ref<Standing>('active')
 const dialog = ref(false)
 const editing = ref<Subscription | null>(null)
 const paymentsOpen = ref(false)
 const linking = ref<Subscription | null>(null)
+const cancelOpen = ref(false)
+const cancelling = ref<Subscription | null>(null)
+const reactivateOpen = ref(false)
+const reactivating = ref<Subscription | null>(null)
 let request = 0
 
 async function load() {
@@ -80,7 +95,7 @@ onMounted(() => {
 
 const visibleSubscriptions = computed(() =>
   subscriptions.value.filter((subscription) => {
-    const matchesState = subscription.active === (activeFilter.value === 'active')
+    const matchesState = standing(subscription) === activeFilter.value
     const query = search.value.trim().toLocaleLowerCase()
     return (
       matchesState &&
@@ -90,7 +105,10 @@ const visibleSubscriptions = computed(() =>
     )
   }),
 )
-const activeSubscriptions = computed(() => subscriptions.value.filter((item) => item.active))
+/** The ones being tracked and still paid: paused and cancelled ones don't count toward anything. */
+const activeSubscriptions = computed(() =>
+  subscriptions.value.filter((item) => standing(item) === 'active'),
+)
 const monthTotals = computed(() => sumByCurrency(activeSubscriptions.value, 'month'))
 const yearTotals = computed(() => sumByCurrency(activeSubscriptions.value, 'year'))
 
@@ -111,7 +129,7 @@ const dueSoon = computed(
     reminder.value.enabled &&
     activeSubscriptions.value.filter((item) => {
       const days = daysUntil(item.next_due_date)
-      return days >= 0 && days <= alertDays.value
+      return paysAgain(item) && days >= 0 && days <= alertDays.value
     }).length,
 )
 /** How many it's still tracking that were due before today and haven't been paid. */
@@ -119,6 +137,38 @@ const overdue = computed(
   () => activeSubscriptions.value.filter((item) => daysUntil(item.next_due_date) < 0).length,
 )
 const noSubscriptions = computed(() => loaded.value && subscriptions.value.length === 0)
+
+/**
+ * What an empty list says. A search that finds nothing says so; with no search, a filter with
+ * nothing in it says what it is for, so cancelling the last active one doesn't read as a miss.
+ */
+const emptyList = computed(() => {
+  const { noun, nouns } = copy.value
+  if (search.value.trim()) {
+    return {
+      icon: Search,
+      title: 'No matches',
+      text: `Try a different search or switch between active, paused and cancelled ${nouns}.`,
+    }
+  }
+  return {
+    active: {
+      icon: copy.value.icon,
+      title: `No active ${nouns}`,
+      text: 'Everything you track here is paused or cancelled. Pick a filter above to see them.',
+    },
+    paused: {
+      icon: CirclePause,
+      title: `No paused ${nouns}`,
+      text: `Pause matching from a ${noun}'s menu and it waits here until you resume it.`,
+    },
+    cancelled: {
+      icon: CalendarX,
+      title: `No cancelled ${nouns}`,
+      text: `Cancel a ${noun} from its menu and it is kept here, with every payment, so you can look back on it later.`,
+    },
+  }[activeFilter.value]
+})
 
 function add() {
   editing.value = null
@@ -128,6 +178,16 @@ function add() {
 function edit(subscription: Subscription) {
   editing.value = subscription
   dialog.value = true
+}
+
+function cancel(subscription: Subscription) {
+  cancelling.value = subscription
+  cancelOpen.value = true
+}
+
+function reactivate(subscription: Subscription) {
+  reactivating.value = subscription
+  reactivateOpen.value = true
 }
 
 function linkPayments(subscription: Subscription) {
@@ -312,14 +372,15 @@ async function saved() {
         >
           <v-btn value="active">Active</v-btn>
           <v-btn value="paused">Paused</v-btn>
+          <v-btn value="cancelled">Cancelled</v-btn>
         </v-btn-toggle>
       </div>
 
       <v-card v-if="!visibleSubscriptions.length" :data-test="parts('none-match')">
         <EmptyState
-          :icon="Search"
-          title="No matches"
-          :text="`Try a different search or switch between active and paused ${copy.nouns}.`"
+          :icon="emptyList.icon"
+          :title="emptyList.title"
+          :text="emptyList.text"
           compact
         />
       </v-card>
@@ -340,6 +401,8 @@ async function saved() {
             @edit="edit"
             @delete="remove"
             @toggle="actions.toggle"
+            @cancel="cancel"
+            @reactivate="reactivate"
             @link="linkPayments"
             @update-amount="actions.updateAmount"
           />
@@ -353,6 +416,18 @@ async function saved() {
       :subscription="editing"
       :kind="kind"
       @saved="saved"
+    />
+    <SubscriptionCancelDialog
+      v-if="auth.isAdmin"
+      v-model="cancelOpen"
+      :subscription="cancelling"
+      @saved="load"
+    />
+    <SubscriptionReactivateDialog
+      v-if="auth.isAdmin"
+      v-model="reactivateOpen"
+      :subscription="reactivating"
+      @saved="load"
     />
     <SubscriptionPaymentsDialog
       v-if="auth.isAdmin"

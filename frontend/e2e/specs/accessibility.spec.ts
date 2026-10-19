@@ -10,6 +10,7 @@ import {
   expectAccessible,
   holdAi,
   householdDate,
+  openOverlays,
   setUpAi,
   simpleCsv,
   TABS,
@@ -391,6 +392,11 @@ test.describe('Accessibility', () => {
           'a subscription’s menu': () => card.getByTestId('subscription-actions').click(),
           'adding a subscription': () => page.getByTestId('subscription-add').click(),
           'linking payments': () => card.getByTestId('subscription-link-payments').click(),
+          'cancelling a subscription': async () => {
+            await card.getByTestId('subscription-actions').click()
+            await openOverlays(page).getByTestId('subscription-cancel').click()
+            await expect(page.getByTestId('subscription-cancel-day')).toBeVisible()
+          },
         })
       })
 
@@ -419,6 +425,95 @@ test.describe('Accessibility', () => {
           'adding a bill': () => billsPage.addButton.click(),
           'linking payments': () =>
             billsPage.cards.first().getByTestId('bill-link-payments').click(),
+          'cancelling a bill': async () => {
+            await billsPage.act('City Power', 'cancel')
+            await expect(page.getByTestId('bill-cancel-day')).toBeVisible()
+          },
+        })
+      })
+
+      test('subscriptions that are cancelled, ended and about to end', async ({
+        page,
+        signInAs,
+        apiAs,
+        baseline,
+        recurringPage,
+      }) => {
+        const api = await apiAs('admin')
+        const make = (name: string, more: Record<string, unknown> = {}) =>
+          api.post<{ id: string }>('/subscriptions', {
+            name,
+            amount: '15.49',
+            frequency: 'monthly',
+            account_id: baseline.accounts.checking.id,
+            next_due_date: householdDate(9),
+            category_id: null,
+            notes: null,
+            payee: name,
+            seed_transaction_id: null,
+            ...more,
+          })
+        const cancelled = await make('Cancelled stream')
+        await api.post(`/subscriptions/${cancelled.id}/cancellation`, {
+          cancelled_on: householdDate(),
+          ends_on: householdDate(9),
+        })
+        const over = await make('Old gym', {
+          next_due_date: householdDate(-5),
+          ends_on: householdDate(-5),
+        })
+        const ending = await make('Trial', { ends_on: householdDate(40) })
+        await signInAs('admin')
+
+        // The list of what was cancelled or has ended, and the one that carries on until later.
+        await page.goto('/subscriptions')
+        await expect(page.getByTestId('subscription-end-chip')).toContainText('Ends')
+        await expect(page.getByTestId('subscription-card')).toHaveCount(1)
+        await expectAccessible(page)
+        await page
+          .getByTestId('subscription-filter')
+          .getByRole('button', { name: 'Cancelled' })
+          .click()
+        await expect(page.getByTestId('subscription-card')).toHaveCount(2)
+        await expectAccessible(page)
+        // What has stopped is offered to be reactivated, where a running one is offered to be cancelled.
+        const stopped = page
+          .getByTestId('subscription-card')
+          .filter({ hasText: 'Cancelled stream' })
+        await expectAccessibleOverlays(page, {
+          'a cancelled subscription’s menu': () =>
+            stopped.getByTestId('subscription-actions').click(),
+          'reactivating a subscription': async () => {
+            await stopped.getByTestId('subscription-actions').click()
+            await openOverlays(page).getByTestId('subscription-reactivate').click()
+            await expect(page.getByTestId('subscription-reactivate-day')).toBeVisible()
+          },
+        })
+
+        // Each page says how it stands.
+        for (const [id, status] of [
+          [cancelled.id, 'Cancelled'],
+          [over.id, 'Ended'],
+          [ending.id, 'Active'],
+        ] as const) {
+          await recurringPage.goto('subscription', id)
+          await expect(page.getByTestId('show-status')).toHaveText(status)
+          await expect(page.getByTestId('show-end-alert')).toBeVisible()
+          await expectAccessible(page)
+        }
+        // The last is one that carries on, whose menu offers to cancel it.
+        await expectAccessibleOverlays(page, {
+          'its menu': () => page.getByTestId('show-actions').click(),
+        })
+
+        // A page that has stopped offers to reactivate it, from its menu and from what says so.
+        await recurringPage.goto('subscription', cancelled.id)
+        await expectAccessibleOverlays(page, {
+          'its menu': () => page.getByTestId('show-actions').click(),
+          'reactivating it': async () => {
+            await page.getByTestId('show-reactivate').click()
+            await expect(page.getByTestId('subscription-reactivate-day')).toBeVisible()
+          },
         })
       })
 

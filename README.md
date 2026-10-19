@@ -203,6 +203,38 @@ found at once, and the ones you tick are linked together. **Linked here** lists 
 and each payment can be taken off, here or from the menu on its row, after you confirm it. Anyone
 signed in can read the page; only admins see what changes it.
 
+To stop paying a subscription or bill and still be able to look back on it, **cancel** it instead of
+deleting it. Cancelling keeps it, every payment linked to it, its chart and what refers to it, and
+can be reversed; deleting removes it and everything set up for it, and only its payments stay in
+your transactions, no longer linked to anything. Choose **Cancel subscription** (or **Cancel
+bill**) from its card's menu or its page's menu, and say the day it ends. That starts as the day it
+would next be paid, which is when a service usually stops, and **Today** ends it at once; the
+dialog says what it stops costing you. It stops counting toward the totals at the top of the page
+as soon as you cancel it, and no payment is expected on or after the day it ends: the reminders,
+the Coming up list on the Dashboard, a budget's bills still to come and the payments to come on
+its page all stop there. Its card moves to the **Cancelled** filter and its page keeps every
+payment, the chart and what is linked to it, with a line saying when it was cancelled and when it
+ends. Payments that arrive later are still matched to it, so a last one that comes in late is not
+lost. Deleting asks for confirmation, says what it removes, and points you to cancelling to keep
+the history.
+
+The place in the menu that says **Cancel** says **Reactivate** once it has stopped, whether it was
+cancelled or reached its end date, and never both, since a stopped one can't be cancelled and a
+running one can't be reactivated. **Reactivate subscription** (or **Reactivate bill**) asks when
+its next payment is due, starting from the day it would fall due by its old schedule, so it doesn't
+come back already late, and then it picks up as a regular one: no end date, payments matched again
+(including any that arrived while it was paused), reminders sent, and counted in the totals. Until
+you reactivate it, adding another for the same payee and account is refused with that advice. If
+the account it is paid from has been closed since, it says to choose another in **Edit** first.
+
+Any subscription or bill can also be given an **End date** when you add or change it, for one with
+a fixed term, like a trial or a contract. It carries on as usual until then: no payment is
+expected on or after that day, the payments still to come on its page stop there, and once the day
+has come it shows as **Ended** and is counted like a cancelled one, and it can be reactivated the
+same way. The **Next payment date** is its renewal date, and the end date is the day it stops
+renewing. The AI chat can cancel one, set an end date or reactivate one too, as a proposal you
+approve.
+
 **Settings > Alerts** also sends configured alert rules—upcoming bills and subscriptions, low
 balances, large transactions, budget thresholds and bank-sync problems—by email, Discord, or
 both. An admin can add a Discord webhook or an SMTP server there; the SMTP **Test connection**

@@ -23,6 +23,18 @@ export function addDays(value: string, days: number): string {
   return toIsoDate(date)
 }
 
+/** The same day of the month `months` later, or its last day when that month is shorter. */
+export function addMonths(value: string, months: number): string {
+  const date = fromIsoDate(value)
+  const day = date.getDate()
+  // From the 1st, so setting the month can't spill into the next one.
+  date.setDate(1)
+  date.setMonth(date.getMonth() + months)
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  date.setDate(Math.min(day, lastDay))
+  return toIsoDate(date)
+}
+
 export type PeriodKey =
   'all' | 'this-month' | 'last-month' | 'last-30-days' | 'last-90-days' | 'this-year' | 'last-year'
 

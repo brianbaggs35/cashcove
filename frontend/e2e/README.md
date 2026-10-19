@@ -26,6 +26,16 @@ payments to come two months apart), moves a subscription to and from every two m
 sure every frequency can be seen in the list without scrolling, and that a payment settles the due
 date two months on, while one made too early for it, or the same day again, changes nothing and a
 frequency that isn't one is refused.
+The Cancelling spec cancels a subscription and a bill from their cards (starting from the day
+each would next be paid, or today) and their pages, and checks that the card moves to the
+Cancelled filter, leaves the totals, the dashboard and the reminders, and keeps its payments, the
+chart and its history, and that the menu offers Reactivate where it offered Cancel, never both. It
+reactivates them from a card and from a page, including one cancelled and paused long ago, which
+comes back on its old schedule rather than already late, is tracked and counted again, and gets
+its next payment linked and shown on the dashboard. It gives a bill an end date from its dialog and
+moves and removes it, makes sure deleting says what it removes and points to cancelling, and that
+the API refuses viewers, a second cancellation, reactivating one that has not stopped, a cancelled
+one losing its end date, other kinds of thing, and dates it can't take.
 The AI specs set each provider up as Settings > AI does (Ollama on the computer and in the cloud,
 Anthropic and OpenAI, each tried before it is saved), ask questions, have the AI look over how
 transactions are sorted (on the AI tab, and as the last step of an import) and apply or dismiss

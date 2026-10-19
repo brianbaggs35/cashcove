@@ -3,7 +3,7 @@ import type { RecurringKind, Subscription } from '@/api/subscriptions'
 import { fromIsoDate } from '@/utils/dates'
 import { formatCount } from '@/utils/format'
 import { toCents } from '@/utils/money'
-import { expectedAmount } from '@/views/subscriptions/recurrence'
+import { expectedAmount, hasEnded, paysAgain } from '@/views/subscriptions/recurrence'
 
 export type Direction = 'up' | 'down' | 'same'
 
@@ -87,11 +87,14 @@ export const LOOK_AHEAD = 14
 
 const DAY = 24 * 60 * 60 * 1000
 
-/** The payments being tracked that are overdue or due within `within` days, the soonest first. */
+/**
+ * The payments being tracked that are overdue or due within `within` days, the soonest first.
+ * One that has ended, or ends before it is next due, has no payment coming.
+ */
 export function dueSoon(recurring: Subscription[], today: string, within = LOOK_AHEAD): DueItem[] {
   const now = fromIsoDate(today).getTime()
   return recurring
-    .filter((item) => item.active)
+    .filter((item) => item.active && !hasEnded(item, today) && paysAgain(item))
     .map((item): DueItem => ({
       id: item.id,
       name: item.name,
