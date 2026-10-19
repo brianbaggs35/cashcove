@@ -6,6 +6,14 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
+## 0.3.0 - 2026-10-19
+
+### Fixed
+
+- **Top payees** on the Dashboard no longer cuts off the amounts when a payee's name is long. The
+  name is shortened with an ellipsis to leave room for the amount, and the bar stays inside the
+  card. Before, one long name made the whole list wider than the card.
+
 ## 0.2.9 - 2026-10-17
 
 ### Upgrading

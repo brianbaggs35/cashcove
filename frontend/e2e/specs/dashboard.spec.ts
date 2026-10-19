@@ -166,6 +166,31 @@ test.describe('Dashboard', () => {
     await expect(transactionsPage.rows.first()).toContainText('Dashboard Grocer')
   })
 
+  test('cuts a long payee name short so its amount stays inside the card', async ({
+    page,
+    apiAs,
+    baseline,
+    dashboardPage,
+  }) => {
+    const api = await apiAs('admin')
+    // Nearly as long as a payee can be (160 characters), the way a bank writes one.
+    const payee = `SQ *${'THE VERY LONG COFFEE ROASTERS AND BAKEHOUSE '.repeat(3)}TORONTO ON`
+    await api.post(
+      '/transactions',
+      payment(baseline, payee, '-9999.00', baseline.categories.Groceries.id),
+    )
+    await dashboardPage.goto()
+
+    const row = dashboardPage.topPayees.first()
+    const name = row.getByTestId('top-payee-name')
+    await expect(name).toHaveText(payee)
+    // Cut short with an ellipsis, rather than the name making the row wider than the card.
+    expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+    const card = (await page.getByTestId('top-payees').boundingBox())!
+    const amount = (await row.getByTestId('top-payee-amount').boundingBox())!
+    expect(amount.x + amount.width).toBeLessThanOrEqual(card.x + card.width)
+  })
+
   test('points out what needs attention, and goes to it', async ({
     page,
     dashboardPage,
