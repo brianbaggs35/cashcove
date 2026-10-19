@@ -5,6 +5,7 @@ import { computed } from 'vue'
 import type { UpcomingPayment } from '@/api/subscriptions'
 import { useHousehold } from '@/composables/useHousehold'
 import { fromIsoDate } from '@/utils/dates'
+import { formatShortDate } from '@/utils/format'
 import { dueText } from '@/views/dashboard/summary'
 import { daysUntil } from '@/views/subscriptions/recurrence'
 
@@ -18,6 +19,8 @@ const props = defineProps<{
   varies: boolean
   /** Not being tracked, so nothing is matched to these or reminded of. */
   paused: boolean
+  /** The day it ends, if it does: nothing is due on or after it. */
+  endsOn?: string | null
   currency?: string
 }>()
 
@@ -41,6 +44,15 @@ const rows = computed(() =>
     }
   }),
 )
+
+/** Why the list stops where it does, when it stops because it ends. */
+const endsNote = computed(() => {
+  if (!props.endsOn) return ''
+  const day = formatShortDate(fromIsoDate(props.endsOn), locale.value)
+  return rows.value.length
+    ? `It ends on ${day}, so nothing is due after these.`
+    : `Nothing more is due: it ends on ${day}.`
+})
 </script>
 
 <template>
@@ -85,6 +97,13 @@ const rows = computed(() =>
           </span>
         </li>
       </ol>
+      <p
+        v-if="endsNote"
+        class="text-body-small text-medium-emphasis mt-3 mb-0"
+        data-test="upcoming-ends"
+      >
+        {{ endsNote }}
+      </p>
       <p v-if="varies" class="text-body-small text-medium-emphasis mt-3 mb-0">
         The amount changes every time, so these are about what recent payments came to.
       </p>

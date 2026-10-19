@@ -71,4 +71,31 @@ describe('UpcomingPayments', () => {
     expect(wrapper.find('[data-test="upcoming-paused"]').text()).toContain('no reminder is sent')
     expect(wrapper.find('[data-test="upcoming-amount"]').text()).toBe('CA$15.49')
   })
+
+  describe('when it ends', () => {
+    it('says it ends, so nothing is due after the payments listed', async () => {
+      const wrapper = await render({ endsOn: '2027-03-01' })
+
+      expect(wrapper.find('[data-test="upcoming-ends"]').text()).toBe(
+        'It ends on Mar 1, 2027, so nothing is due after these.',
+      )
+      expect(wrapper.findAll('[data-test="upcoming-payment"]')).toHaveLength(2)
+    })
+
+    it('says nothing more is due when the last payment has been made', async () => {
+      const wrapper = await render({ upcoming: [], endsOn: '2027-03-01' })
+
+      expect(wrapper.find('[data-test="upcoming-ends"]').text()).toBe(
+        'Nothing more is due: it ends on Mar 1, 2027.',
+      )
+      expect(wrapper.findAll('[data-test="upcoming-payment"]')).toHaveLength(0)
+    })
+
+    it('says nothing of an end when it carries on', async () => {
+      const wrapper = await render({ endsOn: null })
+      expect(wrapper.find('[data-test="upcoming-ends"]').exists()).toBe(false)
+      const unset = await render()
+      expect(unset.find('[data-test="upcoming-ends"]').exists()).toBe(false)
+    })
+  })
 })

@@ -100,6 +100,26 @@ async function render(options: Options = {}) {
 }
 
 describe('SubscriptionPaymentsDialog', () => {
+  it('says there is no payment due once it ends before the next, and when it ends', async () => {
+    const { find } = await render({
+      subscription: makeSubscription({ next_due_date: '2026-10-15', ends_on: '2026-10-15' }),
+    })
+
+    expect(find('payments-summary').text()).toBe(
+      '2 payments linked. No more payments are due: it ends on Oct 15, 2026.',
+    )
+  })
+
+  it('still says when the next payment is due for one that ends after it', async () => {
+    const { find } = await render({
+      subscription: makeSubscription({ next_due_date: '2026-10-15', ends_on: '2026-12-15' }),
+    })
+
+    expect(find('payments-summary').text()).toBe(
+      '2 payments linked. Next payment due Oct 15, 2026.',
+    )
+  })
+
   it('starts with the payments that look like it, and not what is linked already', async () => {
     const { overlay, find, fetch } = await render()
 

@@ -1,7 +1,8 @@
 import type { PaymentSummary } from '@/api/subscriptions'
 import { makeSubscription } from '@/test/subscriptions'
 import { mountWithPlugins } from '@/test/mount'
-import { addDays, todayIso } from '@/utils/dates'
+import { addDays, formatListDate, fromIsoDate, todayIso } from '@/utils/dates'
+import { formatShortDate } from '@/utils/format'
 import SubscriptionStats from '@/views/subscriptions/SubscriptionStats.vue'
 
 const summary: PaymentSummary = {
@@ -107,5 +108,91 @@ describe('SubscriptionStats', () => {
 
     const one = await render({ payment_count: 1 })
     expect(one.text('stat-paid')).toContain('1 payment since')
+  })
+
+  describe('when it ends', () => {
+    const inDays = (days: number) => addDays(todayIso(), days)
+    const long = (day: string) => formatListDate(day, 'en-US')
+
+    it('shows when it is due as usual while it carries on until later', async () => {
+      const { text } = await render({ ends_on: inDays(90), next_due_date: inDays(6) })
+
+      expect(text('stat-due')).toContain('Next due')
+      expect(text('stat-due')).toContain('Due in 6 days')
+    })
+
+    it('shows when it ends, and that nothing more is due, once the next payment would be after it', async () => {
+      const { text, wrapper } = await render({
+        ends_on: inDays(6),
+        next_due_date: inDays(6),
+      })
+
+      expect(text('stat-due')).toContain('Ends')
+      expect(text('stat-due')).toContain(long(inDays(6)))
+      expect(text('stat-due')).toContain('No more payments')
+      expect(wrapper.find('.text-error').exists()).toBe(false)
+    })
+
+    it('says what each payment was and what it used to cost, for one that has stopped', async () => {
+      const { text } = await render({
+        cancelled_on: inDays(-1),
+        ends_on: inDays(30),
+        next_due_date: inDays(30),
+      })
+
+      expect(text('stat-expected')).toContain('Each payment')
+      expect(text('stat-expected')).not.toContain('Next payment')
+      expect(text('stat-cost')).toContain('Used to cost')
+      expect(text('stat-cost')).not.toContain('Costs about')
+      // The figures are still what they were.
+      expect(text('stat-expected')).toContain('$14.99')
+      expect(text('stat-cost')).toContain('$179.88 a year')
+    })
+
+    it('still says next payment and costs about for one that carries on, or ends later', async () => {
+      const running = await render({ next_due_date: inDays(6) })
+      expect(running.text('stat-expected')).toContain('Next payment')
+      expect(running.text('stat-cost')).toContain('Costs about')
+
+      const ending = await render({ ends_on: inDays(90), next_due_date: inDays(6) })
+      expect(ending.text('stat-expected')).toContain('Next payment')
+      expect(ending.text('stat-cost')).toContain('Costs about')
+    })
+
+    it('talks of when a cancelled one ends, not red or late, even with a payment due before then', async () => {
+      const { text, wrapper } = await render({
+        cancelled_on: inDays(-1),
+        ends_on: inDays(30),
+        next_due_date: inDays(-3),
+      })
+
+      expect(text('stat-due')).toContain('Ends')
+      expect(text('stat-due')).toContain(long(inDays(30)))
+      expect(text('stat-due')).toContain(`Cancelled ${formatShortDate(fromIsoDate(inDays(-1)))}`)
+      expect(text('stat-due')).not.toContain('Overdue')
+      expect(wrapper.find('.text-error').exists()).toBe(false)
+    })
+
+    it('says when it was cancelled, and does not call what was due overdue', async () => {
+      const { text, wrapper } = await render({
+        cancelled_on: inDays(-5),
+        ends_on: inDays(-2),
+        next_due_date: inDays(-2),
+      })
+
+      expect(text('stat-due')).toContain('Ended')
+      expect(text('stat-due')).toContain(long(inDays(-2)))
+      expect(text('stat-due')).toContain(`Cancelled ${formatShortDate(fromIsoDate(inDays(-5)))}`)
+      expect(wrapper.find('.text-error').exists()).toBe(false)
+    })
+
+    it('still says it is paused, for one that is paused and ends later', async () => {
+      const { text } = await render({
+        active: false,
+        ends_on: inDays(90),
+        next_due_date: inDays(6),
+      })
+      expect(text('stat-due')).toContain('Paused')
+    })
   })
 })

@@ -15,6 +15,8 @@ export function makeSubscription(changes: Partial<Subscription> = {}): Subscript
     category_id: 'category-groceries',
     notes: null,
     active: true,
+    ends_on: null,
+    cancelled_on: null,
     payment_count: 2,
     last_payment_on: '2026-09-15',
     last_payment_amount: amount,

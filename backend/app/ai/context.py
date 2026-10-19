@@ -30,6 +30,7 @@ from app.finance.categories import not_a_transfer
 from app.finance.dashboard import Converter
 from app.finance.exchange_rates import ExchangeRateClient
 from app.finance.periods import shift_months
+from app.finance.subscriptions import standing
 from app.finance.transactions import like_pattern
 from app.models import Account, Category, Subscription, Transaction
 
@@ -186,16 +187,20 @@ def _budgets(
     ]
 
 
-def _recurring(db: Session, protected: Protected) -> list[str]:
+def _recurring(db: Session, today: dt.date, protected: Protected) -> list[str]:
+    # Ones that have ended aren't paid any more, so they aren't a part of the household's money.
     rows = db.scalars(
         select(Subscription)
-        .where(Subscription.active.is_(True))
+        .where(
+            Subscription.active.is_(True),
+            or_(Subscription.ends_on.is_(None), Subscription.ends_on > today),
+        )
         .order_by(Subscription.next_due_date, Subscription.name)
     )
     return [
         f"{item.kind} {protected.scrub(item.name, Text.LABEL)}: "
         f"{'about ' if item.amount_varies else ''}{_money(item.amount)} {item.frequency}, "
-        f"next due {item.next_due_date}"
+        f"next due {item.next_due_date}" + (f" ({standing(item, today)})" if item.ends_on else "")
         for item in rows
     ]
 
@@ -299,7 +304,7 @@ def build(
             _NO_ITEMS,
         ),
         _section("Budgets", _budgets(db, rates, today, protected), "No budgets."),
-        _section("Subscriptions and bills", _recurring(db, protected), "None are tracked."),
+        _section("Subscriptions and bills", _recurring(db, today, protected), "None are tracked."),
         _section(
             f"Latest transactions, newest first (last {RECENT_DAYS} days, up to {RECENT_ROWS}). "
             f"Date | Payee | Category | Amount (+ in, - out){column}",

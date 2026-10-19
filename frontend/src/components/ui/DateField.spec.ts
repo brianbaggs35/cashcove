@@ -95,6 +95,17 @@ describe('DateField', () => {
     expect(day.value).toBe('2026-09-15')
   })
 
+  it('offers to clear the day only when it is optional and asked to', async () => {
+    const plain = await render('2026-09-20')
+    expect(plain.wrapper.find('.v-field__clearable').exists()).toBe(false)
+
+    const optional = await render('2026-09-20', { clearable: true })
+    expect(optional.wrapper.find('.v-field__clearable').exists()).toBe(true)
+    await optional.wrapper.find('.v-field__clearable .v-icon').trigger('click')
+    await flushPromises()
+    expect(optional.day.value).toBeNull()
+  })
+
   it('can be cleared, unless a day is required', async () => {
     const optional = await render('2026-09-20')
     await typeDate(optional.input, '')

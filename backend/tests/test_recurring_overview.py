@@ -313,6 +313,31 @@ def test_it_lists_its_next_payments_up_to_a_year_on_and_never_too_many(
 
 
 @KINDS
+def test_what_is_coming_stops_at_the_day_it_ends(
+    admin_client: TestClient, session: Session, path: str
+) -> None:
+    account = add_account(session)
+    item = create(
+        admin_client,
+        path,
+        payload(account, next_due_date="2026-09-21", ends_on="2026-11-21"),
+    )
+
+    full = overview(admin_client, path, item, today=TODAY.isoformat())
+
+    assert [payment["due_on"] for payment in full["upcoming"]] == ["2026-09-21", "2026-10-21"]
+    assert (full["subscription"]["ends_on"], full["subscription"]["cancelled_on"]) == (
+        "2026-11-21",
+        None,
+    )
+    cancelled = admin_client.post(
+        f"/api/{path}/{item['id']}/cancellation",
+        json={"cancelled_on": TODAY.isoformat(), "ends_on": "2026-09-21"},
+    ).json()
+    assert overview(admin_client, path, cancelled, today=TODAY.isoformat())["upcoming"] == []
+
+
+@KINDS
 def test_the_automations_and_budgets_that_refer_to_it_are_named(
     admin_client: TestClient, session: Session, path: str
 ) -> None:

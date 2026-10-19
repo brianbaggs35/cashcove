@@ -4,7 +4,13 @@ import { checking, seedFinance } from '@/test/finance'
 import { makeBill, makeSubscription } from '@/test/subscriptions'
 import { mountWithPlugins } from '@/test/mount'
 import { page } from '@/test/dom'
+import { addDays, fromIsoDate, todayIso } from '@/utils/dates'
+import { formatShortDate } from '@/utils/format'
 import SubscriptionCard from '@/views/subscriptions/SubscriptionCard.vue'
+
+/** A day this many days from today, so what a test says of "ended" never goes stale. */
+const day = (days: number) => addDays(todayIso(), days)
+const shown = (value: string) => formatShortDate(fromIsoDate(value))
 
 async function render(changes: Partial<Parameters<typeof makeSubscription>[0]> = {}, props = {}) {
   const edit = vi.fn()
@@ -224,7 +230,13 @@ describe('SubscriptionCard', () => {
     await flushPromises()
 
     const items = page().findAll('.v-list-item')
-    expect(items.map((item) => item.text())).toEqual(['View', 'Pause matching', 'Edit', 'Delete'])
+    expect(items.map((item) => item.text())).toEqual([
+      'View',
+      'Pause matching',
+      'Cancel subscription',
+      'Edit',
+      'Delete',
+    ])
     const view = page().find('[data-test="subscription-view"]')
     expect(view.element).toBe(items[0]!.element)
     // Pressing it opens the page, with nothing for the page that holds the card to handle.
@@ -253,6 +265,198 @@ describe('SubscriptionCard', () => {
     await page().find('[data-test="subscription-toggle"]').trigger('click')
     await flushPromises()
     expect(wrapper.emitted('toggle')?.[0]).toEqual([subscription])
+  })
+
+  describe('when it ends', () => {
+    const menu = async (
+      wrapper: Awaited<ReturnType<typeof render>>['wrapper'],
+      prefix = 'subscription',
+    ) => {
+      await wrapper.find(`[data-test="${prefix}-actions"]`).trigger('click')
+      await flushPromises()
+      return page()
+        .findAll('.v-list-item')
+        .map((item) => item.text())
+    }
+
+    it('shows one cancelled that is still running as cancelled, with when it ends and nothing due', async () => {
+      const { wrapper } = await render(
+        { cancelled_on: day(-1), ends_on: day(10), next_due_date: day(10) },
+        { daysUntilDue: 10 },
+      )
+
+      expect(wrapper.find('[data-test="subscription-end-chip"]').text()).toBe('Cancelled')
+      const due = wrapper.find('[data-test="subscription-due"]')
+      expect(due.text()).toBe(`Ends ${shown(day(10))}`)
+      expect(due.classes()).not.toContain('text-error')
+      expect(wrapper.find('[data-test="subscription-paused-chip"]').exists()).toBe(false)
+      expect(wrapper.classes()).toContain('subscription-card--paused')
+    })
+
+    it('says what it comes to a month only of one that has not stopped, which costs nothing now', async () => {
+      const running = await render({ ends_on: day(90) })
+      expect(running.wrapper.find('[data-test="subscription-monthly"]').text()).toBe(
+        '$14.99 / month',
+      )
+      const paused = await render({ active: false })
+      expect(paused.wrapper.find('[data-test="subscription-monthly"]').exists()).toBe(true)
+
+      const cancelled = await render({ cancelled_on: day(-1), ends_on: day(10) })
+      expect(cancelled.wrapper.find('[data-test="subscription-monthly"]').exists()).toBe(false)
+      expect(cancelled.wrapper.text()).not.toContain('/ month')
+      // The amount it was is still said.
+      expect(cancelled.wrapper.find('[data-test="subscription-amount"]').text()).toBe('$14.99')
+
+      const ended = await render({ ends_on: day(-2) })
+      expect(ended.wrapper.find('[data-test="subscription-monthly"]').exists()).toBe(false)
+    })
+
+    it('talks of when a cancelled one ends, and never warns, even with a payment due before then', async () => {
+      const { wrapper } = await render(
+        { cancelled_on: day(-1), ends_on: day(30), next_due_date: day(-3) },
+        { daysUntilDue: -3, alertDays: 14 },
+      )
+
+      const due = wrapper.find('[data-test="subscription-due"]')
+      expect(due.text()).toBe(`Ends ${shown(day(30))}`)
+      expect(due.classes()).not.toContain('text-error')
+      expect(wrapper.find('[data-test="subscription-due-alert"]').exists()).toBe(false)
+
+      // Nor does one that is due soon, which a running one would be warned of.
+      const { wrapper: soon } = await render(
+        { cancelled_on: day(-1), ends_on: day(30), next_due_date: day(2) },
+        { daysUntilDue: 2, alertDays: 14 },
+      )
+      expect(soon.find('[data-test="subscription-due"]').text()).toBe(`Ends ${shown(day(30))}`)
+      expect(soon.find('[data-test="subscription-due-alert"]').exists()).toBe(false)
+    })
+
+    it('does not call an ending payment overdue or due soon once nothing more is due', async () => {
+      const { wrapper } = await render(
+        { cancelled_on: day(-9), ends_on: day(-2), next_due_date: day(-5) },
+        { daysUntilDue: -5, alertDays: 14 },
+      )
+      expect(wrapper.find('[data-test="subscription-due"]').text()).toBe(`Ended ${shown(day(-2))}`)
+      expect(wrapper.find('[data-test="subscription-due"]').classes()).not.toContain('text-error')
+
+      const { wrapper: soon } = await render(
+        { ends_on: day(3), next_due_date: day(3) },
+        { daysUntilDue: 3, alertDays: 14 },
+      )
+      expect(soon.find('[data-test="subscription-due-alert"]').exists()).toBe(false)
+    })
+
+    it('shows one that has ended on its own as ended, and a cancelled one that is over as cancelled', async () => {
+      const { wrapper } = await render({ ends_on: day(-3) }, { daysUntilDue: -3 })
+      expect(wrapper.find('[data-test="subscription-end-chip"]').text()).toBe('Ended')
+      expect(wrapper.find('[data-test="subscription-due"]').text()).toBe(`Ended ${shown(day(-3))}`)
+
+      const { wrapper: over } = await render({ cancelled_on: day(-10), ends_on: day(-3) })
+      expect(over.find('[data-test="subscription-end-chip"]').text()).toBe('Cancelled')
+    })
+
+    it('says when one that carries on until then is to end, and still shows what is due', async () => {
+      const { wrapper } = await render({ ends_on: day(90) }, { daysUntilDue: 8 })
+
+      expect(wrapper.find('[data-test="subscription-end-chip"]').text()).toBe(
+        `Ends ${shown(day(90))}`,
+      )
+      expect(wrapper.find('[data-test="subscription-due"]').text()).toBe('Due Oct 15, 2026')
+      expect(wrapper.classes()).not.toContain('subscription-card--paused')
+    })
+
+    it('has no end chip for one that carries on', async () => {
+      const { wrapper } = await render()
+      expect(wrapper.find('[data-test="subscription-end-chip"]').exists()).toBe(false)
+    })
+
+    it('shows paused and cancelled together when it is both', async () => {
+      const { wrapper } = await render({
+        active: false,
+        cancelled_on: day(-1),
+        ends_on: day(10),
+        next_due_date: day(10),
+      })
+      expect(wrapper.find('[data-test="subscription-end-chip"]').text()).toBe('Cancelled')
+      expect(wrapper.find('[data-test="subscription-paused-chip"]').text()).toBe('Paused')
+    })
+
+    it('does not offer a new price for one that is cancelled or over', async () => {
+      const changes = { amount: '15.49', last_payment_amount: '17.99' }
+      const { wrapper } = await render({ ...changes, cancelled_on: day(-1), ends_on: day(5) })
+      expect(wrapper.find('[data-test="subscription-price-change"]').exists()).toBe(false)
+      const { wrapper: over } = await render({ ...changes, ends_on: day(-1) })
+      expect(over.find('[data-test="subscription-price-change"]').exists()).toBe(false)
+    })
+
+    it('offers to cancel one that carries on, or is to end, and asks for it', async () => {
+      const subscription = makeSubscription({ ends_on: day(90) })
+      const { wrapper } = await render({ ends_on: day(90) })
+
+      expect(await menu(wrapper)).toEqual([
+        'View',
+        'Pause matching',
+        'Cancel subscription',
+        'Edit',
+        'Delete',
+      ])
+      await page().find('[data-test="subscription-cancel"]').trigger('click')
+
+      expect(wrapper.emitted('cancel')?.[0]).toEqual([subscription])
+    })
+
+    it.each([
+      ['carries on', {}, 'Cancel bill'],
+      ['is cancelled', { cancelled_on: day(-1), ends_on: day(10) }, 'Reactivate bill'],
+    ])('names a bill in the menu when it is a bill that %s', async (_state, changes, item) => {
+      const { wrapper } = await mountWithPlugins(SubscriptionCard, {
+        props: {
+          subscription: makeBill(changes),
+          daysUntilDue: 8,
+          alertDays: 3,
+          dueAlertsEnabled: true,
+        },
+        beforeMount: () => seedFinance(),
+      })
+      await flushPromises()
+
+      expect(await menu(wrapper, 'bill')).toContain(item)
+    })
+
+    it('offers to reactivate a cancelled one where it offered to cancel, and asks for it', async () => {
+      const changes = { cancelled_on: day(-1), ends_on: day(10), next_due_date: day(10) }
+      const subscription = makeSubscription(changes)
+      const { wrapper } = await render(changes)
+
+      // The one place in the menu changes from cancelling to reactivating, so it is never both.
+      expect(await menu(wrapper)).toEqual(['View', 'Reactivate subscription', 'Edit', 'Delete'])
+      await page().find('[data-test="subscription-reactivate"]').trigger('click')
+
+      expect(wrapper.emitted('reactivate')?.[0]).toEqual([subscription])
+      expect(wrapper.emitted()).not.toHaveProperty('cancel')
+    })
+
+    it('offers to reactivate one that ended on its own too, and not to cancel it', async () => {
+      const subscription = makeSubscription({ ends_on: day(-3) })
+      const { wrapper } = await render({ ends_on: day(-3) })
+
+      expect(await menu(wrapper)).toEqual(['View', 'Reactivate subscription', 'Edit', 'Delete'])
+      await page().find('[data-test="subscription-reactivate"]').trigger('click')
+
+      expect(wrapper.emitted('reactivate')?.[0]).toEqual([subscription])
+    })
+
+    it('offers to cancel and not to reactivate one that is running, paused or not', async () => {
+      const { wrapper } = await render({ active: false })
+
+      expect(await menu(wrapper)).toEqual([
+        'View',
+        'Resume matching',
+        'Cancel subscription',
+        'Edit',
+        'Delete',
+      ])
+    })
   })
 
   it('uses an account currency that differs from the household currency', async () => {

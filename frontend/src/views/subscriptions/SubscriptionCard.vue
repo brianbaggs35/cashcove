@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import {
   CalendarClock,
+  CalendarX,
   CirclePause,
   EllipsisVertical,
   Eye,
   Landmark,
   Link2,
   Pencil,
+  RotateCcw,
   Trash2,
 } from '@lucide/vue'
 import { computed } from 'vue'
@@ -22,8 +24,11 @@ import { kinds, partOf } from '@/views/subscriptions/kinds'
 import {
   estimatedAmount,
   expectedAmount,
+  expectsPayment,
   frequencyTitle,
+  hasEnded,
   priceChange,
+  standing,
 } from '@/views/subscriptions/recurrence'
 
 const props = withDefaults(
@@ -39,6 +44,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   edit: [subscription: Subscription]
   delete: [subscription: Subscription]
+  cancel: [subscription: Subscription]
+  reactivate: [subscription: Subscription]
   toggle: [subscription: Subscription]
   link: [subscription: Subscription]
   'update-amount': [subscription: Subscription]
@@ -60,8 +67,25 @@ const router = useRouter()
 function open() {
   void router.push(page.value)
 }
-const overdue = computed(() => props.daysUntilDue < 0)
+const state = computed(() => standing(props.subscription))
+const ended = computed(() => hasEnded(props.subscription))
+/** It talks of its next payment: it hasn't stopped, and doesn't end before then. Otherwise, of its end. */
+const expecting = computed(() => expectsPayment(props.subscription))
+/** The day it ends, for what is only said once it has one. */
+const endsOn = computed(() =>
+  formatShortDate(fromIsoDate(props.subscription.ends_on as string), household.locale.value),
+)
+/** What it says about its end beside its name: cancelled, ended on its own, or going to end. */
+const endChip = computed(() => {
+  if (props.subscription.cancelled_on) return { text: 'Cancelled', color: 'secondary' }
+  if (ended.value) return { text: 'Ended', color: 'secondary' }
+  if (props.subscription.ends_on) return { text: `Ends ${endsOn.value}`, color: 'info' }
+  return null
+})
+const overdue = computed(() => props.daysUntilDue < 0 && expecting.value)
 const dueText = computed(() => {
+  if (ended.value) return `Ended ${endsOn.value}`
+  if (!expecting.value) return `Ends ${endsOn.value}`
   if (overdue.value) {
     const days = Math.abs(props.daysUntilDue)
     return `Overdue by ${days} ${days === 1 ? 'day' : 'days'}`
@@ -80,20 +104,26 @@ const lastPayment = computed(() => {
     : `Last payment ${when}`
 })
 const inAlertWindow = computed(
-  () => props.dueAlertsEnabled && props.daysUntilDue >= 0 && props.daysUntilDue <= props.alertDays,
+  () =>
+    props.dueAlertsEnabled &&
+    expecting.value &&
+    props.daysUntilDue >= 0 &&
+    props.daysUntilDue <= props.alertDays,
 )
 const expected = computed(() => expectedAmount(props.subscription))
 const monthlyAmount = computed(() =>
   estimatedAmount(expected.value, props.subscription.frequency, 'month'),
 )
 /** A payment that isn't what it should be, such as after a price rise. */
-const changedPrice = computed(() => priceChange(props.subscription))
+const changedPrice = computed(() =>
+  state.value === 'cancelled' ? null : priceChange(props.subscription),
+)
 </script>
 
 <template>
   <v-card
     class="subscription-card h-100"
-    :class="{ 'subscription-card--paused': !subscription.active }"
+    :class="{ 'subscription-card--paused': state !== 'active' }"
     :data-test="part('card')"
   >
     <v-card-text class="pa-5 pa-md-6">
@@ -108,6 +138,15 @@ const changedPrice = computed(() => priceChange(props.subscription))
                 {{ subscription.name }}
               </router-link>
             </h2>
+            <v-chip
+              v-if="endChip"
+              :color="endChip.color"
+              size="x-small"
+              variant="tonal"
+              :data-test="part('end-chip')"
+            >
+              {{ endChip.text }}
+            </v-chip>
             <v-chip
               v-if="!subscription.active"
               color="secondary"
@@ -134,10 +173,26 @@ const changedPrice = computed(() => priceChange(props.subscription))
           <v-list density="compact" nav min-width="200">
             <v-list-item :prepend-icon="Eye" title="View" :data-test="part('view')" @click="open" />
             <v-list-item
+              v-if="state !== 'cancelled'"
               :prepend-icon="subscription.active ? CirclePause : copy.icon"
               :title="subscription.active ? 'Pause matching' : 'Resume matching'"
               :data-test="part('toggle')"
               @click="emit('toggle', subscription)"
+            />
+            <!-- One that has stopped can't be cancelled, and one that hasn't can't be reactivated. -->
+            <v-list-item
+              v-if="state === 'cancelled'"
+              :prepend-icon="RotateCcw"
+              :title="`Reactivate ${copy.noun}`"
+              :data-test="part('reactivate')"
+              @click="emit('reactivate', subscription)"
+            />
+            <v-list-item
+              v-else
+              :prepend-icon="CalendarX"
+              :title="`Cancel ${copy.noun}`"
+              :data-test="part('cancel')"
+              @click="emit('cancel', subscription)"
             />
             <v-list-item
               :prepend-icon="Pencil"
@@ -176,7 +231,12 @@ const changedPrice = computed(() => priceChange(props.subscription))
           </p>
         </div>
         <div class="text-end">
-          <p class="text-body-small text-medium-emphasis mb-1">
+          <!-- What it comes to a month isn't said of one that has stopped, which costs nothing now. -->
+          <p
+            v-if="state !== 'cancelled'"
+            class="text-body-small text-medium-emphasis mb-1"
+            :data-test="part('monthly')"
+          >
             {{ household.money(monthlyAmount, account?.currency) }} / month
           </p>
           <p
@@ -184,7 +244,7 @@ const changedPrice = computed(() => priceChange(props.subscription))
             :class="{ 'text-error': overdue }"
             :data-test="part('due')"
           >
-            <v-icon :icon="CalendarClock" size="16" />
+            <v-icon :icon="expecting ? CalendarClock : CalendarX" size="16" />
             {{ dueText }}
           </p>
         </div>

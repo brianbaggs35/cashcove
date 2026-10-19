@@ -187,6 +187,48 @@ def test_a_question_that_matches_nothing_says_so(
     assert "No transaction's payee matches the question." in system_of(fake_ai)
 
 
+def test_payments_that_end_are_described_with_when_and_ones_that_have_ended_are_left_out(
+    admin_client: TestClient, session: Session, fake_ai: FakeAI
+) -> None:
+    made = household(session)
+
+    def add(name: str, **fields: object) -> Subscription:
+        return Subscription(
+            name=name,
+            payee=name,
+            amount=Decimal("5.00"),
+            frequency=PaymentFrequency.MONTHLY,
+            account_id=made.checking.id,
+            next_due_date=dt.date(2026, 10, 1),
+            **fields,
+        )
+
+    session.add_all(
+        [
+            add("Carries on"),
+            add("Has a term", ends_on=dt.date(2026, 12, 31)),
+            add("Cancelled", ends_on=dt.date(2026, 10, 15), cancelled_on=TODAY),
+            add("Over", ends_on=TODAY, cancelled_on=TODAY),
+            add("Term over", ends_on=dt.date(2026, 9, 1)),
+        ]
+    )
+    session.commit()
+    configure(admin_client)
+
+    ask(admin_client)
+
+    system = system_of(fake_ai)
+    assert "subscription Carries on: 5.00 monthly, next due 2026-10-01\n" in system
+    assert "subscription Has a term: 5.00 monthly, next due 2026-10-01 (ends 2026-12-31)" in system
+    assert (
+        "subscription Cancelled: 5.00 monthly, next due 2026-10-01 (cancelled, ends 2026-10-15)"
+        in system
+    )
+    # Once it has ended, it isn't something the household pays any more.
+    assert "Over" not in system
+    assert "Term over" not in system
+
+
 def test_budgets_and_recurring_payments_are_described_without_their_accounts(
     admin_client: TestClient, session: Session, fake_ai: FakeAI
 ) -> None:

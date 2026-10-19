@@ -1,5 +1,6 @@
 import {
   addDays,
+  addMonths,
   formatDateRange,
   formatListDate,
   fromIsoDate,
@@ -22,6 +23,29 @@ describe('date utils', () => {
     expect(todayIso(now)).toBe('2026-09-20')
     expect(addDays('2026-02-27', 2)).toBe('2026-03-01')
     expect(addDays('2026-01-01', -1)).toBe('2025-12-31')
+  })
+
+  it.each([
+    // The same day, as many months on.
+    ['2026-09-20', 1, '2026-10-20'],
+    ['2026-09-20', 12, '2027-09-20'],
+    ['2026-09-20', 0, '2026-09-20'],
+    // Across the end of a year, forward and back.
+    ['2026-12-15', 1, '2027-01-15'],
+    ['2026-12-15', 2, '2027-02-15'],
+    ['2026-01-15', -1, '2025-12-15'],
+    ['2026-03-15', -14, '2025-01-15'],
+    // A short month ends on its own last day, and a leap year has one more.
+    ['2026-01-31', 1, '2026-02-28'],
+    ['2028-01-31', 1, '2028-02-29'],
+    ['2026-03-31', -1, '2026-02-28'],
+    ['2026-08-31', 1, '2026-09-30'],
+    ['2028-02-29', 12, '2029-02-28'],
+    ['2028-02-29', 48, '2032-02-29'],
+    // Counted from the day it started, so a short month doesn't move it for good.
+    ['2026-01-31', 2, '2026-03-31'],
+  ])('%s and %i months is %s', (day, months, expected) => {
+    expect(addMonths(day, months)).toBe(expected)
   })
 
   it.each<[PeriodKey, string | undefined, string | undefined]>([

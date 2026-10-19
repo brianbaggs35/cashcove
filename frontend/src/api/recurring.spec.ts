@@ -12,10 +12,13 @@ const input: SubscriptionInput = {
   frequency: 'monthly',
   account_id: 'account-checking',
   next_due_date: '2026-10-15',
+  ends_on: null,
   category_id: null,
   notes: null,
   seed_transaction_id: null,
 }
+const cancelled = { cancelled_on: '2026-10-19', ends_on: '2026-11-05' }
+const reactivated = { next_due_date: '2027-01-05', today: '2026-12-20' }
 
 describe('recurringApi', () => {
   it('makes every call for a subscription to the subscriptions API', async () => {
@@ -31,6 +34,8 @@ describe('recurringApi', () => {
         .spyOn(subscriptions, 'linkSubscriptionPayments')
         .mockResolvedValue({ count: 1, subscription: item }),
       unlink: vi.spyOn(subscriptions, 'unlinkSubscriptionPayment').mockResolvedValue(item),
+      cancel: vi.spyOn(subscriptions, 'cancelSubscription').mockResolvedValue(item),
+      reactivate: vi.spyOn(subscriptions, 'reactivateSubscription').mockResolvedValue(item),
     }
     const api = recurringApi('subscription')
 
@@ -41,6 +46,8 @@ describe('recurringApi', () => {
     await api.remove('s1')
     await api.link('s1', ['t1'])
     await api.unlink('s1', 't1')
+    await api.cancel('s1', cancelled)
+    await api.reactivate('s1', reactivated)
 
     expect(calls.fetch).toHaveBeenCalledWith(true)
     expect(calls.overview).toHaveBeenCalledWith('s1', '2026-10-14')
@@ -49,6 +56,8 @@ describe('recurringApi', () => {
     expect(calls.remove).toHaveBeenCalledWith('s1')
     expect(calls.link).toHaveBeenCalledWith('s1', ['t1'])
     expect(calls.unlink).toHaveBeenCalledWith('s1', 't1')
+    expect(calls.cancel).toHaveBeenCalledWith('s1', cancelled)
+    expect(calls.reactivate).toHaveBeenCalledWith('s1', reactivated)
   })
 
   it('makes every call for a bill to the bills API', async () => {
@@ -62,6 +71,8 @@ describe('recurringApi', () => {
       remove: vi.spyOn(bills, 'deleteBill').mockResolvedValue(undefined),
       link: vi.spyOn(bills, 'linkBillPayments').mockResolvedValue({ count: 1, subscription: item }),
       unlink: vi.spyOn(bills, 'unlinkBillPayment').mockResolvedValue(item),
+      cancel: vi.spyOn(bills, 'cancelBill').mockResolvedValue(item),
+      reactivate: vi.spyOn(bills, 'reactivateBill').mockResolvedValue(item),
     }
     const api = recurringApi('bill')
 
@@ -72,6 +83,8 @@ describe('recurringApi', () => {
     await api.remove('b1')
     await api.link('b1', ['t1', 't2'])
     await api.unlink('b1', 't2')
+    await api.cancel('b1', cancelled)
+    await api.reactivate('b1', reactivated)
 
     expect(calls.fetch).toHaveBeenCalledWith(false)
     expect(calls.overview).toHaveBeenCalledWith('b1', '2026-10-14')
@@ -80,5 +93,7 @@ describe('recurringApi', () => {
     expect(calls.remove).toHaveBeenCalledWith('b1')
     expect(calls.link).toHaveBeenCalledWith('b1', ['t1', 't2'])
     expect(calls.unlink).toHaveBeenCalledWith('b1', 't2')
+    expect(calls.cancel).toHaveBeenCalledWith('b1', cancelled)
+    expect(calls.reactivate).toHaveBeenCalledWith('b1', reactivated)
   })
 })

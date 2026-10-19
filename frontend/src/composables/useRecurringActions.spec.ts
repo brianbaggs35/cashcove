@@ -8,6 +8,7 @@ import { unlinkPayment, useRecurringActions } from '@/composables/useRecurringAc
 import { answer } from '@/test/confirm'
 import { mountWithPlugins } from '@/test/mount'
 import { makeBill, makeSubscription } from '@/test/subscriptions'
+import { addDays, todayIso } from '@/utils/dates'
 import { defineComponent } from 'vue'
 
 /** The actions, set up as a page would in its own setup, with what it does after and on failure. */
@@ -110,6 +111,61 @@ describe('useRecurringActions', () => {
     expect(await confirmed).toBe(true)
     expect(deleteBill).toHaveBeenCalledWith(bill.id)
     expect(notices.value.at(-1)?.text).toBe('Deleted City Power')
+  })
+})
+
+describe('what deleting says', () => {
+  const removes =
+    'This removes Streamflix and everything set up for it: its settings, its notes and which payments are linked to it. It also comes out of any budget that counts it, and automations stop linking to it. The payments themselves will stay in your history, but will no longer be linked.'
+
+  /** The words the confirmation uses to ask about deleting this one. */
+  async function asked(item: Parameters<typeof makeSubscription>[0]) {
+    const { actions } = await setUp()
+    const deleting = actions.remove(makeSubscription(item))
+    await flushPromises()
+    const text = confirmRequest.value?.text
+    await answer(false)
+    await deleting
+    return text
+  }
+
+  it('says everything it removes and what stays, and points to cancelling to keep it', async () => {
+    expect(await asked({})).toBe(
+      `${removes} To keep it and its history here, cancel the subscription instead.`,
+    )
+  })
+
+  it('points to cancelling for a bill in a bill’s words', async () => {
+    const { actions } = await setUp()
+
+    const deleting = actions.remove(makeBill())
+    await flushPromises()
+
+    expect(confirmRequest.value?.text).toContain('This removes City Power and everything')
+    expect(confirmRequest.value?.text).toContain('cancel the bill instead.')
+    await answer(false)
+    await deleting
+  })
+
+  it('still points to cancelling for one that is to end later, as it can still be cancelled', async () => {
+    const text = await asked({ ends_on: addDays(todayIso(), 60) })
+
+    expect(text).toContain('cancel the subscription instead.')
+  })
+
+  it('does not point to cancelling when it is cancelled already, which kept it', async () => {
+    const text = await asked({
+      cancelled_on: addDays(todayIso(), -5),
+      ends_on: addDays(todayIso(), 5),
+    })
+
+    expect(text).toBe(removes)
+  })
+
+  it('does not point to cancelling for one that ended on its own, which can not be cancelled', async () => {
+    const text = await asked({ ends_on: addDays(todayIso(), -2) })
+
+    expect(text).toBe(removes)
   })
 })
 
