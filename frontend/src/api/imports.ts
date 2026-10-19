@@ -193,7 +193,13 @@ export interface ImportFile {
 }
 
 export interface PreviewRequest extends ImportFile {
+  /** A saved format to read it with, which is refused with `format_mismatch` if it doesn't fit. */
   profile_id?: string | null
+  /**
+   * With no saved format chosen and no options sent, whether to look for the saved format whose
+   * columns match. Turned off, the file is read as a new format.
+   */
+  match_saved?: boolean
   statement?: number
   options?: ImportOptions | null
   account_id?: string | null

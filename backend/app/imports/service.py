@@ -38,6 +38,7 @@ from app.schemas.imports import (
     BalanceChoice,
     BalanceOut,
     BankHistory,
+    CsvLayout,
     FileImportOut,
     ImportCreate,
     ImportOptions,
@@ -108,14 +109,33 @@ type Upload = ImportPreviewRequest | ImportCreate
 
 def _read_csv(db: Session, text: str, body: Upload, locale: str, today: dt.date) -> ReadFile:
     csv_file = CsvFile(text)
-    profile = get_profile(db, body.profile_id) if body.profile_id else None
+    chosen = get_profile(db, body.profile_id) if body.profile_id else None
+    profile = chosen
     options = body.options
     if options is None:
         detected = csv_file.detect(locale)
-        profile = profile or _matching_profile(db, csv_file.headers(detected.csv))
+        if profile is None and body.match_saved:
+            profile = _matching_profile(db, csv_file.headers(detected.csv))
         options = _profile_options(csv_file, profile) if profile else detected
     statement = csv_file.read(options, today)
+    # A saved format someone chose is held to what they chose it for. One sent back with the
+    # options it gave has already been read and checked.
+    if chosen is not None and body.options is None:
+        _must_fit(chosen, csv_file, options, statement)
     return ReadFile(FileFormat.CSV, options, [statement], profile, csv_file)
+
+
+def _must_fit(
+    profile: ImportProfile, csv_file: CsvFile, options: ImportOptions, statement: Statement
+) -> None:
+    """Refuses a saved format that doesn't suit the file, and says what's different."""
+    problem = csv_file.misfit(options.csv or CsvLayout(), profile.headers, statement)
+    if problem is not None:
+        raise ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "format_mismatch",
+            f"The {profile.name} format doesn't fit this file: {problem}",
+        )
 
 
 def _profile_options(csv_file: CsvFile, profile: ImportProfile) -> ImportOptions:

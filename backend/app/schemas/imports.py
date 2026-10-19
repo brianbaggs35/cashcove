@@ -109,6 +109,9 @@ class _Upload(BaseModel):
     content: Annotated[str, StringConstraints(min_length=1, max_length=MAX_CONTENT)]
     # A saved format to read it with. The saved format whose columns match is used otherwise.
     profile_id: uuid.UUID | None = None
+    # With no saved format chosen and no options given, whether to look for the saved format whose
+    # columns match. Turned off, the file is read as a new format, however many match.
+    match_saved: bool = True
     # Files that hold several accounts' statements are imported one statement at a time.
     statement: Annotated[int, Field(ge=0, lt=100)] = 0
 

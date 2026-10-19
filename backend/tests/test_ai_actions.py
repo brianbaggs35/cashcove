@@ -1,5 +1,6 @@
 """The AI in the chat: looking things up, proposing changes, and the admin's say on them."""
 
+import datetime as dt
 import json
 import re
 from decimal import Decimal
@@ -30,6 +31,7 @@ from app.models import (
     Transaction,
     User,
 )
+from app.models.base import utcnow
 from app.schemas.budget import BudgetCreate
 from e2e.ai import Asked, FakeAI, Seen
 from tests.ai import SECRETS, configure, household
@@ -696,8 +698,14 @@ def test_proposals_are_listed_newest_first_by_how_they_stand(
     ]
     ready.post(f"{GROUP}/{ids[0]}/approve")
     ready.post(f"{GROUP}/{ids[1]}/reject", json={})
-    stale = proposals_of(session)[2]
-    stale.created_at = stale.created_at.replace(year=2020)
+    # When each was made is set here, a minute apart. The clock's own times are close enough
+    # together that one that steps back between two of them (as some computers' do) would put
+    # them in another order, and the third made would no longer be the third by its time.
+    made = {str(proposal.id): proposal for proposal in proposals_of(session)}
+    now = utcnow()
+    for number, proposal_id in enumerate(ids):
+        made[proposal_id].created_at = now - dt.timedelta(minutes=len(ids) - number)
+    made[ids[2]].created_at = dt.datetime(2020, 1, 1, tzinfo=dt.UTC)
     session.commit()
 
     everything = ready.get(GROUP).json()

@@ -55,9 +55,29 @@ and give it a version and a date when you cut a release (see Releases in the
   including one cancelled long ago that comes back on its old schedule, an end date from a dialog,
   what no longer warns of a payment or shows on the dashboard, and the API refusing what it
   should, and accessibility scans of the new dialogs and states in both themes.
+- **Choose a saved format when you import a CSV file.** The columns step has a new **Read this
+  file with** menu, which lists **New format** and every saved format with the columns it reads. It
+  shows once you have saved one. Before, a saved format was only used when a file's column names
+  were exactly the ones it was saved with, so a bank that added or renamed a column left the
+  format unused, and there was no way to choose it. Choosing one reads the file the way it was
+  saved, and suggests the account it was last used for when no account has been suggested yet. It
+  fits a file when the columns it reads are named as they were: a column added at the end, or one
+  it doesn't read renamed, makes no difference. When it doesn't fit, the file stays read as it was
+  and a message names the columns that are different. If the file was being read with another
+  saved format, **Create a new format instead** goes back to a new one. **New format** also reads
+  a file from scratch when a saved format's columns match it, to save another.
+- Playwright specs (`import-formats.spec.ts`) for saving a format while importing and choosing it
+  for the next file, choosing one for a file without column names or with a column added, a format
+  that doesn't fit and making a new one instead, and for there being nothing to choose until one is
+  saved. The test baseline has a saved format for files without column names
+  (`harbor_savings`), and the accessibility spec checks the menu of formats and the message that
+  one didn't fit.
 
 ### Fixed
 
+- A format saved for files without column names could never be used. A bank that doesn't name its
+  columns (an export that is only a date, an amount and a description) leaves nothing to recognize
+  its next file by, so the format Cashcove offered to save was never applied. It can be chosen now.
 - **Top payees** on the Dashboard no longer cuts off the amounts when a payee's name is long. The
   name is shortened with an ellipsis to leave room for the amount, and the bar stays inside the
   card. Before, one long name made the whole list wider than the card.

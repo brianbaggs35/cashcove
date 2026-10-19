@@ -64,6 +64,11 @@ describe('SavedFormats', () => {
       formats: [harborFormat, mapleFormat, headerless],
     })
     expect(wrapper.find('.v-chip').text()).toBe('3')
+    // Said where someone looks for how to use them: the next file with the same columns is read
+    // the same way, and any other is read with one chosen when it's imported.
+    expect(wrapper.text()).toContain(
+      'A bank’s next CSV file with the same columns is read the way its last one was. For any other file, choose one when you import it.',
+    )
     expect(items()).toHaveLength(3)
     expect(find(0, 'name').text()).toBe('Harbor Credit Union checking')
     expect(find(0, 'columns').text()).toBe('Date · Description · Amount · Balance · Transaction ID')

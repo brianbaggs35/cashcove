@@ -1090,7 +1090,20 @@ MAPLE_CARD_FORMAT = SeedFormat(
     account=CLOSED,
     last_used_hours_ago=None,
 )
-SAVED_FORMATS = (HARBOR_CHECKING_FORMAT, MAPLE_CARD_FORMAT)
+# Saved for the savings account's statements, which Harbor exports without a row of column names,
+# so nothing recognizes its files and it only reads one that someone chooses it for. The column
+# after the amount (the third, a star) is left out, and the fourth is the check number.
+HARBOR_SAVINGS_FORMAT = SeedFormat(
+    key="harbor_savings",
+    name="Harbor Credit Union savings",
+    headers=(),
+    options=ImportOptions(
+        csv=CsvLayout(header=False, columns=CsvColumns(date=0, amount=1, memo=3, payee=4))
+    ),
+    account=SAVINGS,
+    last_used_hours_ago=None,
+)
+SAVED_FORMATS = (HARBOR_CHECKING_FORMAT, HARBOR_SAVINGS_FORMAT, MAPLE_CARD_FORMAT)
 
 CHECKING_IMPORT = SeedImport(
     key="checking_history",
@@ -1321,7 +1334,7 @@ class BaselineTransaction(BaseModel):
 class BaselineSavedFormat(BaseModel):
     id: uuid.UUID
     name: str
-    # The column names of the files it reads.
+    # The column names of the files it reads, none for files without a row of them.
     headers: list[str]
     # The key in ``accounts`` of the account it was last used for.
     account: str | None
@@ -1928,7 +1941,8 @@ def _seed_imports(db: Session, now: datetime) -> None:
                 id=saved.id,
                 name=saved.name,
                 headers=list(saved.headers),
-                signature=signature(saved.headers),
+                # Files without column names have nothing to be recognized by.
+                signature=signature(saved.headers) if saved.headers else None,
                 options=saved.options.model_dump(mode="json"),
                 account_id=saved.account.id if saved.account else None,
                 last_used_at=_hours_before(now, saved.last_used_hours_ago),
