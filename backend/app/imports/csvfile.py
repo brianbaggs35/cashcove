@@ -50,6 +50,8 @@ SAMPLE = 50
 SHOWN_LINES = 15
 SHOWN_CELL = 60
 SAMPLES = 3
+# How many columns that differ a saved layout's refusal names.
+MISFITS_SHOWN = 2
 TOO_MANY_ROWS = (
     f"This file has more than {MAX_ROWS:,} transactions. Download a shorter period from your "
     "bank and import it a part at a time."
@@ -208,6 +210,16 @@ def _short(text: str) -> str:
     return text if len(text) <= SHOWN_CELL else f"{text[: SHOWN_CELL - 1]}…"
 
 
+def _at(cells: Sequence[str], index: int) -> str:
+    """The cell at the index, or none when the line is shorter."""
+    return cells[index] if index < len(cells) else ""
+
+
+def _quoted(name: str) -> str:
+    """A column name as said to people."""
+    return f"“{_short(name)}”" if name else "blank"
+
+
 def _is_amount(text: str) -> bool:
     return not only_date(text) and parse_amount(text) is not None
 
@@ -351,6 +363,37 @@ class CsvFile:
             layout.skip_rows,
         )
         return layout.model_copy(update={"skip_rows": row})
+
+    def misfit(self, layout: CsvLayout, saved: Sequence[str], statement: Statement) -> str | None:
+        """Why a layout saved for a bank's files doesn't suit this one, or None when it does.
+
+        A layout saved with column names suits a file that names the columns it reads the same
+        way, wherever they are: the columns it leaves out can be named anything. Whatever its
+        columns are called, it doesn't suit a file when none of the file's lines can be read
+        with it, which is also how files without column names are told apart.
+        """
+        if missing(layout):
+            return "it doesn't say which columns hold the date and the amount."
+        renamed = self._renamed(layout, saved) if layout.header and saved else []
+        if renamed:
+            shown = "; ".join(renamed[:MISFITS_SHOWN])
+            more = len(renamed) - MISFITS_SHOWN
+            return f"{shown} (and {more} more)." if more > 0 else f"{shown}."
+        if statement.rows and all(row.problem for row in statement.rows):
+            return "none of this file's lines can be read with it."
+        return None
+
+    def _renamed(self, layout: CsvLayout, saved: Sequence[str]) -> list[str]:
+        """What the file calls the columns the layout reads differently from the names it was
+        saved with, a column to each line."""
+        found = self.headers(layout)
+        used = {index for index in layout.columns.model_dump().values() if index is not None}
+        return [
+            f"column {index + 1} is {_quoted(_at(saved, index))} in the format but "
+            f"{_quoted(_at(found, index))} in this file"
+            for index in sorted(used)
+            if _name(_at(saved, index)) != _name(_at(found, index))
+        ]
 
     # ---- Reading it ----------------------------------------------------------------------
 

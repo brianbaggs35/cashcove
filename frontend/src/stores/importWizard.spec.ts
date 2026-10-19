@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client'
 import * as api from '@/api/imports'
 import type { ImportPreview } from '@/api/imports'
 import { useAiStore } from '@/stores/ai'
+import { useImportsStore } from '@/stores/imports'
 import { importable, NEEDS_AI, REREAD_DELAY, useImportWizard } from '@/stores/importWizard'
 import {
   aiOff,
@@ -25,6 +26,7 @@ import {
   makeOptions,
   makePreview,
   makeRow,
+  mapleFormat,
   payroll,
   pendingRow,
   seedImports,
@@ -243,6 +245,140 @@ describe('import wizard', () => {
     stopped.resolve(makePreview({ rows: [] }))
     await refreshing
     expect(wizard.preview?.rows).toHaveLength(4)
+  })
+
+  describe('choosing the format a CSV file is read with', () => {
+    it('reads the file with the saved format chosen, as that format has it', async () => {
+      const { wizard, previewing } = await started()
+      const saved = makePreview({
+        profile_id: harborFormat.id,
+        options: makeOptions({ date_order: 'dmy' }),
+      })
+      previewing.mockResolvedValue(saved)
+      wizard.edited = true
+
+      await wizard.chooseFormat(harborFormat.id)
+
+      // Without the options it was read with, which the format replaces.
+      expect(previewing).toHaveBeenLastCalledWith({
+        ...statement,
+        profile_id: harborFormat.id,
+        match_saved: false,
+        statement: 0,
+        options: null,
+        account_id: checking.id,
+      })
+      expect(wizard.preview).toEqual(saved)
+      expect(wizard.options).toEqual(saved.options)
+      expect(wizard.profileName).toBe(harborFormat.name)
+      // Nothing is changed from the format yet, so there's nothing of it to save.
+      expect(wizard.edited).toBe(false)
+      expect(wizard.canSave).toBe(false)
+      expect(wizard.formatProblem).toBeNull()
+      expect(wizard.refreshing).toBe(false)
+    })
+
+    it('reads the file as a new format again, whichever saved format its columns match', async () => {
+      const { wizard, previewing } = await started(makePreview({ profile_id: harborFormat.id }))
+      expect(wizard.canSave).toBe(false)
+      previewing.mockResolvedValue(makePreview())
+
+      await wizard.chooseFormat(null)
+
+      expect(previewing).toHaveBeenLastCalledWith(
+        expect.objectContaining({ profile_id: null, match_saved: false, options: null }),
+      )
+      expect(wizard.profileName).toBeNull()
+      expect(wizard.canSave).toBe(true)
+      expect(wizard.formatSave).toEqual({ id: null, name: 'Harbor Credit Union checking 2' })
+    })
+
+    it('doesn’t read the file again for the saved format it’s read with already', async () => {
+      const { wizard, previewing } = await started(makePreview({ profile_id: harborFormat.id }))
+
+      await wizard.chooseFormat(harborFormat.id)
+
+      expect(previewing).toHaveBeenCalledOnce()
+    })
+
+    it('doesn’t read the file again for a new format when it’s read as one already', async () => {
+      const { wizard, previewing } = await started()
+
+      await wizard.chooseFormat(null)
+
+      expect(previewing).toHaveBeenCalledOnce()
+    })
+
+    it('keeps the file as it was read when the saved format chosen doesn’t fit it', async () => {
+      const { wizard, previewing } = await started(makePreview({ profile_id: harborFormat.id }))
+      wizard.edited = true
+      const before = wizard.preview
+      const why =
+        'The Maple store card format doesn’t fit this file: column 4 is “Category” in the format but “Balance” in this file.'
+      previewing.mockRejectedValue(new ApiError(422, why, { code: 'format_mismatch' }))
+
+      await wizard.chooseFormat(mapleFormat.id)
+
+      expect(wizard.formatProblem).toBe(why)
+      expect(wizard.notice).toBeNull()
+      expect(wizard.preview).toBe(before)
+      expect(wizard.profileName).toBe(harborFormat.name)
+      expect(wizard.edited).toBe(true)
+      expect(wizard.refreshing).toBe(false)
+
+      // Reading the file again, any way, is a new start.
+      previewing.mockResolvedValue(makePreview({ profile_id: harborFormat.id }))
+      await wizard.refresh()
+      expect(wizard.formatProblem).toBeNull()
+      previewing.mockRejectedValue(new ApiError(422, why, { code: 'format_mismatch' }))
+      await wizard.chooseFormat(mapleFormat.id)
+      expect(wizard.formatProblem).toBe(why)
+      wizard.reset()
+      expect(wizard.formatProblem).toBeNull()
+    })
+
+    it('says so when the file can’t be read again, and drops a saved format deleted meanwhile', async () => {
+      const { wizard, previewing } = await started()
+      previewing.mockRejectedValueOnce(new ApiError(0, 'Offline.', { code: 'offline' }))
+      await wizard.chooseFormat(harborFormat.id)
+      expect(wizard.notice).toBe('Offline.')
+      expect(wizard.formatProblem).toBeNull()
+      // Whatever else went wrong is told the same way.
+      previewing.mockRejectedValueOnce(new Error('Something broke.'))
+      await wizard.chooseFormat(harborFormat.id)
+      expect(wizard.notice).toBe('Something broke.')
+      expect(wizard.formatProblem).toBeNull()
+
+      const loading = vi.spyOn(api, 'fetchSavedFormats').mockResolvedValue([mapleFormat])
+      vi.spyOn(api, 'fetchImports').mockResolvedValue([])
+      previewing.mockRejectedValueOnce(
+        new ApiError(404, 'That saved format doesn’t exist anymore.', { code: 'not_found' }),
+      )
+      await wizard.chooseFormat(harborFormat.id)
+      expect(wizard.notice).toBe('That saved format doesn’t exist anymore.')
+      expect(wizard.formatProblem).toBeNull()
+      await vi.waitFor(() => {
+        expect(useImportsStore().formats).toEqual([mapleFormat])
+      })
+      expect(loading).toHaveBeenCalledOnce()
+    })
+
+    it('ignores a saved format chosen that another reading overtook', async () => {
+      const { wizard, previewing } = await started()
+      wizard.edited = true
+      const slow = later<ImportPreview>()
+      previewing.mockReturnValueOnce(slow.promise)
+
+      const choosing = wizard.chooseFormat(harborFormat.id)
+      previewing.mockResolvedValueOnce(makePreview({ account_id: savings.id }))
+      await wizard.refresh({ account_id: savings.id })
+      slow.resolve(makePreview({ profile_id: harborFormat.id }))
+      await choosing
+
+      expect(wizard.preview?.profile_id).toBeNull()
+      expect(wizard.accountId).toBe(savings.id)
+      expect(wizard.edited).toBe(true)
+    })
   })
 
   it('compares the rows with another account, or another statement', async () => {

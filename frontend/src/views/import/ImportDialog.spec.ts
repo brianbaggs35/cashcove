@@ -120,6 +120,15 @@ async function press(name: string) {
   await flushPromises()
 }
 
+/** Chooses what the CSV file is read with, from the menu of formats. */
+async function chooseFormat(name: string) {
+  await find('format-choice').find('.v-field').trigger('mousedown')
+  await flushPromises()
+  const items = page().findAll('.v-menu.v-overlay--active .v-list-item')
+  await items.find((item) => item.text().startsWith(name))!.trigger('click')
+  await flushPromises()
+}
+
 /** Has importing answer with `record`, and the lists it reloads answer too. */
 function answerImport(record: FileImport | Promise<FileImport> = imported) {
   vi.spyOn(api, 'fetchImports').mockResolvedValue([record as FileImport])
@@ -141,8 +150,9 @@ describe('ImportDialog', () => {
     reading.resolve(makePreview())
     await flushPromises()
     expect(title()).toBe('Match the columns')
-    expect(dialog().text()).toContain('Say what each column holds.')
+    expect(dialog().text()).toContain('Choose a saved format, or say what each column holds.')
     expect(find('import-columns').exists()).toBe(true)
+    expect(find('format-picker').exists()).toBe(true)
     expect(steps()).toHaveLength(3)
     expect(buttons()).toEqual(['Cancel', 'Continue'])
 
@@ -188,6 +198,101 @@ describe('ImportDialog', () => {
     await vi.waitFor(() => {
       expect(router.currentRoute.value.fullPath).toBe('/transactions?import=import-new')
     })
+  })
+
+  it('asks for the columns without a word of saved formats when there are none', async () => {
+    const { start } = await render()
+    seedImports({ formats: [] })
+
+    await start(makePreview())
+
+    expect(title()).toBe('Match the columns')
+    expect(dialog().text()).toContain('Say what each column holds.')
+    expect(dialog().text()).not.toContain('saved format')
+    expect(find('format-picker').exists()).toBe(false)
+  })
+
+  it('loads the saved formats it doesn’t have yet, to offer them', async () => {
+    const { start } = await render()
+    seedImports({ formats: [] }).loaded = false
+    vi.spyOn(api, 'fetchImports').mockResolvedValue([])
+    const loading = vi.spyOn(api, 'fetchSavedFormats').mockResolvedValue([harborFormat])
+
+    await start(makePreview())
+
+    await vi.waitFor(() => {
+      expect(find('format-picker').exists()).toBe(true)
+    })
+    expect(loading).toHaveBeenCalledOnce()
+  })
+
+  it('reads a CSV file with the saved format chosen, and turns down one that doesn’t fit it', async () => {
+    const { start } = await render()
+    await start(makePreview())
+    expect(find('columns-detected').exists()).toBe(true)
+    const previewing = vi.spyOn(api, 'previewImport')
+
+    previewing.mockResolvedValueOnce(makePreview({ profile_id: harborFormat.id }))
+    await chooseFormat('Harbor Credit Union checking')
+    expect(previewing).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        profile_id: harborFormat.id,
+        match_saved: false,
+        options: null,
+      }),
+    )
+    expect(title()).toBe('Match the columns')
+    expect(find('columns-saved-format').text()).toContain(
+      'Read with your saved format, Harbor Credit Union checking.',
+    )
+    expect(find('columns-detected').exists()).toBe(false)
+    expect(find('format-problem').exists()).toBe(false)
+
+    const why =
+      'The Maple store card format doesn’t fit this file: column 4 is “Category” in the format but “Balance” in this file.'
+    previewing.mockRejectedValueOnce(new ApiError(422, why, { code: 'format_mismatch' }))
+    await chooseFormat('Maple store card')
+    // Said where it was chosen, not as a failure of the file, and the file is read as before.
+    expect(find('format-problem').text()).toContain(why)
+    expect(find('format-problem').text()).toContain(
+      'Still reading with your Harbor Credit Union checking format.',
+    )
+    expect(find('import-notice').exists()).toBe(false)
+    expect(find('format-choice').find('.v-select__selection-text').text()).toBe(
+      'Harbor Credit Union checking',
+    )
+    expect(find('columns-saved-format').exists()).toBe(true)
+
+    // A new format is a click away.
+    previewing.mockResolvedValueOnce(makePreview())
+    await press('format-create-new')
+    expect(find('format-problem').exists()).toBe(false)
+    expect(find('columns-detected').exists()).toBe(true)
+    expect(find('format-choice').find('.v-select__selection-text').text()).toBe('New format')
+    expect(buttons()).toEqual(['Cancel', 'Continue'])
+  })
+
+  it('imports with the saved format chosen, and offers to update it only once its columns are changed', async () => {
+    const { start, wizard } = await render()
+    await start(makePreview())
+    vi.spyOn(api, 'previewImport').mockResolvedValueOnce(
+      makePreview({ profile_id: harborFormat.id }),
+    )
+    await chooseFormat('Harbor Credit Union checking')
+
+    await press('import-continue')
+    expect(find('review-saved-format').text()).toBe(
+      'Read with your Harbor Credit Union checking format',
+    )
+    expect(find('review-save').exists()).toBe(false)
+    const create = answerImport()
+    await press('import-submit')
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ profile_id: harborFormat.id, save_profile: null }),
+    )
+    expect(wizard.formatSave).toBeNull()
+    expect(find('import-done-note').text()).not.toContain('Saved the')
   })
 
   it('reviews an OFX file straight away, and shows it importing', async () => {
