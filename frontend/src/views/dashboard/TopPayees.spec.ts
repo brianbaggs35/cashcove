@@ -21,6 +21,7 @@ describe('TopPayees', () => {
       'Whole Foods$420.004 transactions',
       'Blue Bottle$105.501 transaction',
     ])
+    expect(rows[0]!.find('[data-test="top-payee-amount"]').text()).toBe('$420.00')
     expect(rows[0]!.find('.payees__bar').attributes('style')).toContain('width: 100%')
     expect(rows[1]!.find('.payees__bar').attributes('style')).toContain('width: 25.1')
   })
