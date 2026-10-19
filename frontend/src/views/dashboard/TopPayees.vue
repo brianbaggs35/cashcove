@@ -42,7 +42,12 @@ const rows = computed(() => {
             <span class="text-body-medium text-truncate flex-grow-1" data-test="top-payee-name">
               {{ row.payee }}
             </span>
-            <span class="text-body-medium font-weight-medium tabular-nums">{{ row.text }}</span>
+            <span
+              class="text-body-medium font-weight-medium tabular-nums"
+              data-test="top-payee-amount"
+            >
+              {{ row.text }}
+            </span>
           </span>
           <span class="payees__track" aria-hidden="true">
             <span class="payees__bar" :style="{ width: `${row.width}%` }" />
@@ -55,8 +60,10 @@ const rows = computed(() => {
 </template>
 
 <style scoped>
+/* minmax(0, 1fr), not the implicit auto column, which grows to the longest name and pushes the amounts out of the card. */
 .payees {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   list-style: none;
 }
