@@ -153,7 +153,8 @@ test.describe('Importing statement files', () => {
     await expect(importPage.format('Maple card, before 2026')).toBeVisible()
 
     await importPage.deleteFormat(harbor.name)
-    await expect(importPage.formats).toHaveCount(1)
+    // The others stay, however many the baseline saves.
+    await expect(importPage.formats).toHaveCount(Object.keys(baseline.saved_formats).length - 1)
     // What it read stays imported.
     await expect(importPage.importItem(baseline.imports.checking_history.file_name)).toBeVisible()
   })
