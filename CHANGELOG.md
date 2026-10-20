@@ -82,6 +82,10 @@ and give it a version and a date when you cut a release (see Releases in the
   name is shortened with an ellipsis to leave room for the amount, and the bar stays inside the
   card. Before, one long name made the whole list wider than the card.
 
+### Dependency Updates
+
+- Updated fastapi to 0.150.0
+
 ## 0.2.9 - 2026-10-17
 
 ### Upgrading
