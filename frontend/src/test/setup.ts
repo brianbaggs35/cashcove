@@ -30,12 +30,10 @@ window.matchMedia = (query: string) =>
     matches: query === '(prefers-reduced-motion: reduce)',
     media: query,
     onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
     addEventListener: () => {},
     removeEventListener: () => {},
     dispatchEvent: () => false,
-  }) as MediaQueryList
+  }) as unknown as MediaQueryList
 
 // Vuetify's menu positioning reads the visual viewport.
 globalThis.visualViewport = Object.assign(new EventTarget(), {
