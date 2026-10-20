@@ -12,7 +12,7 @@ ARG WOLFI_BASE=cgr.dev/chainguard/wolfi-base@sha256:fac38d12efdb4bf43ac9e599a31d
 ARG PYTHON_VERSION=3.14
 ARG NODE_VERSION=24
 ARG POSTGRES_VERSION=18
-ARG UV_VERSION=0.13.0
+ARG UV_VERSION=0.13.3
 ARG SUPERVISOR_VERSION=4.3.0
 
 # Every apk call goes through docker/apk-retry.sh: a package download that stalls on a CI
