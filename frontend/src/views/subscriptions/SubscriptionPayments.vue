@@ -211,7 +211,7 @@ async function unlink(payment: Transaction) {
             <button
               type="button"
               class="payment__main"
-              :aria-label="`${row.payment.payee}, ${row.date}, ${row.amount}. Show the details`"
+              aria-haspopup="dialog"
               data-test="payment-open"
               @click="show(row.payment)"
             >

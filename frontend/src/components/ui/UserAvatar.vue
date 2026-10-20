@@ -43,13 +43,20 @@ const color = computed(() => {
 
 <template>
   <v-avatar :size="size" :color="color" class="user-avatar" aria-hidden="true">
-    <span class="user-avatar__initials">{{ initials }}</span>
+    <span class="user-avatar__initials" :data-initials="initials" />
   </v-avatar>
 </template>
 
 <style scoped>
 .user-avatar {
   color: #fff;
+}
+
+/* Drawn, not written: the initials are a picture of who this is, not a label. A button that holds
+   one is named by its aria-label, and written initials would count as its visible label, which
+   that name doesn't contain (WCAG 2.5.3 reads any text on screen, even text hidden from readers). */
+.user-avatar__initials::before {
+  content: attr(data-initials);
 }
 
 .user-avatar__initials {

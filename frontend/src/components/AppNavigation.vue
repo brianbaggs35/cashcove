@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 
 import StatusIndicator from '@/components/StatusIndicator.vue'
 import { useConnectionAlerts } from '@/composables/useConnectionAlerts'
-import { navItems } from '@/navigation'
+import { navItems, type NavItem } from '@/navigation'
 import { useAuthStore } from '@/stores/auth'
 
 const props = withDefaults(defineProps<{ mobile?: boolean; collapsed?: boolean }>(), {
@@ -19,6 +19,18 @@ const auth = useAuthStore()
 const route = useRoute()
 /** The tabs this person can open: some are for admins only. */
 const items = computed(() => navItems.filter((item) => !item.admin || auth.isAdmin))
+
+/**
+ * What a tab is called in the collapsed rail, where its title isn't shown: the title, and for
+ * Connect how many banks need attention, which the rail shows as a number alone. Everywhere else
+ * the tab's own text names it, so the name always holds what is on screen.
+ */
+function railName(item: NavItem): string | undefined {
+  if (props.mobile || !props.collapsed) return undefined
+  return item.name === 'connect' && alerts.count.value
+    ? `${item.title}, ${alerts.label.value}`
+    : item.title
+}
 </script>
 
 <template>
@@ -80,7 +92,7 @@ const items = computed(() => navItems.filter((item) => !item.admin || auth.isAdm
         <v-list-item
           :to="item.path"
           :title="item.title"
-          :aria-label="item.title"
+          :aria-label="railName(item)"
           :active="route.meta.nav === item.name || undefined"
           rounded="lg"
           class="app-nav__item mb-1"
@@ -90,7 +102,7 @@ const items = computed(() => navItems.filter((item) => !item.admin || auth.isAdm
           </template>
           <template v-if="item.name === 'connect' && alerts.count.value" #append>
             <v-chip size="x-small" color="warning" variant="flat" data-test="nav-connect-alerts">
-              {{ alerts.count.value }}
+              <span aria-hidden="true">{{ alerts.count.value }}</span>
               <span class="d-sr-only">{{ alerts.label.value }}</span>
             </v-chip>
           </template>
