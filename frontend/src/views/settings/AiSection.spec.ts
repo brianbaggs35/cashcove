@@ -229,8 +229,9 @@ describe('AiSection', () => {
         connection({ provider: 'openai', api_key: 'sk-openai-test-key', model: 'gpt-6-luna' }),
       )
       expect(find('ai-test-result').text()).toBe('GPT-6 Luna answered.')
-      expect(find('ai-test-result').classes()).toContain('v-alert--variant-tonal')
-      expect(find('ai-test-result').attributes('class')).toContain('success')
+      const alert = find('ai-test-result').find('.v-alert')
+      expect(alert.classes()).toContain('v-alert--variant-tonal')
+      expect(alert.attributes('class')).toContain('success')
     })
 
     it('says what to fix when the provider says no, and forgets that when the form changes', async () => {
@@ -245,7 +246,7 @@ describe('AiSection', () => {
       await find('ai-test').trigger('click')
       await flushPromises()
       expect(find('ai-test-result').text()).toBe('The provider didn’t accept the key.')
-      expect(find('ai-test-result').attributes('class')).toContain('error')
+      expect(find('ai-test-result').find('.v-alert').attributes('class')).toContain('error')
 
       await type('ai-key', 'another-key-12345')
       expect(find('ai-test-result').exists()).toBe(false)
