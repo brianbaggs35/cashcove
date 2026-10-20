@@ -99,6 +99,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated @axe-core/playwright to 4.14.0
 - Updated @vitest/coverage-v8 to 5.0.5
 - Updated vitest to 5.0.5
+- Updated eslint to 10.13.0
 
 ## 0.2.9 - 2026-10-17
 
