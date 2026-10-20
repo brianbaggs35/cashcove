@@ -105,6 +105,10 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated sass-embedded to 1.105.2
 - Updated typescript-eslint to 8.72.0
 
+# Dockerfile
+
+- Updated uv to 0.13.3
+
 ## 0.2.9 - 2026-10-17
 
 ### Upgrading
