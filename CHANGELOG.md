@@ -95,6 +95,7 @@ and give it a version and a date when you cut a release (see Releases in the
 # TS/JS Frontend:
 
 - Updated @lucide/vue to 1.59.0
+- Updated vuetify to 4.3.0
 
 ## 0.2.9 - 2026-10-17
 
