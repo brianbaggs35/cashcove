@@ -25,9 +25,19 @@ globalThis.ResizeObserver = ResizeObserverStub
 // Tests run as if motion were reduced: Vuetify animates a field's label by reading computed
 // styles, which jsdom is far too slow at (a second or more in a dialog with a few fields), and
 // there is nothing to see here. What the animation looks like is checked in a real browser.
+// Vuetify also finds its breakpoints by asking whether `(min-width: Npx)` matches, so those are
+// answered from the window's width, which `mountWithPlugins` sets from a test's `width`.
+const minWidthQuery = /^\(min-width: (\d+(?:\.\d+)?)px\)$/
+
+function queryMatches(query: string) {
+  const minWidth = minWidthQuery.exec(query)?.[1]
+  if (minWidth === undefined) return query === '(prefers-reduced-motion: reduce)'
+  return window.innerWidth >= Number(minWidth)
+}
+
 window.matchMedia = (query: string) =>
   ({
-    matches: query === '(prefers-reduced-motion: reduce)',
+    matches: queryMatches(query),
     media: query,
     onchange: null,
     addEventListener: () => {},

@@ -258,7 +258,7 @@ describe('ChatPanel', () => {
     await flushPromises()
 
     expect(find('chat-error').text()).toContain('sent nothing')
-    expect(find('chat-error').classes()).toContain('v-alert--variant-tonal')
+    expect(find('chat-error').find('.v-alert').classes()).toContain('v-alert--variant-tonal')
     expect(find('chat-retry').exists()).toBe(false)
   })
 

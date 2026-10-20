@@ -275,8 +275,9 @@ describe('ConnectDialog', () => {
 
     const note = find('connect-history-note')
     expect(note.text()).toBe(why)
-    expect(note.classes()).toContain('text-warning')
-    expect(note.classes()).not.toContain('text-success')
+    const alert = note.find('.v-alert')
+    expect(alert.classes()).toContain('text-warning')
+    expect(alert.classes()).not.toContain('text-success')
   })
 
   it('goes back to the accounts when importing fails, and can be left for later', async () => {
