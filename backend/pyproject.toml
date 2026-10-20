@@ -10,7 +10,7 @@ dependencies = [
     "fastapi>=0.150.0",
     # Talks to Plaid's API (plaid-python is only published as a source package, and the image
     # installs prebuilt wheels only).
-    "httpx2>=2.13.1",
+    "httpx2>=2.15.1",
     "psycopg[binary]>=3.3.6",
     "pwdlib[argon2]>=0.3.1",
     "pydantic>=2.14.1",
