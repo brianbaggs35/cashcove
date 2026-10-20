@@ -85,6 +85,7 @@ and give it a version and a date when you cut a release (see Releases in the
 ### Dependency Updates
 
 - Updated fastapi to 0.150.0
+- Updated httpx2 to 2.15.1
 
 ## 0.2.9 - 2026-10-17
 
