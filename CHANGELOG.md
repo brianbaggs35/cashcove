@@ -86,6 +86,7 @@ and give it a version and a date when you cut a release (see Releases in the
 
 - Updated fastapi to 0.150.0
 - Updated httpx2 to 2.15.1
+- Updated pypdf to 6.21.1
 
 ## 0.2.9 - 2026-10-17
 
