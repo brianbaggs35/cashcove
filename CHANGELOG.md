@@ -96,6 +96,7 @@ and give it a version and a date when you cut a release (see Releases in the
 
 - Updated @lucide/vue to 1.59.0
 - Updated vuetify to 4.3.0
+- Updated @axe-core/playwright to 4.14.0
 
 ## 0.2.9 - 2026-10-17
 
