@@ -803,7 +803,7 @@ describe('ImportDialog with a PDF statement', () => {
     // Not an error, so it isn't in an error's colour.
     expect(dialog().find('.v-avatar').classes()).toContain('text-primary')
     expect(find('import-notice').text()).toContain('can only be done with AI')
-    expect(find('import-notice').classes()).toContain('text-info')
+    expect(find('import-notice').find('.v-alert').classes()).toContain('text-info')
     expect(find('import-failed').text()).toContain('AI is optional')
     expect(buttons()).toEqual(['Close', 'Set up AI', 'Choose another file'])
 
@@ -849,7 +849,7 @@ describe('ImportDialog with a PDF statement', () => {
 
     expect(title()).toBe('Couldn’t import september.pdf')
     expect(find('import-notice').text()).toBe('This PDF is a scan, so there’s no text to read.')
-    expect(find('import-notice').classes()).toContain('text-error')
+    expect(find('import-notice').find('.v-alert').classes()).toContain('text-error')
     expect(find('import-failed').text()).toContain('Check it’s a PDF statement')
     expect(find('import-failed').text()).toContain('a scan or a photo can’t be read')
     expect(buttons()).toEqual(['Close', 'Choose another file'])

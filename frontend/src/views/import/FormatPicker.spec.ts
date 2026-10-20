@@ -113,7 +113,7 @@ describe('FormatPicker', () => {
     await flushPromises()
 
     const problem = find('format-problem')
-    expect(problem.attributes('role')).toBe('alert')
+    expect(problem.find('.v-alert').attributes('role')).toBe('alert')
     expect(problem.text()).toContain(why)
     expect(problem.text()).toContain('Still reading with your Harbor Credit Union checking format.')
     await find('format-create-new').trigger('click')
