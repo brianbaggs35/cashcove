@@ -88,6 +88,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated httpx2 to 2.15.1
 - Updated pypdf to 6.21.1
 - Updated sqlalchemy to 2.1.5
+- Updated ruff to 0.17.1
 
 ## 0.2.9 - 2026-10-17
 
