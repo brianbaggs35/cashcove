@@ -90,8 +90,10 @@ function uses(category: Category): string {
         data-test="category-link"
       >
         <span class="category-row__emoji" aria-hidden="true">{{ category.emoji }}</span>
+        <!-- The space after the name isn't seen in a flex row, but the text reads "Coffee 1
+             transaction" and not "Coffee1 transaction", as the label above does. -->
         <span class="text-body-medium font-weight-medium text-break flex-grow-1">
-          {{ category.name }}
+          {{ category.name }}{{ ' ' }}
         </span>
         <span class="text-body-small text-medium-emphasis text-no-wrap">
           {{ uses(category) }}
