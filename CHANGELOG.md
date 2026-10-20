@@ -103,6 +103,7 @@ and give it a version and a date when you cut a release (see Releases in the
 - Updated jsdom to 30.1.3
 - Updated monocart-coverage-reports to 3.0.0
 - Updated sass-embedded to 1.105.2
+- Updated typescript-eslint to 8.72.0
 
 ## 0.2.9 - 2026-10-17
 
