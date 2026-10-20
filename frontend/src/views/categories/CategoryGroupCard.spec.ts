@@ -56,6 +56,8 @@ describe('CategoryGroupCard', () => {
     const link = find('category-link')
     expect(link.attributes('href')).toBe(`/transactions?category=${coffee.id}`)
     expect(link.attributes('aria-label')).toBe('Coffee: 1 transaction. See them')
+    // The words on screen are in that name, in order and spaced as it spaces them.
+    expect(link.text()).toBe('☕Coffee 1 transaction')
   })
 
   it('says when a group has no categories yet', async () => {

@@ -4,7 +4,7 @@ import { mountWithPlugins } from '@/test/mount'
 
 async function initials(name: string) {
   const { wrapper } = await mountWithPlugins(UserAvatar, { props: { name } })
-  return wrapper.find('.user-avatar__initials').text()
+  return wrapper.find('.user-avatar__initials').attributes('data-initials')
 }
 
 describe('UserAvatar', () => {
@@ -18,6 +18,12 @@ describe('UserAvatar', () => {
     ['   ', '?'],
   ])('shows %j as %s', async (name, expected) => {
     expect(await initials(name)).toBe(expected)
+  })
+
+  it('draws the initials without writing them, so a button holding the avatar is named by its label alone', async () => {
+    const { wrapper } = await mountWithPlugins(UserAvatar, { props: { name: 'Alex Morgan' } })
+    expect(wrapper.text()).toBe('')
+    expect(wrapper.find('.user-avatar').attributes('aria-hidden')).toBe('true')
   })
 
   it('gives each name its own steady colour, at the size asked for', async () => {

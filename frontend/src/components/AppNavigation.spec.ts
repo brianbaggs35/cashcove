@@ -63,11 +63,16 @@ describe('AppNavigation', () => {
       },
     })
     const alerts = () => wrapper.find('[data-test="nav-connect-alerts"]')
-    expect(alerts().text()).toBe('1 1 bank needs attention')
+    // The number is for the eyes and the sentence is for the ears, so neither is heard twice.
+    expect(alerts().find('[aria-hidden="true"]').text()).toBe('1')
     expect(alerts().find('.d-sr-only').text()).toBe('1 bank needs attention')
+    // The tab is named by its own text, which holds the title and what needs attention.
+    const connect = () => wrapper.find('.app-nav__item[href="/connect"]')
+    expect(connect().attributes('aria-label')).toBeUndefined()
 
     useConnectionsStore().connections = [fidelity, makeConnection({ id: 'c2', status: 'error' })]
     await wrapper.vm.$nextTick()
+    expect(alerts().find('[aria-hidden="true"]').text()).toBe('2')
     expect(alerts().find('.d-sr-only').text()).toBe('2 banks need attention')
 
     const preferences = makePreferences()
@@ -103,6 +108,34 @@ describe('AppNavigation', () => {
     await toggle.trigger('click')
     expect(wrapper.findComponent(AppNavigation).emitted('collapse')).toHaveLength(1)
     wrapper.unmount()
+  })
+
+  it('names the tabs by their own text unless the rail hides it', async () => {
+    const rail = async (props: { collapsed?: boolean; mobile?: boolean }) => {
+      const { wrapper } = await mountWithPlugins(AppNavigation, {
+        withApp: true,
+        width: 1920,
+        props,
+        beforeMount: () => {
+          useConnectionsStore().connections = [tartan, fidelity]
+        },
+      })
+      const labels = wrapper.findAll('.app-nav__item').map((link) => link.attributes('aria-label'))
+      wrapper.unmount()
+      return labels
+    }
+
+    // Written out, a tab's text is its name, and an aria-label would replace the number beside it.
+    expect((await rail({})).every((label) => label === undefined)).toBe(true)
+    expect(
+      (await rail({ mobile: true, collapsed: true })).every((label) => label === undefined),
+    ).toBe(true)
+    // In the rail the titles are out of sight, so each tab says its title, and Connect what needs attention.
+    expect(await rail({ collapsed: true })).toEqual(
+      navItems.map((item) =>
+        item.name === 'connect' ? 'Connect, 1 bank needs attention' : item.title,
+      ),
+    )
   })
 
   it('lets a mobile drawer close without showing the desktop rail control', async () => {
