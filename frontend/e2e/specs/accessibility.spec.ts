@@ -103,6 +103,7 @@ async function expectReadOnlyNotice(page: Page): Promise<void> {
 }
 
 async function expectLoaded(page: Page, path: string): Promise<void> {
+  await expect(page.getByTestId('app-loading')).toHaveCount(0, { timeout: 15_000 })
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   const loaded = LOADED[path]
   if (loaded) await expect(page.getByTestId(loaded).first()).toBeVisible()

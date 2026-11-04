@@ -6,6 +6,13 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
+## 0.3.1
+
+### Dependency Updates
+
+- Updated certifi, dnspython, filelock, msgpack, opentelemetry-api, pyasn1 and pypdf to patched
+  versions to resolve known vulnerabilities.
+
 ## 0.3.0 - 2026-10-19
 
 ### Upgrading
