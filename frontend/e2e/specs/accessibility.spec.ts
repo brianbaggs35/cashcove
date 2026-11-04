@@ -13,6 +13,7 @@ import {
   openOverlays,
   setUpAi,
   simpleCsv,
+  type AppShell,
   TABS,
   test,
 } from '../support'
@@ -54,6 +55,7 @@ const LOADED: Record<string, string> = {
   '/ai': 'ai-setup',
   '/ai/recommendations': 'tile-open',
   '/ai/usage': 'usage-tile-month',
+  '/settings/general': 'preferences-form',
 }
 
 /**
@@ -81,6 +83,28 @@ async function closeOverlay(page: Page): Promise<void> {
   await expect(page.locator(OVERLAY)).toHaveCount(0)
   // Not just on its way out: clicking what opened a menu while it fades out doesn't open it again.
   await expect(page.locator(OVERLAY_CONTENT)).toHaveCount(0)
+}
+
+async function visitPage(page: Page, path: string, shell: AppShell): Promise<void> {
+  const currentPath = new URL(page.url()).pathname
+  if (currentPath === path) return
+
+  if (path.startsWith('/settings/')) {
+    if (!currentPath.startsWith('/settings')) await shell.open('settings')
+    await page
+      .locator(
+        `[data-test="settings-nav"] a[href="${path}"]:visible, ` +
+          `[data-test="settings-chips"] a[href="${path}"]:visible`,
+      )
+      .click()
+  } else if (path.startsWith('/ai/')) {
+    if (currentPath !== '/ai' && !currentPath.startsWith('/ai/')) await shell.open('ai')
+    await page.getByTestId(`ai-tab-${path.slice('/ai/'.length)}`).click()
+  } else {
+    await shell.open(path.slice(1) as keyof typeof TABS)
+  }
+
+  await expect(page).toHaveURL(new URL(path, page.url()).href)
 }
 
 /** Opens each dialog or menu in turn, checks it with axe, and closes it again. */
@@ -142,13 +166,14 @@ test.describe('Accessibility', () => {
         await expectAccessible(page)
       })
 
-      test('every page an admin sees', async ({ page, signInAs }) => {
+      test('every page an admin sees', async ({ page, signInAs, shell }) => {
         test.slow()
         await signInAs('admin')
+        await page.goto('/dashboard')
 
         for (const path of PAGES) {
           await test.step(path, async () => {
-            await page.goto(path)
+            await visitPage(page, path, shell)
             await expectLoaded(page, path)
 
             await expectAccessible(page)

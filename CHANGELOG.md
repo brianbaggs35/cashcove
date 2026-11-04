@@ -8,10 +8,19 @@ and give it a version and a date when you cut a release (see Releases in the
 
 ## 0.3.1
 
+### Fixed
+
+- The admin accessibility end-to-end checks navigate between pages within the app and wait for
+  settings to load before scanning, avoiding cancelled asset requests from repeatedly reloading it.
+- When a Trivy scan fails in CI, its findings are included directly in the failing threshold step
+  and job summary, including package and fixed versions; SARIF uploads and the failure threshold
+  are retained.
+
 ### Dependency Updates
 
-- Updated certifi, dnspython, filelock, msgpack, opentelemetry-api, pyasn1 and pypdf to patched
-  versions to resolve known vulnerabilities.
+- Updated certifi to 2026.10.23, dnspython to 2.9.2, filelock to 4.2.8, msgpack to 1.2.4,
+  opentelemetry-api to 1.45.2, pyasn1 to 0.6.5 and pypdf to 6.21.4 to resolve known
+  vulnerabilities.
 
 ## 0.3.0 - 2026-10-19
 
