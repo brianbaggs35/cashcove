@@ -91,6 +91,9 @@ RUN --mount=type=bind,source=docker/apk-retry.sh,target=/apk-retry.sh \
         nginx-mainline-config openssl setpriv tzdata; \
     sh /apk-retry.sh apk add --no-cache "postgresql-${POSTGRES_VERSION}" \
         "postgresql-${POSTGRES_VERSION}-client" "python-${PYTHON_VERSION}"; \
+    sh /apk-retry.sh apk add --no-cache --upgrade ca-certificates-bundle \
+        libbrotlicommon1 libbrotlidec1 libbrotlienc1 \
+        openssl-4.0-libcrypto openssl-4.0-libssl; \
     rm -f /etc/nginx/conf.d/default.conf
 ENV PATH=/opt/venv/bin:/opt/supervisor/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONDONTWRITEBYTECODE=1 \

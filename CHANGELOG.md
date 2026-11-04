@@ -15,6 +15,8 @@ and give it a version and a date when you cut a release (see Releases in the
 - When a Trivy scan fails in CI, its findings are included directly in the failing threshold step
   and job summary, including package and fixed versions; SARIF uploads and the failure threshold
   are retained.
+- The runtime image upgrades packages after installing its runtime dependencies, so packages
+  inherited from Wolfi receive available security fixes too.
 
 ### Dependency Updates
 
