@@ -203,6 +203,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           format: table
+          output: trivy-source-findings.txt
           exit-code: "0"
         continue-on-error: true
 
@@ -257,7 +258,9 @@ jobs:
           image-ref: cashcove:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          scanners: vuln
           format: table
+          output: trivy-image-findings.txt
           exit-code: "0"
         continue-on-error: true
 
@@ -275,7 +278,20 @@ jobs:
           IMAGE_SCAN_OUTCOME: ${{ steps.trivy-image.outcome }}
         run: |
           if [[ "$SOURCE_SCAN_OUTCOME" != "success" || "$IMAGE_SCAN_OUTCOME" != "success" ]]; then
-            echo "::error::Trivy found high or critical findings, or a scan failed."
+            for scan in source image; do
+              report="trivy-${scan}-findings.txt"
+              if [[ -s "$report" ]]; then
+                echo "::group::Trivy ${scan} scan findings"
+                cat "$report"
+                echo "::endgroup::"
+                {
+                  printf '### Trivy %s scan findings\n\n```text\n' "$scan"
+                  cat "$report"
+                  printf '```\n\n'
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+            done
+            echo "::error::Trivy found high or critical findings, or a scan failed. See the findings above and in the job summary."
             exit 1
           fi
 
@@ -503,7 +519,8 @@ jobs:
             new_code="&sinceLeakPeriod=true"
           fi
           sonar() {
-            curl -sS -H "Authorization: Bearer $SONAR_TOKEN" "https://sonarcloud.io/api/$1&$scope"
+            local endpoint="$1"
+            curl -sS -H "Authorization: Bearer $SONAR_TOKEN" "https://sonarcloud.io/api/$endpoint&$scope"
           }
           # Prints the heading and the lines piped in, or nothing when there are none.
           section() {
