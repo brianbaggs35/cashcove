@@ -6,7 +6,7 @@ What changed in each release of Cashcove, newest first. The format follows
 and give it a version and a date when you cut a release (see Releases in the
 [README](README.md)).
 
-## 0.3.1
+## 0.3.1 - 2026-11-07
 
 ### Fixed
 
