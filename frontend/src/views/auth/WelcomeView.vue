@@ -644,4 +644,15 @@ const nextSteps = [
   border-color: rgba(var(--v-theme-primary), 0.5);
   transform: translateY(-1px);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome__next-item {
+    transition: none;
+  }
+
+  .welcome__next-item:hover,
+  .welcome__next-item:focus-visible {
+    transform: none;
+  }
+}
 </style>
