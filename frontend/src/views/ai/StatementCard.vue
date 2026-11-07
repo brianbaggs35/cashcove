@@ -29,7 +29,9 @@ const failure = computed(() => props.message.error as string)
 // What follows is only worked out once the AI has read it, which is when it's shown.
 const reading = computed(() => props.message.reading as StatementReading)
 const rows = computed(() => reading.value.rows)
-const dated = computed(() => rows.value.flatMap((row) => (row.date ? [row.date] : [])).sort())
+const dated = computed(() =>
+  rows.value.flatMap((row) => (row.date ? [row.date] : [])).sort((a, b) => a.localeCompare(b)),
+)
 const amounts = computed(() => rows.value.flatMap((row) => (row.amount ? [row.amount] : [])))
 const moneyIn = computed(() => sumAmounts(amounts.value.filter((amount) => toCents(amount) > 0)))
 /** What went out, as the amount it was: the label says which way. */

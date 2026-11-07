@@ -146,7 +146,8 @@ function withSign(amount: string): string {
 const balanceHint = computed(() => {
   const target = account.value
   if (!target || target.source !== 'manual' || locked.value || !form.amount) return null
-  const before = props.transaction?.account_id === target.id ? props.transaction.amount : '0'
+  const previousAmount = props.transaction?.amount
+  const before = props.transaction?.account_id === target.id ? (previousAmount ?? '0') : '0'
   const change = toCents(withSign(form.amount)) - toCents(before)
   if (change === 0) return null
   const after = fromCents(toCents(target.balance) + change)
