@@ -131,6 +131,7 @@ function choose(start: string) {
       <div class="hist" data-test="history-chart">
         <fieldset class="hist__group" aria-label="Periods">
           <svg :viewBox="`0 0 ${width} ${HEIGHT}`" class="hist__svg">
+            <title>Income and spending, period by period</title>
             <g class="hist__grid" aria-hidden="true">
               <g v-for="tick in yTicks" :key="tick.value">
                 <line :x1="margin.left" :x2="margin.left + plot.width" :y1="tick.y" :y2="tick.y" />
@@ -144,7 +145,7 @@ function choose(start: string) {
                 :y="margin.top"
                 :width="groupWidth - 4"
                 :height="plot.height"
-                rx="8"
+                rx="8px"
                 class="hist__selected"
               />
               <path v-if="group.income" :d="group.income" class="hist__bar hist__bar--income" />
@@ -323,7 +324,6 @@ function choose(start: string) {
 .hist__hit:focus-visible {
   stroke: rgb(var(--v-theme-primary));
   stroke-width: 3;
-  rx: 8;
 }
 
 .hist__key {

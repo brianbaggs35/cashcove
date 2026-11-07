@@ -68,6 +68,15 @@ describe('BudgetHistoryChart', () => {
     expect(wrapper.find('.hist__svg').attributes('viewBox')).toBe('0 0 340 240')
   })
 
+  it('names the chart graphic', async () => {
+    const { wrapper } = await render()
+
+    expect(wrapper.find('.hist__svg').find('title').text()).toBe(
+      'Income and spending, period by period',
+    )
+    expect(wrapper.find('.hist__svg').attributes('role')).toBeUndefined()
+  })
+
   it('names the periods as a group', async () => {
     const { wrapper } = await render()
 
