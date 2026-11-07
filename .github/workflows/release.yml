@@ -189,8 +189,44 @@ jobs:
           cache-from: type=gha,scope=release
 
       - name: Attest the build provenance
+        id: attest
+        continue-on-error: true
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+      - name: Wait before retrying the attestation
+        if: ${{ !cancelled() && steps.attest.outcome == 'failure' }}
+        run: sleep 10
+
+      - name: Retry the build provenance attestation
+        id: attest-retry
+        if: ${{ !cancelled() && steps.attest.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Wait before the final attestation attempt
+        if: ${{ !cancelled() && steps.attest.outcome == 'failure' && steps.attest-retry.outcome == 'failure' }}
+        run: sleep 30
+
+      - name: Final build provenance attestation attempt
+        id: attest-final
+        if: ${{ !cancelled() && steps.attest.outcome == 'failure' && steps.attest-retry.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Fail if all attestation attempts failed
+        if: ${{ !cancelled() && steps.attest.outcome == 'failure' && steps.attest-retry.outcome == 'failure' && steps.attest-final.outcome == 'failure' }}
+        run: |
+          echo "::error::Build provenance attestation failed after three attempts."
+          exit 1
