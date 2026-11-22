@@ -176,7 +176,7 @@
   {
     "id": "contrast",
     "title": "High contrast",
-    "description": "Black and white with strong colours and borders.",
+    "description": "Black and white with strong colors and borders.",
     "light": {
       "background": "#ffffff",
       "surface": "#ffffff",
