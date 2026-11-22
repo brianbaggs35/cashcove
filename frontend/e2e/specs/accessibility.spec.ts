@@ -736,6 +736,12 @@ test.describe('Accessibility', () => {
         await aiPage.goto('usage')
         await expect(aiPage.modelRow('GPT-6 Luna (OpenAI)')).toBeVisible()
         await expectAccessible(page)
+        // The same use as tokens, a week at a time, and as the table of every number.
+        await aiPage.showGrouping('Week')
+        await aiPage.showMeasure('Tokens')
+        await expectAccessible(page)
+        await page.getByTestId('chart-view-table').click()
+        await expectAccessible(page)
         await aiSettingsPage.goto()
         await expect(aiSettingsPage.status).toHaveText('On · GPT-6 Luna')
         await expectAccessible(page)
@@ -764,6 +770,10 @@ test.describe('Accessibility', () => {
         await page.getByTestId('ai-privacy-toggle').click()
         await expect(page.getByTestId('ai-privacy')).toContainText('What the AI is told')
         await expectAccessible(page)
+        await aiPage.goto('usage')
+        await expectAccessibleOverlays(page, {
+          'clearing the usage': () => aiPage.clearButton.click(),
+        })
         await aiSettingsPage.goto()
         await expectAccessibleOverlays(page, {
           'the models': () => aiSettingsPage.model.locator('.v-field').click(),

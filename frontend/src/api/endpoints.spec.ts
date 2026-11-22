@@ -767,6 +767,7 @@ const aiEndpoints: typeof endpoints = [
     { ids: ['a'] },
   ],
   ['fetchAiUsage', () => ai.fetchAiUsage(30), 'GET', '/ai/usage?days=30', undefined],
+  ['clearAiUsage', () => ai.clearAiUsage(), 'DELETE', '/ai/usage', undefined],
 ]
 
 describe('API endpoints', () => {

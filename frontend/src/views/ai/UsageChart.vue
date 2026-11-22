@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChartColumn } from '@lucide/vue'
-import { computed, shallowRef } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 
 import type { UsageDay } from '@/api/ai'
@@ -9,15 +9,15 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { useHousehold } from '@/composables/useHousehold'
 import { formatCost, formatTokens } from '@/utils/ai'
 import { niceTicks, tipShift } from '@/views/budget/chart'
-import { bucketize } from '@/views/ai/usage'
+import { bucketize, type Grouping, MEASURES, type Measure, measured } from '@/views/ai/usage'
 
 /**
- * What the AI cost, a bar for each day of a short range and for each week or month of a longer
- * one, drawn with Vuetify's own sparkline and readable as a table with every number in it.
+ * What the AI cost, how many tokens it used or how often it was asked: a bar for each day, week
+ * or month, drawn with Vuetify's own sparkline and readable as a table with every number in it.
  */
-const props = defineProps<{ days: UsageDay[] }>()
+const props = defineProps<{ days: UsageDay[]; by: Grouping }>()
 
-const { locale } = useHousehold()
+const { locale, weekStartsOn } = useHousehold()
 const { xs } = useDisplay()
 
 const WIDTH = 480
@@ -26,17 +26,50 @@ const HEIGHT = 180
 const GAP = 4
 const WIDEST = 28
 
-const buckets = computed(() => bucketize(props.days, locale.value))
-const dollars = (micros: number) => micros / 1_000_000
-const values = computed(() => buckets.value.map((bucket) => dollars(bucket.cost_micros)))
-const hasCost = computed(() => values.value.some(Boolean))
+/** What the bars show: what it cost, how many tokens it used, or how many calls it was asked. */
+const measure = ref<Measure>('cost')
+const WORDS: Record<Measure, { title: string; description: string }> = {
+  cost: {
+    title: 'What it cost',
+    description: 'Estimated at the provider’s list price, in US dollars.',
+  },
+  tokens: {
+    title: 'Tokens used',
+    description: 'What the AI was sent and what it sent back, added together.',
+  },
+  calls: {
+    title: 'Calls made',
+    description: 'Every question, review, search and statement the AI was asked is one call.',
+  },
+}
+const words = computed(() => WORDS[measure.value])
+/** Why there is nothing to draw when the AI was used: a cost or a count of tokens can be missing. */
+const missing = computed(() =>
+  measure.value === 'cost'
+    ? 'Nothing here has a cost: the AI is running on your own computer, or on Ollama Cloud, whose price list doesn’t have the model. The tokens and the calls are still counted.'
+    : 'The provider didn’t say how many tokens these calls used.',
+)
+
+const buckets = computed(() => bucketize(props.days, props.by, locale.value, weekStartsOn.value))
+const description = computed(() =>
+  buckets.value.some((bucket) => bucket.partial)
+    ? `${words.value.description} The bars at either end only cover the days in the range, not a whole ${props.by}.`
+    : words.value.description,
+)
+const values = computed(() => buckets.value.map((bucket) => measured(bucket, measure.value)))
+const hasValue = computed(() => values.value.some(Boolean))
 const hasUse = computed(() => buckets.value.some((bucket) => bucket.calls))
-const axis = computed(() => niceTicks(Math.max(...values.value)))
+/** An axis of tokens or calls is at least four high, so a few calls don't climb in fractions. */
+const axis = computed(() => niceTicks(Math.max(...values.value, measure.value === 'cost' ? 0 : 4)))
 const slot = computed(() => WIDTH / buckets.value.length)
+const label = (value: number) =>
+  measure.value === 'cost'
+    ? formatCost(value * 1_000_000, locale.value)
+    : formatTokens(value, locale.value)
 const ticks = computed(() =>
   axis.value.ticks.map((value) => ({
     value,
-    label: formatCost(value * 1_000_000, locale.value),
+    label: label(value),
     height: `${(value / axis.value.max) * 100}%`,
   })),
 )
@@ -57,6 +90,11 @@ const tip = computed(() => {
     style: { left: `${centre * 100}%`, transform: `translateX(${tipShift(centre, 1)})` },
   }
 })
+/** Other bars are not the ones that were being read. */
+watch(buckets, () => {
+  active.value = null
+})
+
 /** What the scrubber says of the bar it is on, which is the latest until another is read. */
 const reading = computed(() => describe(active.value ?? (buckets.value[latest.value] as Bucket)))
 
@@ -86,11 +124,30 @@ function describe(bucket: Bucket): string {
 <template>
   <v-card data-test="usage-chart">
     <v-card-text class="pa-5">
-      <ChartFrame
-        title="What it cost"
-        description="Estimated at the provider’s list price, in US dollars."
-        :rows="buckets.length"
-      >
+      <ChartFrame :title="words.title" :description="description" :rows="buckets.length">
+        <template #legend>
+          <v-btn-toggle
+            v-model="measure"
+            mandatory
+            divided
+            variant="outlined"
+            color="primary"
+            density="comfortable"
+            aria-label="What the bars show"
+            data-test="usage-measure"
+          >
+            <v-btn
+              v-for="item in MEASURES"
+              :key="item.value"
+              :value="item.value"
+              size="small"
+              :data-test="`usage-measure-${item.value}`"
+            >
+              {{ item.title }}
+            </v-btn>
+          </v-btn-toggle>
+        </template>
+
         <template #chart>
           <EmptyState
             v-if="!hasUse"
@@ -100,12 +157,11 @@ function describe(bucket: Bucket): string {
             text="Each question and review shows up here with its cost."
           />
           <p
-            v-else-if="!hasCost"
+            v-else-if="!hasValue"
             class="text-body-medium text-medium-emphasis ma-0"
             data-test="usage-free"
           >
-            Nothing here has a cost: the AI is running on your own computer, or on Ollama Cloud,
-            whose price list doesn’t have the model.
+            {{ missing }}
           </p>
           <div v-else class="usage" :style="{ '--bars': buckets.length }" data-test="usage-plot">
             <div class="usage__axis" aria-hidden="true">
@@ -127,7 +183,7 @@ function describe(bucket: Bucket): string {
                 :max="latest"
                 step="1"
                 :value="position < 0 ? latest : position"
-                aria-label="What it cost, one period at a time"
+                :aria-label="`${words.title}, one ${by} at a time`"
                 :aria-valuetext="reading"
                 data-test="usage-scrub"
                 @focus="arrive"
@@ -192,7 +248,10 @@ function describe(bucket: Bucket): string {
         <template #table>
           <table data-test="usage-days-table">
             <caption>
-              Calls, tokens and cost for each period
+              Calls, tokens and cost for each
+              {{
+                by
+              }}
             </caption>
             <thead>
               <tr>

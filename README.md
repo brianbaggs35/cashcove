@@ -459,7 +459,12 @@ on the Transactions tab, which only picks filters.
   import has the steps it always had.
 - **Usage**: tokens and an estimated cost by day, model and purpose, at each provider's published
   list price (Anthropic, OpenAI and Ollama Cloud; Ollama on your computer costs nothing). It's an
-  estimate: your provider's bill is what counts.
+  estimate: your provider's bill is what counts. Pick how far back to look (7 days to a year) and
+  whether a bar of the chart is a **Day**, a **Week** (starting on the day you chose in Settings >
+  General) or a **Month**, and show the bars as the **Cost**, the **Tokens** or the **Calls**; the
+  **Table** view lists every period with all three. **Clear usage** (admins) forgets every call
+  counted so far, after asking, so the figures start again from zero. Your chats, suggestions and
+  AI settings are kept, and it can't be undone.
 
 Two more things AI does are where the work is, and only show once AI is set up:
 

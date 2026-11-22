@@ -1,5 +1,5 @@
 import type { AutomationDirection, AutomationMatch, AutomationScope } from '@/api/automations'
-import { apiDelete, apiGet, apiPost, apiPut } from '@/api/client'
+import { apiDelete, apiGet, apiPost, apiPut, apiRequest } from '@/api/client'
 import type { ImportFile } from '@/api/imports'
 import type { TransactionSort, TransactionSource } from '@/api/transactions'
 
@@ -391,3 +391,12 @@ export const dismissRecommendations = (ids: string[]) =>
 
 /** The latest `days` days up to today, which the server counts in UTC. */
 export const fetchAiUsage = (days: number) => apiGet<AiUsage>(`/ai/usage?days=${days}`)
+
+/** What was forgotten when the usage was cleared. */
+export interface UsageCleared {
+  /** How many counted calls. */
+  cleared: number
+}
+
+/** Forgets every call counted so far, so the totals start from zero. Chats and reviews stay. */
+export const clearAiUsage = () => apiRequest<UsageCleared>('DELETE', '/ai/usage')

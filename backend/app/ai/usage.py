@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from datetime import UTC
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, func, select
+from sqlalchemy import ColumnElement, Select, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.ai.catalog import find_model, provider_info
@@ -75,6 +75,14 @@ def _totals(db: Session, first: dt.date, last: dt.date) -> UsageTotals:
 def _model_label(provider: AIProvider, model: str) -> str:
     choice = find_model(provider, model)
     return f"{choice.name if choice else model} ({provider_info(provider).name})"
+
+
+def clear_usage(db: Session) -> int:
+    """Forgets every call counted so far, so the totals start again from nothing. Returns how many
+    calls were forgotten. The questions and reviews themselves are kept: only the count goes."""
+    forgotten = len(db.scalars(delete(AIUsage).returning(AIUsage.id)).all())
+    db.commit()
+    return forgotten
 
 
 def usage(db: Session, days: int, today: dt.date) -> UsageOut:

@@ -492,3 +492,9 @@ class UsageOut(BaseModel):
     purposes: list[UsageGroup]
     # Calls with no known cost, because the provider charges by plan (Ollama Cloud).
     unpriced_calls: int
+
+
+class UsageCleared(BaseModel):
+    """How many counted calls were forgotten when the usage was cleared."""
+
+    cleared: int
