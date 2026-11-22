@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Pencil } from '@lucide/vue'
+import { Check, Link2, Pencil } from '@lucide/vue'
 import { computed, ref } from 'vue'
 
 import type { SharedAccount } from '@/api/connections'
@@ -10,7 +10,9 @@ import { negate } from '@/utils/money'
 
 /**
  * The accounts a bank shares, to tick the ones to import and, if wanted, rename them. Unticked
- * ones are left out, and can be imported later.
+ * ones are left out, and can be imported later. One that matches an account kept by hand from
+ * an earlier connection picks that account back up, with its transactions, unless it's set to
+ * import as a new one.
  */
 const props = defineProps<{
   accounts: SharedAccount[]
@@ -20,6 +22,8 @@ const props = defineProps<{
 }>()
 const selected = defineModel<string[]>('selected', { required: true })
 const names = defineModel<Record<string, string>>('names', { required: true })
+/** The accounts to import as new ones even though they match a kept account. */
+const separate = defineModel<string[]>('separate', { default: () => [] })
 
 const editing = ref<string | null>(null)
 
@@ -33,6 +37,19 @@ function toggleAll() {
 /** Hands back a new set of names, so whoever holds them sees the change. */
 function rename(id: string, name: string) {
   names.value = { ...names.value, [id]: name }
+}
+
+/** Chooses between picking a kept account back up and importing the account as a new one. */
+function setSeparate(account: SharedAccount, apart: boolean) {
+  separate.value = apart
+    ? [...separate.value, account.id]
+    : separate.value.filter((id) => id !== account.id)
+  rename(account.id, apart ? account.name : (account.reconnects?.name ?? account.name))
+}
+
+/** "1 transaction" or "214 transactions". */
+function transactionCount(count: number): string {
+  return count === 1 ? '1 transaction' : `${count} transactions`
 }
 
 function details(account: SharedAccount): string {
@@ -130,6 +147,39 @@ const nameRules = [
           @click="editing = editing === account.id ? null : account.id"
         />
       </div>
+      <div
+        v-if="account.reconnects && selected.includes(account.id)"
+        class="account-picker__reconnect"
+        data-test="account-picker-reconnect"
+      >
+        <Link2 :size="16" class="flex-shrink-0 mt-1" aria-hidden="true" />
+        <div>
+          <p v-if="separate.includes(account.id)" class="text-body-small mb-1">
+            Imports as a new account, apart from your kept “{{ account.reconnects.name }}”.
+          </p>
+          <p v-else class="text-body-small mb-1">
+            Picks up your kept account “{{ account.reconnects.name }}” and its
+            {{ transactionCount(account.reconnects.transactions) }}, so nothing is duplicated.
+          </p>
+          <v-btn
+            size="small"
+            variant="text"
+            color="primary"
+            class="px-1"
+            :disabled="disabled"
+            :data-test="
+              separate.includes(account.id) ? 'account-picker-reuse' : 'account-picker-separate'
+            "
+            @click="setSeparate(account, !separate.includes(account.id))"
+          >
+            {{
+              separate.includes(account.id)
+                ? `Pick up “${account.reconnects.name}” instead`
+                : 'Import as a new account instead'
+            }}
+          </v-btn>
+        </div>
+      </div>
       <v-expand-transition>
         <div v-if="editing === account.id" class="account-picker__rename">
           <v-text-field
@@ -168,5 +218,14 @@ const nameRules = [
 
 .account-picker__rename {
   padding: 12px 0 4px 52px;
+}
+
+.account-picker__reconnect {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 2px 52px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(var(--v-theme-primary), 0.08);
 }
 </style>

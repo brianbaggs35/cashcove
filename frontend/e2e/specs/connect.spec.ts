@@ -145,6 +145,58 @@ test.describe('Connecting banks', () => {
   })
 })
 
+test.describe('Reconnecting a bank whose accounts were kept', () => {
+  test.use({ storageState: signInFiles.admin })
+
+  test.beforeEach(async ({ baseline }) => {
+    await baseline.reset()
+  })
+
+  test('picks the kept account back up instead of adding a second one', async ({
+    connectPage,
+    accountsPage,
+    plaid,
+  }) => {
+    await connectPage.goto()
+    await connectPage.remove('Tartan Bank')
+    await connectPage.startConnecting()
+    await plaid.connect('tartan')
+
+    // Tartan's card ends in the same digits as the Rewards Visa that was kept.
+    await expect(connectPage.accountRows).toHaveCount(3)
+    await expect(connectPage.reconnectNote('Rewards Visa')).toContainText(
+      'Picks up your kept account “Rewards Visa”',
+    )
+    await connectPage.chooseAccounts('Rewards Visa')
+    await connectPage.importAccounts()
+    await connectPage.finish()
+
+    await accountsPage.goto()
+    await expect(accountsPage.row('Rewards Visa')).toHaveCount(1)
+    await expect(accountsPage.row('Plaid Credit Card')).toHaveCount(0)
+  })
+
+  test('imports a new account instead when asked to', async ({
+    connectPage,
+    accountsPage,
+    plaid,
+  }) => {
+    await connectPage.goto()
+    await connectPage.remove('Tartan Bank')
+    await connectPage.startConnecting()
+    await plaid.connect('tartan')
+
+    await connectPage.chooseAccounts('Rewards Visa')
+    await connectPage.importAsNewAccount('Rewards Visa')
+    await connectPage.importAccounts()
+    await connectPage.finish()
+
+    await accountsPage.goto()
+    await expect(accountsPage.row('Rewards Visa')).toHaveCount(1)
+    await expect(accountsPage.row('Plaid Credit Card')).toHaveCount(1)
+  })
+})
+
 test.describe('Connected banks for a viewer', () => {
   test.use({ storageState: signInFiles.viewer })
 

@@ -13,6 +13,7 @@ import logging
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.orm import Session
@@ -201,6 +202,47 @@ def _new_from_bank(
     return row
 
 
+Earlier = dict[tuple[dt.date, Decimal], list[Transaction]]
+
+
+def _earlier(db: Session, account: Account, new: Sequence[PlaidTransaction]) -> Earlier:
+    """The account's transactions from a connection that was removed, which the bank's new
+    connection doesn't know by ID: ones the bank sent once, so Cashcove holds them as the
+    bank's, but without their ID. They're listed by day and amount, oldest first, to be matched
+    with what the bank sends again (see app.plaid.accounts.reconnect). Nothing is looked up
+    unless the bank sent something that isn't known yet."""
+    earlier: Earlier = {}
+    if not new:
+        return earlier
+    for row in db.scalars(
+        select(Transaction)
+        .where(
+            Transaction.account_id == account.id,
+            Transaction.source == TransactionSource.PLAID,
+            Transaction.external_id.is_(None),
+        )
+        .order_by(Transaction.created_at, Transaction.id)
+    ):
+        earlier.setdefault((row.date, row.amount), []).append(row)
+    return earlier
+
+
+def _claim(earlier: Earlier, transaction: PlaidTransaction) -> Transaction | None:
+    """The earlier transaction the bank is sending again under its new ID, if there is one:
+    the same day and amount, and the same description when more than one fits. It takes the
+    ID, so it's the bank's from now on, with everything the household changed about it."""
+    options = earlier.get(
+        (transaction.authorized_date or transaction.date, -cents(transaction.amount))
+    )
+    if not options:
+        return None
+    description = _description(transaction)
+    row = next((item for item in options if item.original_description == description), options[0])
+    options.remove(row)
+    row.external_id = transaction.transaction_id
+    return row
+
+
 def _apply_account(
     db: Session,
     account: Account,
@@ -212,9 +254,13 @@ def _apply_account(
     wanted = [item.transaction_id for item in itertools.chain(changes.added, changes.modified)]
     posted = [item.pending_transaction_id for item in changes.added if item.pending_transaction_id]
     rows = _existing(db, account, [*wanted, *posted, *changes.removed])
+    earlier = _earlier(
+        db, account, [item for item in changes.added if item.transaction_id not in rows]
+    )
     for transaction in changes.added:
-        row = rows.get(transaction.transaction_id)
+        row = rows.get(transaction.transaction_id) or _claim(earlier, transaction)
         if row is not None:
+            rows[transaction.transaction_id] = row
             counts.updated += _update_from_bank(row, transaction)
             continue
         row = _new_from_bank(account, transaction, rows, chooser, rules)

@@ -1,13 +1,14 @@
 import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
 
-import { sharedCard, sharedChecking, sharedSavings } from '@/test/connections'
+import { makeShared, sharedCard, sharedChecking, sharedSavings } from '@/test/connections'
 import { seedFinance } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
 import AccountPicker from '@/views/connect/AccountPicker.vue'
 
-async function render() {
+async function render(accounts = [sharedCard, sharedChecking, sharedSavings]) {
   const selected = ref([sharedCard.id])
+  const separate = ref<string[]>([])
   const names = ref<Record<string, string>>({
     [sharedCard.id]: 'Rewards Visa',
     [sharedChecking.id]: 'Tartan Checking',
@@ -16,12 +17,14 @@ async function render() {
   const Host = defineComponent({
     render: () =>
       h(AccountPicker, {
-        accounts: [sharedCard, sharedChecking, sharedSavings],
+        accounts,
         showNew: true,
         selected: selected.value,
         'onUpdate:selected': (value: string[]) => (selected.value = value),
         names: names.value,
         'onUpdate:names': (value: Record<string, string>) => (names.value = value),
+        separate: separate.value,
+        'onUpdate:separate': (value: string[]) => (separate.value = value),
       }),
   })
   const { wrapper } = await mountWithPlugins(Host, {
@@ -29,7 +32,7 @@ async function render() {
     beforeMount: () => seedFinance(),
   })
   const find = (name: string) => wrapper.find(`[data-test="${name}"]`)
-  return { wrapper, find, selected, names }
+  return { wrapper, find, selected, names, separate }
 }
 
 describe('AccountPicker', () => {
@@ -90,5 +93,53 @@ describe('AccountPicker', () => {
     await find('account-picker-name-field').find('input').setValue('x'.repeat(81))
     await flushPromises()
     expect(find('account-picker-name-field').text()).toContain('Keep it under 80 characters')
+  })
+
+  describe('for an account that matches one kept from an earlier connection', () => {
+    const matching = makeShared({
+      ...sharedChecking,
+      reconnects: { id: 'account-bills', name: 'Joint checking', transactions: 214 },
+    })
+
+    it('says it picks the kept account and its transactions back up', async () => {
+      const { find, wrapper } = await render([sharedCard, matching])
+      expect(find('account-picker-reconnect').exists()).toBe(false)
+
+      await wrapper.findAll('[data-test="account-picker-check"] input')[1]!.trigger('click')
+      expect(find('account-picker-reconnect').text()).toContain(
+        'Picks up your kept account “Joint checking” and its 214 transactions',
+      )
+      expect(find('account-picker-separate').text()).toBe('Import as a new account instead')
+    })
+
+    it('says 1 transaction when the kept account has just one', async () => {
+      const single = makeShared({
+        ...matching,
+        reconnects: { id: 'account-bills', name: 'Joint checking', transactions: 1 },
+      })
+      const { find, selected } = await render([single])
+      selected.value = [single.id]
+      await flushPromises()
+      expect(find('account-picker-reconnect').text()).toContain('and its 1 transaction, so')
+    })
+
+    it('imports it as a new account instead, and back again', async () => {
+      const { find, selected, separate, names } = await render([sharedCard, matching])
+      selected.value = [matching.id]
+      await flushPromises()
+
+      await find('account-picker-separate').trigger('click')
+      expect(separate.value).toEqual([matching.id])
+      expect(names.value[matching.id]).toBe('Tartan Checking')
+      expect(find('account-picker-reconnect').text()).toContain(
+        'Imports as a new account, apart from your kept “Joint checking”.',
+      )
+      expect(find('account-picker-reuse').text()).toBe('Pick up “Joint checking” instead')
+
+      await find('account-picker-reuse').trigger('click')
+      expect(separate.value).toEqual([])
+      expect(names.value[matching.id]).toBe('Joint checking')
+      expect(find('account-picker-separate').exists()).toBe(true)
+    })
   })
 })

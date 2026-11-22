@@ -315,6 +315,38 @@ describe('ConnectDialog', () => {
     expect(find('connect-notice').exists()).toBe(false)
   })
 
+  it('picks a kept account back up by its name, or imports a new one when asked to', async () => {
+    const kept = { id: 'account-bills', name: 'Joint checking', transactions: 214 }
+    const connection = makeConnection({
+      accounts: [
+        { ...sharedCard, state: 'new', account_id: null },
+        { ...sharedChecking, state: 'new', reconnects: kept },
+      ],
+      history: 'pending',
+      last_sync: null,
+    })
+    const choose = vi.spyOn(api, 'chooseAccounts').mockResolvedValue(makeConnection())
+    linkWith()
+    vi.spyOn(api, 'createLinkToken').mockResolvedValue(token)
+    vi.spyOn(api, 'createConnection').mockResolvedValue(connection)
+    await render()
+    await press('connect-continue')
+
+    expect(names()).toEqual(['Rewards Visa', 'Joint checking'])
+    expect(find('account-picker-reconnect').text()).toContain('Picks up your kept account')
+    await press('account-picker-separate')
+    expect(names()).toEqual(['Rewards Visa', 'Tartan Checking'])
+    await press('connect-import')
+
+    expect(choose).toHaveBeenCalledWith(tartan.id, {
+      accounts: [
+        { id: sharedCard.id, name: 'Rewards Visa' },
+        { id: sharedChecking.id, name: 'Tartan Checking', separate: true },
+      ],
+      removed: 'keep',
+    })
+  })
+
   it('changes which of a connected bank’s accounts are imported', async () => {
     const connection = makeConnection({ accounts: [sharedCard, sharedChecking, sharedSavings] })
     const saved = makeConnection({ id: connection.id })

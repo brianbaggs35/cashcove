@@ -29,8 +29,11 @@ from app.plaid.accounts import (
     SharedAccount,
     import_account,
     linked_accounts,
+    reconnect,
+    reconnections,
     share,
     shared_accounts,
+    transaction_totals,
     unlink,
 )
 from app.plaid.client import Institution, LinkToken, PlaidClient, PlaidError
@@ -41,6 +44,7 @@ from app.schemas.connections import (
     AccountsChoice,
     AccountState,
     ConnectionOut,
+    KeptAccountOut,
     SharedAccountOut,
     SyncOut,
 )
@@ -71,11 +75,22 @@ def get_connection(db: Session, connection_id: uuid.UUID, *, lock: bool = False)
     return connection
 
 
+def kept_out(kept: Account | None, totals: dict[uuid.UUID, int]) -> KeptAccountOut | None:
+    if kept is None:
+        return None
+    return KeptAccountOut(id=kept.id, name=kept.name, transactions=totals.get(kept.id, 0))
+
+
 def connection_out(
     db: Session, connection: Connection, preferences: Preferences, now: datetime
 ) -> ConnectionOut:
     linked = {account.external_id: account.id for account in linked_accounts(db, connection)}
     skipped = set(connection.skipped_accounts)
+    available = shared_accounts(connection)
+    reconnects = reconnections(
+        db, connection, [item for item in available if item.id not in linked]
+    )
+    totals = transaction_totals(db, reconnects.values())
 
     def state(shared: SharedAccount) -> AccountState:
         if shared.id in linked:
@@ -119,8 +134,9 @@ def connection_out(
                 currency=shared.currency,
                 state=state(shared),
                 account_id=linked.get(shared.id),
+                reconnects=kept_out(reconnects.get(shared.id), totals),
             )
-            for shared in shared_accounts(connection)
+            for shared in available
         ],
         last_sync=SyncOut.model_validate(last) if last else None,
     )
@@ -282,6 +298,13 @@ def choose_accounts(
             "Reload and choose again.",
         )
     linked = {account.external_id: account for account in linked_accounts(db, connection)}
+    # Before the accounts left out are kept by hand, so they aren't picked back up themselves.
+    again = [
+        shared[account_id]
+        for account_id, wanted in chosen.items()
+        if account_id not in linked and not wanted.separate
+    ]
+    reuse = reconnections(db, connection, again)
     for account_id, account in linked.items():
         wanted = chosen.get(account_id or "")
         if wanted is not None:
@@ -293,8 +316,14 @@ def choose_accounts(
             else:
                 unlink(account)
     for account_id, wanted in chosen.items():
-        if account_id not in linked:
-            new = shared[account_id]
+        if account_id in linked:
+            continue
+        new = shared[account_id]
+        kept = reuse.get(account_id)
+        if kept is not None:
+            reconnect(db, kept, connection, new, wanted.name or kept.name, now)
+            log.info("Picked a kept account back up at %s", connection.institution_name)
+        else:
             db.add(import_account(connection, new, wanted.name or new.name, now))
     connection.skipped_accounts = sorted(shared.keys() - chosen.keys())
     db.commit()

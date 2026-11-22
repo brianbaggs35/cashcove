@@ -44,7 +44,7 @@ def connect(client: TestClient, bank: str = "platypus", number: int = 1) -> dict
 
 
 def choose(
-    client: TestClient, connection: dict[str, Any], *accounts: str | dict[str, str], **body: Any
+    client: TestClient, connection: dict[str, Any], *accounts: str | dict[str, Any], **body: Any
 ) -> httpx.Response:
     """Chooses which of the connection's accounts to import, by Plaid ID."""
     chosen = [{"id": account} if isinstance(account, str) else account for account in accounts]
