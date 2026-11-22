@@ -24,7 +24,7 @@ from app.ai.deps import AISessions, AITransport
 from app.ai.errors import AIError
 from app.ai.privacy import Protected
 from app.ai.providers import AIClient, Message
-from app.ai.usage import usage
+from app.ai.usage import clear_usage, usage
 from app.auth.deps import AdminAuth, ApiError, AppSettings, CurrentAuth, Db
 from app.finance.exchange_rates import ExchangeRates
 from app.models import AIConversation, AIProposal, AIProvider, AIPurpose, ReviewSource, User
@@ -58,6 +58,7 @@ from app.schemas.ai import (
     StatementIn,
     StatementOut,
     StatementRowOut,
+    UsageCleared,
     UsageOut,
 )
 from app.schemas.budget import Day
@@ -504,3 +505,10 @@ def read_usage(
 ) -> UsageOut:
     """What the AI was asked and what it cost, a day at a time, by model and by what it was for."""
     return usage(db, days, today or utcnow().date())
+
+
+@router.delete("/usage")
+def clear_ai_usage(auth: AdminAuth, db: Db) -> UsageCleared:
+    """Resets what was counted, for the household that wants to start over. Only the count goes:
+    chats, reviews and suggestions stay."""
+    return UsageCleared(cleared=clear_usage(db))

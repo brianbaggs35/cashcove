@@ -77,8 +77,12 @@ export class AiPage {
   readonly dismissSelected: Locator
   readonly selectConfident: Locator
 
-  /** Usage: the figures, the tables and how the cost is worked out. */
+  /** Usage: the figures, the chart, the tables and how the cost is worked out. */
   readonly range: Locator
+  readonly grouping: Locator
+  readonly measure: Locator
+  readonly clearButton: Locator
+  readonly chartTitle: Locator
   readonly modelRows: Locator
   readonly pricing: Locator
 
@@ -123,6 +127,10 @@ export class AiPage {
     this.selectConfident = page.getByTestId('select-confident')
 
     this.range = page.getByTestId('usage-range')
+    this.grouping = page.getByTestId('usage-grouping')
+    this.measure = page.getByTestId('usage-measure')
+    this.clearButton = page.getByTestId('usage-clear')
+    this.chartTitle = page.getByTestId('usage-chart').getByRole('heading', { level: 3 })
     this.modelRows = page.getByTestId('usage-table').first().getByTestId('usage-row')
     this.pricing = page.getByTestId('usage-pricing')
   }
@@ -293,6 +301,28 @@ export class AiPage {
   /** Shows the figures for another range, e.g. `'7 days'`. */
   async showRange(label: string): Promise<void> {
     await this.range.getByRole('button', { name: exactly(label) }).click()
+  }
+
+  /** Gives the chart a bar for each `'Day'`, `'Week'` or `'Month'`. */
+  async showGrouping(label: 'Day' | 'Week' | 'Month'): Promise<void> {
+    await this.grouping.getByRole('button', { name: exactly(label) }).click()
+  }
+
+  /** Makes the chart show the `'Cost'`, the `'Tokens'` or the `'Calls'`. */
+  async showMeasure(label: 'Cost' | 'Tokens' | 'Calls'): Promise<void> {
+    await this.measure.getByRole('button', { name: exactly(label) }).click()
+  }
+
+  /** The dialog asking whether to clear the usage, while it's open. */
+  get clearDialog(): Locator {
+    return this.page.getByRole('dialog', { name: 'Clear the AI usage?' })
+  }
+
+  /** Asks to clear the usage, and answers the question: clears it, or turns it down. */
+  async clearUsage(confirmed = true): Promise<void> {
+    await this.clearButton.click()
+    await this.clearDialog.getByTestId(confirmed ? 'confirm-accept' : 'confirm-cancel').click()
+    await expect(this.clearDialog).toHaveCount(0)
   }
 
   /** A row of the by-model table, by the model's name. */

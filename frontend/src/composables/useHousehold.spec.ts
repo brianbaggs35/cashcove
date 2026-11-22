@@ -12,11 +12,13 @@ describe('useHousehold', () => {
     const preferences = makePreferences()
     preferences.general.currency = 'EUR'
     preferences.general.locale = 'de-DE'
+    preferences.general.week_starts_on = 'monday'
     const fetch = vi.spyOn(api, 'fetchPreferences').mockResolvedValue(preferences)
 
     const household = useHousehold()
-    // Until then, amounts read as US dollars.
+    // Until then, amounts read as US dollars and weeks start on Sunday.
     expect(household.money('1234.5')).toBe('$1,234.50')
+    expect(household.weekStartsOn.value).toBe('sunday')
     // A second component asking at the same time doesn't load them again.
     useHousehold()
     await vi.waitFor(() => {
@@ -25,6 +27,7 @@ describe('useHousehold', () => {
 
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(household.locale.value).toBe('de-DE')
+    expect(household.weekStartsOn.value).toBe('monday')
     expect(household.money('1234.5')).toBe('1.234,50 €')
     expect(household.money('12', 'USD', 'exceptZero')).toBe('+12,00 $')
   })

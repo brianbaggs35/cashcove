@@ -30,6 +30,13 @@ and give it a version and a date when you cut a release (see Releases in the
   Graphite and High contrast. Each has a light and a dark version, so it works with every theme
   choice, and every color in them keeps WCAG AA contrast for the text on it. The choice is kept on
   the device, like the theme, and is the same for admins and viewers.
+- **Clear the AI usage, and see it by day, week or month.** On the AI tab's Usage page, **Clear
+  usage** (admins) forgets every call counted so far, after asking, so the cost and the tokens
+  start again from zero; chats, suggestions and AI settings are kept. A new **a bar for each**
+  choice shows the chart by **Day**, **Week** or **Month** (weeks start on the day chosen in
+  Settings > General, and a week or month cut by the range says which days it covers), and the chart
+  can now show the **Tokens** or the **Calls** as well as the **Cost**. The API gains
+  `DELETE /api/ai/usage`, for admins only, which says how many calls it forgot.
 
 ### Fixed
 

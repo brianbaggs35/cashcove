@@ -2,8 +2,11 @@ import { flushPromises } from '@vue/test-utils'
 
 import * as api from '@/api/ai'
 import { ApiError } from '@/api/client'
+import { confirmRequest } from '@/composables/confirm'
 import { useAiStore } from '@/stores/ai'
+import { notices } from '@/composables/notify'
 import { aiOff, makeAiSettings, makeProviders, makeUsage } from '@/test/ai'
+import { answer } from '@/test/confirm'
 import { seedFinance } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
 import UsagePanel from '@/views/ai/UsagePanel.vue'
@@ -77,6 +80,163 @@ describe('UsagePanel', () => {
     await flushPromises()
     expect(fetch).toHaveBeenLastCalledWith(365)
     expect(find('usage-tile-range').text()).toContain('Last 365 days')
+  })
+
+  describe('what a bar stands for', () => {
+    const pressed = (find: Awaited<ReturnType<typeof render>>['find']) =>
+      ['day', 'week', 'month'].filter((name) =>
+        find(`usage-grouping-${name}`).classes().includes('v-btn--active'),
+      )
+    const disabled = (find: Awaited<ReturnType<typeof render>>['find']) =>
+      ['day', 'week', 'month'].filter(
+        (name) => find(`usage-grouping-${name}`).attributes('disabled') !== undefined,
+      )
+    const range = async (rendered: Awaited<ReturnType<typeof render>>, index: number) => {
+      await rendered.find('usage-range').findAll('button')[index]!.trigger('click')
+      await flushPromises()
+    }
+
+    it('is a day for a short range, a week for a quarter and a month for a year', async () => {
+      const rendered = await render()
+
+      expect(pressed(rendered.find)).toEqual(['day'])
+      expect(rendered.find('usage-scrub').attributes('aria-label')).toContain('one day at a time')
+      await range(rendered, 2)
+      expect(pressed(rendered.find)).toEqual(['week'])
+      expect(rendered.find('usage-scrub').attributes('aria-label')).toContain('one week at a time')
+      await range(rendered, 3)
+      expect(pressed(rendered.find)).toEqual(['month'])
+    })
+
+    it('can’t be a day when there would be too many days to tell apart', async () => {
+      const rendered = await render()
+
+      expect(disabled(rendered.find)).toEqual([])
+      await range(rendered, 2)
+      expect(disabled(rendered.find)).toEqual(['day'])
+      await range(rendered, 3)
+      expect(disabled(rendered.find)).toEqual(['day'])
+    })
+
+    it('is what was chosen, for as long as the range can be shown that way', async () => {
+      const rendered = await render()
+
+      await rendered.find('usage-grouping-week').trigger('click')
+      expect(pressed(rendered.find)).toEqual(['week'])
+      expect(rendered.find('usage-scrub').attributes('aria-label')).toContain('one week at a time')
+      // A week suits a year too, so it stays.
+      await range(rendered, 3)
+      expect(pressed(rendered.find)).toEqual(['week'])
+
+      await rendered.find('usage-grouping-month').trigger('click')
+      expect(pressed(rendered.find)).toEqual(['month'])
+      await range(rendered, 0)
+      expect(pressed(rendered.find)).toEqual(['month'])
+    })
+
+    it('goes back to what suits the range when what was chosen would be too many bars', async () => {
+      const rendered = await render()
+
+      await rendered.find('usage-grouping-day').trigger('click')
+      await range(rendered, 2)
+      expect(pressed(rendered.find)).toEqual(['week'])
+
+      // And it is a day again where a day can be shown, as it was chosen.
+      await range(rendered, 0)
+      expect(pressed(rendered.find)).toEqual(['day'])
+    })
+
+    it('keeps the figures along the top the same', async () => {
+      const { find } = await render()
+
+      await find('usage-grouping-month').trigger('click')
+
+      expect(find('usage-tile-range').text()).toContain('Last 30 days')
+      expect(find('usage-tile-range').text()).toContain('7 calls')
+    })
+  })
+
+  describe('clearing it', () => {
+    it('asks first, and says what is forgotten and what stays', async () => {
+      const clear = vi.spyOn(api, 'clearAiUsage').mockResolvedValue({ cleared: 12 })
+      const { find } = await render()
+
+      await find('usage-clear').trigger('click')
+
+      expect(confirmRequest.value).toMatchObject({
+        title: 'Clear the AI usage?',
+        confirmText: 'Clear usage',
+        tone: 'error',
+      })
+      expect(confirmRequest.value?.text).toContain('Every call counted so far is forgotten')
+      expect(confirmRequest.value?.text).toContain(
+        'Your chats, suggestions and AI settings are kept',
+      )
+      expect(confirmRequest.value?.text).toContain('can’t be undone')
+      await answer(false)
+      expect(clear).not.toHaveBeenCalled()
+      expect(notices.value).toHaveLength(0)
+    })
+
+    it('clears it when confirmed, says how many calls, and counts again from zero', async () => {
+      const clear = vi.spyOn(api, 'clearAiUsage').mockResolvedValue({ cleared: 12 })
+      const { find, fetch } = await render()
+      fetch.mockResolvedValue(
+        makeUsage({
+          totals: { calls: 0, input_tokens: 0, output_tokens: 0, cost_micros: 0 },
+          this_month: { calls: 0, input_tokens: 0, output_tokens: 0, cost_micros: 0 },
+          models: [],
+          purposes: [],
+        }),
+      )
+
+      await find('usage-clear').trigger('click')
+      await answer(true)
+
+      expect(clear).toHaveBeenCalledTimes(1)
+      expect(notices.value.at(-1)).toMatchObject({
+        text: 'Cleared the usage: 12 calls',
+        tone: 'success',
+      })
+      expect(fetch).toHaveBeenCalledTimes(2)
+      expect(find('usage-tile-month').text()).toContain('0 calls')
+      expect(find('usage-no-models').exists()).toBe(true)
+    })
+
+    it('says so for one call, and for none', async () => {
+      const clear = vi.spyOn(api, 'clearAiUsage').mockResolvedValue({ cleared: 1 })
+      const { find } = await render()
+
+      await find('usage-clear').trigger('click')
+      await answer(true)
+      expect(notices.value.at(-1)?.text).toBe('Cleared the usage: 1 call')
+
+      clear.mockResolvedValue({ cleared: 0 })
+      await find('usage-clear').trigger('click')
+      await answer(true)
+      expect(notices.value.at(-1)).toMatchObject({
+        text: 'There was no usage to clear',
+        tone: 'info',
+      })
+    })
+
+    it('counts in the household’s way', async () => {
+      vi.spyOn(api, 'clearAiUsage').mockResolvedValue({ cleared: 12_345 })
+      const { find } = await render()
+
+      await find('usage-clear').trigger('click')
+      await answer(true)
+
+      expect(notices.value.at(-1)?.text).toBe('Cleared the usage: 12,345 calls')
+    })
+
+    it('has nothing to clear until the usage has loaded', async () => {
+      vi.spyOn(api, 'fetchAiUsage').mockRejectedValue(new Error('Offline'))
+      const { wrapper } = await mountWithPlugins(UsagePanel, { beforeMount: () => seedFinance() })
+      await flushPromises()
+
+      expect(wrapper.find('[data-test="usage-clear"]').attributes('disabled')).toBeDefined()
+    })
   })
 
   it('says how many calls aren’t in the cost, because their model has no price', async () => {

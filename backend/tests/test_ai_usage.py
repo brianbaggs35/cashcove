@@ -5,9 +5,10 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AIProvider, AIPurpose, AIUsage, User
+from app.models import AIConversation, AIProvider, AIPurpose, AIUsage, User
 from tests.helpers import error, sign_in
 
 TODAY = dt.date(2026, 10, 6)
@@ -232,3 +233,57 @@ def test_viewers_cant_see_the_cost(client: TestClient, viewer: User, session: Se
 
 def test_usage_needs_someone_signed_in(client: TestClient) -> None:
     assert error(client.get("/api/ai/usage")) == "not_signed_in"
+
+
+def test_clearing_the_usage_starts_the_count_again(
+    admin_client: TestClient, session: Session
+) -> None:
+    add_usage(session, at(TODAY), cost=200)
+    add_usage(session, at(TODAY - dt.timedelta(days=40)), purpose=AIPurpose.REVIEW, cost=100)
+    add_usage(session, at(TODAY - dt.timedelta(days=400)), cost=None)
+
+    response = admin_client.delete("/api/ai/usage")
+
+    assert response.status_code == 200
+    assert response.json() == {"cleared": 3}
+    assert session.scalar(select(func.count()).select_from(AIUsage)) == 0
+    result = usage(admin_client, days=366)
+    assert result["totals"]["calls"] == 0
+    assert result["this_month"]["calls"] == 0
+    assert (result["models"], result["purposes"], result["unpriced_calls"]) == ([], [], 0)
+    # What is used from now on is counted from zero.
+    add_usage(session, at(TODAY), cost=7)
+    assert usage(admin_client)["totals"] == {
+        "calls": 1,
+        "input_tokens": 1000,
+        "output_tokens": 200,
+        "cost_micros": 7,
+    }
+
+
+def test_clearing_nothing_says_so(admin_client: TestClient) -> None:
+    assert admin_client.delete("/api/ai/usage").json() == {"cleared": 0}
+
+
+def test_clearing_the_usage_keeps_what_the_ai_was_asked(
+    admin_client: TestClient, session: Session, admin: User
+) -> None:
+    add_usage(session, at(TODAY))
+    session.add(AIConversation(user_id=admin.id, title="How are my budgets?", messages=[]))
+    session.commit()
+
+    admin_client.delete("/api/ai/usage")
+
+    assert session.scalar(select(func.count()).select_from(AIConversation)) == 1
+
+
+def test_viewers_cant_clear_the_usage(client: TestClient, viewer: User, session: Session) -> None:
+    add_usage(session, at(TODAY))
+    sign_in(client, viewer.email)
+
+    assert error(client.delete("/api/ai/usage")) == "admin_only"
+    assert session.scalar(select(func.count()).select_from(AIUsage)) == 1
+
+
+def test_clearing_the_usage_needs_someone_signed_in(client: TestClient) -> None:
+    assert error(client.delete("/api/ai/usage")) == "not_signed_in"

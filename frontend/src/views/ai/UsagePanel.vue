@@ -1,24 +1,36 @@
 <script setup lang="ts">
-import { Coins, ExternalLink, Gauge, Hash, MessageSquare } from '@lucide/vue'
+import { Coins, ExternalLink, Gauge, Hash, MessageSquare, RotateCcw } from '@lucide/vue'
 import { computed, onMounted, ref, watch } from 'vue'
 
-import { fetchAiUsage, type AiUsage } from '@/api/ai'
+import { clearAiUsage, fetchAiUsage, type AiUsage } from '@/api/ai'
 import { errorMessage } from '@/api/client'
+import { confirmAndRun } from '@/composables/confirm'
+import { notify } from '@/composables/notify'
 import { useHousehold } from '@/composables/useHousehold'
 import { useAiStore } from '@/stores/ai'
 import { formatCost, formatTokens, PRICING_PAGES, priceLine } from '@/utils/ai'
+import { formatCount } from '@/utils/format'
 import UsageChart from '@/views/ai/UsageChart.vue'
 import UsageTable from '@/views/ai/UsageTable.vue'
-import { RANGES } from '@/views/ai/usage'
+import { canGroup, defaultGrouping, GROUPINGS, type Grouping, RANGES } from '@/views/ai/usage'
 
 /**
  * What the AI has been used for and what it cost: tokens and an estimate of the cost at each
- * provider's list price, by day, by model and by what it was for.
+ * provider's list price, by day, week or month, by model and by what it was for. An admin can
+ * clear it to start counting again.
  */
 const ai = useAiStore()
 const { locale } = useHousehold()
 
 const days = ref<(typeof RANGES)[number]['value']>(30)
+/** What a bar stands for, once someone has chosen; until then it suits the range. */
+const chosen = ref<Grouping | null>(null)
+/** The choice, unless the range has too many of them to tell apart (a bar for each day of a year). */
+const grouping = computed(() =>
+  chosen.value !== null && canGroup(days.value, chosen.value)
+    ? chosen.value
+    : defaultGrouping(days.value),
+)
 const usage = ref<AiUsage | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -33,6 +45,25 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+/** Forgets every call counted so far, after asking, and starts the figures again from zero. */
+async function clear() {
+  const done = await confirmAndRun(
+    {
+      title: 'Clear the AI usage?',
+      text: 'Every call counted so far is forgotten, so the cost, the tokens and the charts start again from zero. Your chats, suggestions and AI settings are kept, and so is what your provider has billed you. This can’t be undone.',
+      confirmText: 'Clear usage',
+      tone: 'error',
+      icon: RotateCcw,
+    },
+    clearAiUsage,
+  )
+  if (!done) return
+  const { cleared } = done.result
+  if (cleared === 0) notify('There was no usage to clear', 'info')
+  else notify(`Cleared the usage: ${formatCount(cleared, 'call', locale.value)}`)
+  await load()
 }
 
 /** The figures along the top. */
@@ -127,6 +158,41 @@ onMounted(() => {
           {{ item.title }}
         </v-btn>
       </v-btn-toggle>
+      <div class="text-label-large">a bar for each</div>
+      <v-btn-toggle
+        :model-value="grouping"
+        mandatory
+        divided
+        variant="outlined"
+        color="primary"
+        density="comfortable"
+        aria-label="What a bar stands for"
+        data-test="usage-grouping"
+        @update:model-value="chosen = $event"
+      >
+        <v-btn
+          v-for="item in GROUPINGS"
+          :key="item.value"
+          :value="item.value"
+          :disabled="!canGroup(days, item.value)"
+          size="small"
+          :data-test="`usage-grouping-${item.value}`"
+        >
+          {{ item.title }}
+        </v-btn>
+      </v-btn-toggle>
+      <v-spacer />
+      <v-btn
+        variant="tonal"
+        color="error"
+        size="small"
+        :prepend-icon="RotateCcw"
+        :disabled="!usage"
+        data-test="usage-clear"
+        @click="clear()"
+      >
+        Clear usage
+      </v-btn>
     </div>
 
     <v-skeleton-loader
@@ -165,7 +231,7 @@ onMounted(() => {
         provider’s price list doesn’t have their model. Their tokens are counted.
       </v-alert>
 
-      <div class="mb-6"><UsageChart :days="usage.days" /></div>
+      <div class="mb-6"><UsageChart :days="usage.days" :by="grouping" /></div>
 
       <v-row>
         <v-col cols="12" lg="6">
