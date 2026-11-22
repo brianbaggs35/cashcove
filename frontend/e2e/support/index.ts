@@ -67,6 +67,7 @@ export {
   type BudgetPeriodChoice,
   type LinkTab,
 } from './pages/budget-page'
+export { AppearancePage, type ThemeMode } from './pages/appearance-page'
 export { CategoriesPage } from './pages/categories-page'
 export { ConnectPage, type ConnectionAction } from './pages/connect-page'
 export { DashboardPage, usd, type MonthFigure } from './pages/dashboard-page'
