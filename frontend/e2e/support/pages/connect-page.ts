@@ -103,6 +103,19 @@ export class ConnectPage {
     })
   }
 
+  /**
+   * What the wizard says about an account that matches one kept by hand from an earlier
+   * connection: that importing it picks that account back up, with its transactions.
+   */
+  reconnectNote(name: string): Locator {
+    return this.accountRow(name).getByTestId('account-picker-reconnect')
+  }
+
+  /** Has an account that would pick a kept one back up import as a new account instead. */
+  async importAsNewAccount(name: string): Promise<void> {
+    await this.reconnectNote(name).getByTestId('account-picker-separate').click()
+  }
+
   /** Ticks exactly these accounts in the wizard, by the names it shows. */
   async chooseAccounts(...names: string[]): Promise<void> {
     await expect(this.accountRows.first()).toBeVisible()

@@ -12,6 +12,7 @@ export function makeShared(changes: Partial<SharedAccount> = {}): SharedAccount 
     currency: 'USD',
     state: 'imported',
     account_id: 'account-visa',
+    reconnects: null,
     ...changes,
   }
 }

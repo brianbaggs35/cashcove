@@ -381,8 +381,9 @@ Nothing in the tests reaches Plaid. The test server talks to a stand-in for Plai
 (`backend/e2e/plaid.py`) that knows the baseline's two banks and two more to connect, First
 Platypus Bank (`'platypus'`) and First Gingham Credit Union (`'gingham'`), each sharing Plaid
 Checking, Plaid Saving and Plaid Credit Card with a couple of months of transactions. Every
-test's browser gets a stand-in for Plaid Link too: a plain window listing those two banks, or
-when Link opens to reconnect a bank, a **Continue** button. The `plaid` fixture drives it:
+test's browser gets a stand-in for Plaid Link too: a plain window listing those two banks and
+Tartan Bank (`'tartan'`, for connecting it again after the baseline's connection is removed),
+or when Link opens to reconnect a bank, a **Continue** button. The `plaid` fixture drives it:
 
 ```ts
 test('an admin connects a bank', async ({ connectPage, plaid }) => {
@@ -408,6 +409,11 @@ test('an admin connects a bank', async ({ connectPage, plaid }) => {
   out; `category` is one of Plaid's, such as `FOOD_AND_DRINK_RESTAURANT`.
 - `plaid.failSyncs(baseline.connections.tartan.id, 'ITEM_LOGIN_REQUIRED')` makes a bank's syncs
   fail with that error until it's reconnected, or cleared with `null`.
+
+- Connecting a bank again after removing it with its accounts kept picks those accounts back
+  up when they match (the baseline's Rewards Visa ends in the same digits as Tartan's Plaid
+  Credit Card): `connectPage.reconnectNote(name)` is what the wizard says about one, and
+  `connectPage.importAsNewAccount(name)` imports it as a new account instead.
 
 `specs/connect.spec.ts` has more examples. Resets put the stand-in back to the baseline's
 banks.

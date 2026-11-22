@@ -58,8 +58,12 @@ class AccountChoice(BaseModel):
 
     # Plaid's account_id for one of the accounts the bank shares.
     id: Annotated[str, StringConstraints(min_length=1, max_length=255)]
-    # What to call it once it's imported. The bank's name for it when left out.
+    # What to call it once it's imported. The bank's name for it when left out, or the name of
+    # the account it picks back up (see SharedAccountOut.reconnects).
     name: Name | None = None
+    # Import it as a new account even when it matches one the household kept after removing
+    # the bank before, which it would pick back up otherwise.
+    separate: bool = False
 
 
 class AccountsChoice(BaseModel):
@@ -80,6 +84,14 @@ class SyncRequest(BaseModel):
     reason: Literal["manual", "reconnected"] = "manual"
 
 
+class KeptAccountOut(BaseModel):
+    """An account the household kept up to date by hand after removing its bank."""
+
+    id: uuid.UUID
+    name: str
+    transactions: int
+
+
 class SharedAccountOut(BaseModel):
     """An account the bank shares, and whether it's imported."""
 
@@ -95,6 +107,9 @@ class SharedAccountOut(BaseModel):
     state: AccountState
     # The Cashcove account it's imported as.
     account_id: uuid.UUID | None
+    # For one that isn't imported: the account kept from an earlier connection that importing
+    # it picks back up, with its history, rather than starting a second account.
+    reconnects: KeptAccountOut | None = None
 
 
 class SyncOut(BaseModel):

@@ -8,6 +8,19 @@ and give it a version and a date when you cut a release (see Releases in the
 
 ## 0.3.2
 
+### Fixed
+
+- **Connecting a bank again no longer duplicates the accounts you kept.** When you remove a bank and
+  keep its accounts and transactions, then connect it again, each account the bank shares that
+  matches one of those (the same kind of account ending in the same digits, or with the same name
+  when the bank shares none) picks the kept account back up instead of adding a second one. The
+  wizard says so on each one (**Picks up your kept account "Joint checking" and its 214
+  transactions**) and offers **Import as a new account instead**. The kept account keeps its name,
+  and what the bank sends again is matched with the transactions already in it by day and amount
+  (and by what the bank calls it, when several fit), so nothing is imported twice and the
+  categories, payees and notes you chose stay. Closed accounts and accounts at another bank are
+  never picked up.
+
 ### Changed
 
 - Cashcove is now version 0.3.2: **Settings > System** reports it for a build from source, and the

@@ -1,14 +1,23 @@
 """How the accounts a bank shares through Plaid become Cashcove accounts."""
 
 import re
+import uuid
+from collections.abc import Iterable
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.models import Account, AccountSource, AccountType, Connection
+from app.models import (
+    Account,
+    AccountSource,
+    AccountType,
+    Connection,
+    Transaction,
+    TransactionSource,
+)
 from app.models.base import CENT
 from app.plaid.client import PlaidAccount
 
@@ -139,3 +148,97 @@ def unlink(account: Account) -> None:
     account.external_id = None
     account.sync_cursor = None
     account.available_balance = None
+
+
+def _alike(kept: Account, shared: SharedAccount) -> bool:
+    """Whether the bank calls the account what the household's account was called, by the
+    bank's own name for it or by its official one."""
+    names = {name.casefold() for name in (kept.name, kept.official_name) if name}
+    return bool(names & {name.casefold() for name in (shared.name, shared.official_name) if name})
+
+
+def _is_same(kept: Account, shared: SharedAccount) -> bool:
+    """Whether a kept account is the one the bank shares: the same kind of account, ending in
+    the same digits. A bank that shares no digits is matched by name instead."""
+    if kept.type != shared.type:
+        return False
+    if shared.mask:
+        return kept.mask == shared.mask
+    return not kept.mask and _alike(kept, shared)
+
+
+def kept_accounts(db: Session, connection: Connection) -> list[Account]:
+    """The open accounts at the connection's bank that the household keeps up to date by hand,
+    oldest first: the ones kept when it was disconnected before."""
+    return list(
+        db.scalars(
+            select(Account)
+            .where(
+                Account.source == AccountSource.MANUAL,
+                Account.closed_at.is_(None),
+                func.lower(Account.institution) == connection.institution_name[:80].lower(),
+            )
+            .order_by(Account.created_at, Account.id)
+        )
+    )
+
+
+def reconnections(
+    db: Session, connection: Connection, shared: Iterable[SharedAccount]
+) -> dict[str, Account]:
+    """The account kept from an earlier connection that importing each shared account picks
+    back up, by the shared account's ID, rather than starting a second account for it. A kept
+    account is picked up by at most one."""
+    kept = kept_accounts(db, connection)
+    found: dict[str, Account] = {}
+    for account in shared:
+        options = [item for item in kept if _is_same(item, account)]
+        if options:
+            # The oldest of the ones the bank names alike, or of all of them.
+            best = min(options, key=lambda item: not _alike(item, account))
+            found[account.id] = best
+            kept.remove(best)
+    return found
+
+
+def transaction_totals(db: Session, accounts: Iterable[Account]) -> dict[uuid.UUID, int]:
+    """How many transactions each account has."""
+    ids = [account.id for account in accounts]
+    if not ids:
+        return {}
+    return dict(
+        db.execute(
+            select(Transaction.account_id, func.count())
+            .where(Transaction.account_id.in_(ids))
+            .group_by(Transaction.account_id)
+        ).all()
+    )
+
+
+def reconnect(
+    db: Session,
+    account: Account,
+    connection: Connection,
+    shared: SharedAccount,
+    name: str,
+    now: datetime,
+) -> None:
+    """Hands a kept account back to the connection, with its whole history, instead of
+    importing the shared account as a second one.
+
+    The bank's own IDs for the transactions it already holds belong to the connection that was
+    removed, so they're let go: the next sync matches what the bank sends against them by day
+    and amount, and keeps what the household changed about them (see app.plaid.sync).
+    """
+    account.name = name
+    account.institution = connection.institution_name[:80]
+    account.source = AccountSource.PLAID
+    account.connection_id = connection.id
+    account.external_id = shared.id
+    account.sync_cursor = None
+    refresh(account, shared, now)
+    db.execute(
+        update(Transaction)
+        .where(Transaction.account_id == account.id, Transaction.source == TransactionSource.PLAID)
+        .values(external_id=None)
+    )

@@ -15,6 +15,13 @@ export type SharedAccountState = 'imported' | 'skipped' | 'new'
 
 export type HistoryDays = (typeof HISTORY_DAYS)[number]
 
+/** An account kept up to date by hand after its bank was removed, which reconnecting picks up. */
+export interface KeptAccount {
+  id: string
+  name: string
+  transactions: number
+}
+
 /** An account the bank shares through Plaid. */
 export interface SharedAccount {
   /** Plaid's ID for it. */
@@ -30,6 +37,11 @@ export interface SharedAccount {
   state: SharedAccountState
   /** The Cashcove account it's imported as. */
   account_id: string | null
+  /**
+   * For one that isn't imported: the account kept from an earlier connection that importing it
+   * picks back up, with its history, rather than starting a second one.
+   */
+  reconnects: KeptAccount | null
 }
 
 export interface ConnectionSync {
@@ -80,6 +92,8 @@ export interface AccountChoice {
   id: string
   /** What to call it once imported; the bank's name when left out. */
   name?: string
+  /** Import it as a new account even when it would pick back up a kept one. */
+  separate?: boolean
 }
 
 export interface AccountsChoice {

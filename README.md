@@ -129,6 +129,17 @@ app secret key. The browser only loads Plaid Link from `cdn.plaid.com`, which th
 Security Policy allows along with the matching Plaid API host. Removing a bank in Cashcove
 also removes it at Plaid, so Plaid stops billing for it.
 
+When you remove a bank you can keep its accounts, with all their transactions, to update by
+hand. Connecting the same bank again picks those accounts back up instead of adding second ones:
+an account the bank shares that is the same kind of account, ending in the same digits (or, when
+the bank shares none, with the same name) as a kept account at that bank is shown as **Picks up
+your kept account**, with how many transactions it has. Importing it hands the kept account back
+to the bank, keeping its name, and what the bank sends again is matched with the transactions
+already there by day and amount, so nothing is imported twice and the categories, payees and
+notes you chose stay. Transactions older than what the bank shares stay as they are. Choose
+**Import as a new account instead** on an account to keep the old one apart. Closed accounts are
+never picked up.
+
 ### Accounts in other currencies
 
 Budgets are in the currency chosen in **Settings > General**. Transactions from accounts in any

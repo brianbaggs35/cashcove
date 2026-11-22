@@ -64,6 +64,7 @@ const institution = ref<string | null>(null)
 const current = ref<Connection | null>(null)
 const selected = ref<string[]>([])
 const names = ref<Record<string, string>>({})
+const separate = ref<string[]>([])
 const removed = ref<'keep' | 'delete'>('keep')
 const saving = ref(false)
 const valid = ref(true)
@@ -164,12 +165,14 @@ function pick(from: Connection) {
   current.value = from
   const already = from.accounts.filter((account) => account.state === 'imported')
   selected.value = (choosing.value ? already : from.accounts).map((account) => account.id)
+  // An account picks up the kept one it matches by its name, unless it's set to import apart.
   names.value = Object.fromEntries(
     from.accounts.map((account) => [
       account.id,
-      accounts.find(account.account_id)?.name ?? account.name,
+      accounts.find(account.account_id)?.name ?? account.reconnects?.name ?? account.name,
     ]),
   )
+  separate.value = []
   removed.value = 'keep'
   notice.value = null
 }
@@ -214,7 +217,11 @@ async function save() {
   if (!choosing.value) step.value = 'importing'
   try {
     const updated = await chooseAccounts(target.id, {
-      accounts: selected.value.map((id) => ({ id, name: names.value[id]?.trim() })),
+      accounts: selected.value.map((id) => ({
+        id,
+        name: names.value[id]?.trim(),
+        ...(separate.value.includes(id) ? { separate: true } : {}),
+      })),
       removed: removed.value,
     })
     store.put(updated)
@@ -379,6 +386,7 @@ function owed(type: Connection['accounts'][number]['type'], balance: string) {
       <AccountPicker
         v-model:selected="selected"
         v-model:names="names"
+        v-model:separate="separate"
         :accounts="current.accounts"
         :show-new="choosing"
         :disabled="saving"

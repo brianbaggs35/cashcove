@@ -19,12 +19,14 @@ const BANKS = {
   fidelity: { name: 'Fidelity', institutionId: 'ins_12' },
 }
 
-/** The banks Link offers to connect: the baseline hasn't connected them yet. Each shares a
+/** The banks Link offers to connect. Platypus and Gingham aren't in the baseline; Tartan is,
+ * so it's there to connect again after the baseline's connection is removed. Each shares a
  * checking account, a savings account and a credit card, with a couple of months of
  * transactions. */
 export const NEW_BANKS = {
   platypus: BANKS.platypus.name,
   gingham: BANKS.gingham.name,
+  tartan: BANKS.tartan.name,
 } as const
 
 export type NewBank = keyof typeof NEW_BANKS
@@ -154,7 +156,7 @@ function standIn(banks: Banks): void {
         )
       } else {
         prompt.textContent = 'Choose your bank.'
-        for (const key of ['platypus', 'gingham'] as const) {
+        for (const key of ['platypus', 'gingham', 'tartan'] as const) {
           choices.push(
             button(banks[key].name, `plaid-link-bank-${key}`, () => {
               choose(key)

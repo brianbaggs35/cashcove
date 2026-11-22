@@ -19,6 +19,7 @@ from app.finance.categories import add_suggested_categories
 from app.models import (
     Account,
     AccountSource,
+    AccountType,
     AuditEvent,
     Category,
     Connection,
@@ -1139,3 +1140,233 @@ def test_a_category_chosen_for_a_pending_transaction_is_still_chosen_when_it_pos
         restaurants,
         True,
     )
+
+
+# ---- Reconnecting a bank whose accounts were kept ----------------------------------------
+
+
+def removed_keeping_accounts(client: TestClient, session: Session) -> dict[str, Account]:
+    """First Platypus Bank, imported and then removed with its accounts kept by hand."""
+    connection = imported(client)
+    kept = by_name(accounts_of(session, connection["id"]))
+    assert client.delete(f"/api/connections/{connection['id']}").status_code == 204
+    session.expire_all()
+    return kept
+
+
+def shared_by_name(connection: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {account["name"]: account for account in connection["accounts"]}
+
+
+def test_reconnecting_a_bank_picks_its_kept_accounts_back_up(
+    admin_client: TestClient, session: Session
+) -> None:
+    kept = removed_keeping_accounts(admin_client, session)
+    checking, card = kept["Plaid Checking"], kept["Plaid Credit Card"]
+    # What the household did to a transaction while the account was kept by hand.
+    groceries = {item.payee: item for item in transactions_in(session, checking)}["Whole Foods"]
+    groceries.notes = "Weekly shop"
+    session.commit()
+
+    connection = connect(admin_client, "platypus", 2)
+
+    shared = shared_by_name(connection)
+    assert shared["Plaid Checking"]["state"] == "new"
+    assert shared["Plaid Checking"]["reconnects"] == {
+        "id": str(checking.id),
+        "name": "Plaid Checking",
+        "transactions": 8,
+    }
+    assert shared["Plaid Credit Card"]["reconnects"]["transactions"] == 7
+    # Never imported, so there's nothing to pick back up.
+    assert shared["Plaid Saving"]["reconnects"] is None
+    ids = plaid_ids(connection)
+
+    response = choose(admin_client, connection, ids["Plaid Checking"], ids["Plaid Credit Card"])
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    # No second account, and no second copy of any transaction.
+    assert session.scalar(select(func.count()).select_from(Account)) == 2
+    assert result["last_sync"]["added"] == 0
+    for name, before in ((checking.name, 8), (card.name, 7)):
+        account = by_name(accounts_of(session, connection["id"]))[name]
+        assert account.id == {"Plaid Checking": checking.id, "Plaid Credit Card": card.id}[name]
+        assert (account.source, account.external_id) == (AccountSource.PLAID, ids[name])
+        assert len(transactions_in(session, account)) == before
+        assert all(
+            item.external_id and item.external_id.startswith(f"{ids[name]}-tx-")
+            for item in transactions_in(session, account)
+        )
+    assert by_name(accounts_of(session, connection["id"]))["Plaid Checking"].balance == Decimal(
+        "110.00"
+    )
+    states = {account["name"]: account["state"] for account in result["accounts"]}
+    assert states == {
+        "Plaid Checking": "imported",
+        "Plaid Saving": "skipped",
+        "Plaid Credit Card": "imported",
+    }
+    assert all(account["reconnects"] is None for account in result["accounts"])
+    session.expire_all()
+    assert session.get(Transaction, groceries.id).notes == "Weekly shop"  # type: ignore[union-attr]
+
+
+def test_a_kept_account_keeps_the_name_it_was_given_unless_renamed(
+    admin_client: TestClient, session: Session
+) -> None:
+    kept = removed_keeping_accounts(admin_client, session)
+    kept["Plaid Checking"].name = "Joint checking"
+    session.commit()
+    connection = connect(admin_client, "platypus", 2)
+    ids = plaid_ids(connection)
+    assert shared_by_name(connection)["Plaid Checking"]["reconnects"]["name"] == "Joint checking"
+
+    assert choose(admin_client, connection, ids["Plaid Checking"]).status_code == 200
+    session.expire_all()
+    assert session.get(Account, kept["Plaid Checking"].id).name == "Joint checking"  # type: ignore[union-attr]
+
+    named = {"id": ids["Plaid Credit Card"], "name": "Household card"}
+    assert choose(admin_client, connection, ids["Plaid Checking"], named).status_code == 200
+    session.expire_all()
+    assert session.get(Account, kept["Plaid Credit Card"].id).name == "Household card"  # type: ignore[union-attr]
+
+
+def test_what_a_removed_bank_sent_before_the_history_it_shares_stays_unmatched(
+    admin_client: TestClient, session: Session, fake: FakePlaid
+) -> None:
+    kept = removed_keeping_accounts(admin_client, session)
+    checking = kept["Plaid Checking"]
+    oldest = utcnow().date() - dt.timedelta(days=900)
+    session.add(
+        Transaction(
+            account_id=checking.id,
+            date=oldest,
+            amount=Decimal("-12.00"),
+            payee="Old Hardware Store",
+            source=TransactionSource.PLAID,
+            external_id="old-item-tx-1",
+        )
+    )
+    session.commit()
+    connection = connect(admin_client, "platypus", 2)
+    ids = plaid_ids(connection)
+
+    choose(admin_client, connection, ids["Plaid Checking"])
+
+    history = transactions_in(session, checking)
+    assert len(history) == 9
+    assert {item.payee: item for item in history}["Old Hardware Store"].external_id is None
+    # The bank's next sync still adds what's new, and leaves that one alone.
+    fake.add_transaction(
+        "platypus", ids["Plaid Checking"], "9.99", "Corner Market", "FOOD_AND_DRINK_GROCERIES"
+    )
+    result = sync(admin_client, connection)
+    assert result["last_sync"]["added"] == 1
+    assert len(transactions_in(session, checking)) == 10
+    assert {item.payee: item for item in transactions_in(session, checking)}[
+        "Old Hardware Store"
+    ].external_id is None
+
+
+def test_the_same_day_and_amount_is_matched_by_what_the_bank_called_it(
+    admin_client: TestClient, session: Session
+) -> None:
+    kept = removed_keeping_accounts(admin_client, session)
+    checking = kept["Plaid Checking"]
+    groceries = {item.payee: item for item in transactions_in(session, checking)}["Whole Foods"]
+    twin = Transaction(
+        account_id=checking.id,
+        date=groceries.date,
+        amount=groceries.amount,
+        payee="Twin",
+        original_description="SOMETHING ELSE",
+        source=TransactionSource.PLAID,
+        external_id="old-item-tx-2",
+        created_at=groceries.created_at - dt.timedelta(days=1),
+    )
+    session.add(twin)
+    session.commit()
+    connection = connect(admin_client, "platypus", 2)
+
+    choose(admin_client, connection, plaid_ids(connection)["Plaid Checking"])
+
+    session.expire_all()
+    assert session.get(Transaction, groceries.id).external_id is not None  # type: ignore[union-attr]
+    assert session.get(Transaction, twin.id).external_id is None  # type: ignore[union-attr]
+    assert len(transactions_in(session, checking)) == 9
+
+
+def test_an_account_can_be_imported_as_a_new_one_instead(
+    admin_client: TestClient, session: Session
+) -> None:
+    kept = removed_keeping_accounts(admin_client, session)
+    checking = kept["Plaid Checking"]
+    connection = connect(admin_client, "platypus", 2)
+    ids = plaid_ids(connection)
+
+    response = choose(
+        admin_client,
+        connection,
+        {"id": ids["Plaid Checking"], "separate": True},
+        ids["Plaid Credit Card"],
+    )
+
+    assert response.status_code == 200, response.text
+    session.expire_all()
+    assert session.scalar(select(func.count()).select_from(Account)) == 3
+    untouched = session.get(Account, checking.id)
+    assert untouched is not None
+    assert (untouched.source, untouched.connection_id) == (AccountSource.MANUAL, None)
+    assert len(transactions_in(session, untouched)) == 8
+    imported_names = {account.name for account in accounts_of(session, connection["id"])}
+    assert imported_names == {"Plaid Checking", "Plaid Credit Card"}
+    new = by_name(accounts_of(session, connection["id"]))["Plaid Checking"]
+    assert new.id != checking.id
+    assert len(transactions_in(session, new)) == 8
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("closed_at", dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
+        ("institution", "Another Bank"),
+        ("mask", "9999"),
+        ("type", AccountType.SAVINGS),
+    ],
+    ids=["closed", "another bank", "other digits", "other kind"],
+)
+def test_an_account_that_isnt_the_same_one_is_imported_as_new(
+    admin_client: TestClient, session: Session, field: str, value: object
+) -> None:
+    kept = removed_keeping_accounts(admin_client, session)
+    setattr(kept["Plaid Checking"], field, value)
+    session.commit()
+    connection = connect(admin_client, "platypus", 2)
+    ids = plaid_ids(connection)
+    assert shared_by_name(connection)["Plaid Checking"]["reconnects"] is None
+
+    choose(admin_client, connection, ids["Plaid Checking"])
+
+    session.expire_all()
+    assert session.scalar(select(func.count()).select_from(Account)) == 3
+    new = by_name(accounts_of(session, connection["id"]))["Plaid Checking"]
+    assert len(transactions_in(session, new)) == 8
+
+
+def test_removing_accounts_while_choosing_doesnt_hand_them_to_the_new_ones(
+    admin_client: TestClient, session: Session
+) -> None:
+    kept = removed_keeping_accounts(admin_client, session)
+    connection = connect(admin_client, "platypus", 2)
+    ids = plaid_ids(connection)
+    choose(admin_client, connection, ids["Plaid Checking"])
+
+    # Leaving the checking account out keeps it by hand, as the saving account's twin in
+    # kind, but not in digits, so it isn't picked up by that.
+    response = choose(admin_client, connection, ids["Plaid Saving"])
+
+    assert response.status_code == 200, response.text
+    session.expire_all()
+    assert [account.name for account in accounts_of(session, connection["id"])] == ["Plaid Saving"]
+    assert session.get(Account, kept["Plaid Checking"].id).source == AccountSource.MANUAL  # type: ignore[union-attr]

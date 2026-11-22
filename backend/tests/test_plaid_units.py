@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.finance.categories import SUGGESTED, add_suggested_categories
 from app.models import (
+    AccountSource,
     AccountType,
     Category,
     Connection,
@@ -18,7 +19,7 @@ from app.models import (
     HistoryStatus,
     SyncTrigger,
 )
-from app.plaid.accounts import account_type, share
+from app.plaid.accounts import SharedAccount, account_type, reconnections, share
 from app.plaid.categories import RULES, CategoryChooser, suggested_name
 from app.plaid.client import PlaidAccount, PlaidError, PlaidTransaction
 from app.plaid.connections import link_language, valid_logo
@@ -215,6 +216,68 @@ def test_odd_masks_names_and_currencies_are_cleaned_up() -> None:
     assert shared.currency == "CAD"
     assert share(plaid_account(mask="0012345678"), "USD").mask == "5678"
     assert share(plaid_account(mask=None), "USD").mask is None
+
+
+def shared_account(**fields: Any) -> SharedAccount:
+    return share(
+        plaid_account(
+            account_id=fields.pop("account_id", "a1"),
+            name=fields.pop("name", "Everyday Checking"),
+            mask=fields.pop("mask", None),
+            type="depository",
+            subtype="checking",
+            **fields,
+        ),
+        "USD",
+    )
+
+
+def reconnects(session: Session, *shared: SharedAccount, bank: str = "Tartan Bank") -> list[str]:
+    """The names of the kept accounts each shared account picks back up, '-' for none."""
+    found = reconnections(session, connection(institution_name=bank), shared)
+    return [found[item.id].name if item.id in found else "-" for item in shared]
+
+
+def test_kept_accounts_without_digits_are_matched_by_their_names(session: Session) -> None:
+    add_account(session, "Everyday Checking", institution="Tartan Bank")
+    add_account(session, "Rainy day", institution="Tartan Bank", official_name="Tartan Savings")
+    add_account(session, "Sees digits", institution="Tartan Bank", mask="4410")
+
+    assert reconnects(session, shared_account(name="everyday checking")) == ["Everyday Checking"]
+    assert reconnects(
+        session, shared_account(name="Plaid Checking", official_name="TARTAN SAVINGS")
+    ) == ["Rainy day"]
+    assert reconnects(session, shared_account(name="Something else")) == ["-"]
+    # An account the bank shares no digits for isn't one that has them.
+    assert reconnects(session, shared_account(name="Sees digits")) == ["-"]
+    assert reconnects(session, shared_account(name="Sees digits", mask="4410")) == ["Sees digits"]
+    assert reconnects(session, shared_account(name="Sees digits", mask="1234")) == ["-"]
+
+
+def test_a_kept_account_is_picked_up_by_one_account_the_bank_shares(session: Session) -> None:
+    add_account(session, "Oldest", institution="Tartan Bank", mask="4410")
+    add_account(session, "Everyday Checking", institution="Tartan Bank", mask="4410")
+    add_account(session, "Newest", institution="TARTAN BANK", mask="4410")
+
+    # The one the bank calls alike wins, then the oldest; each is used once.
+    assert reconnects(
+        session,
+        shared_account(account_id="a1", name="Everyday Checking", mask="4410"),
+        shared_account(account_id="a2", name="Another", mask="4410"),
+        shared_account(account_id="a3", name="Third", mask="4410"),
+        shared_account(account_id="a4", name="Fourth", mask="4410"),
+    ) == ["Everyday Checking", "Oldest", "Newest", "-"]
+
+
+def test_only_open_accounts_kept_by_hand_at_the_same_bank_are_picked_up(session: Session) -> None:
+    add_account(session, "Other bank", institution="Harbor Credit Union", mask="4410")
+    add_account(session, "No bank", mask="4410")
+    add_account(session, "Closed", institution="Tartan Bank", mask="4410", closed_at=NOW)
+    add_account(
+        session, "Still linked", institution="Tartan Bank", mask="4410", source=AccountSource.PLAID
+    )
+
+    assert reconnects(session, shared_account(mask="4410")) == ["-"]
 
 
 # ---- Categories --------------------------------------------------------------------------
