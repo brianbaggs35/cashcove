@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  Archive,
   CalendarClock,
   CalendarDays,
   CalendarRange,
@@ -35,8 +36,9 @@ import {
   estimatedAmount,
   expectedAmount,
   paysAgain,
+  shelf,
   standing,
-  type Standing,
+  type Shelf,
 } from '@/views/subscriptions/recurrence'
 
 /**
@@ -58,7 +60,7 @@ const loading = ref(false)
 const loaded = ref(false)
 const error = ref<string | null>(null)
 const search = ref('')
-const activeFilter = ref<Standing>('active')
+const activeFilter = ref<Shelf>('active')
 const dialog = ref(false)
 const editing = ref<Subscription | null>(null)
 const paymentsOpen = ref(false)
@@ -95,7 +97,7 @@ onMounted(() => {
 
 const visibleSubscriptions = computed(() =>
   subscriptions.value.filter((subscription) => {
-    const matchesState = standing(subscription) === activeFilter.value
+    const matchesState = shelf(subscription) === activeFilter.value
     const query = search.value.trim().toLocaleLowerCase()
     return (
       matchesState &&
@@ -148,14 +150,14 @@ const emptyList = computed(() => {
     return {
       icon: Search,
       title: 'No matches',
-      text: `Try a different search or switch between active, paused and cancelled ${nouns}.`,
+      text: `Try a different search or switch between active, paused, cancelled and archived ${nouns}.`,
     }
   }
   return {
     active: {
       icon: copy.value.icon,
       title: `No active ${nouns}`,
-      text: 'Everything you track here is paused or cancelled. Pick a filter above to see them.',
+      text: 'Everything you track here is paused, cancelled or archived. Pick a filter above to see them.',
     },
     paused: {
       icon: CirclePause,
@@ -166,6 +168,11 @@ const emptyList = computed(() => {
       icon: CalendarX,
       title: `No cancelled ${nouns}`,
       text: `Cancel a ${noun} from its menu and it is kept here, with every payment, so you can look back on it later.`,
+    },
+    archived: {
+      icon: Archive,
+      title: `No archived ${nouns}`,
+      text: `Archive a ${noun} from its menu to put it away. It is kept here, with every payment, and comes back when you unarchive it.`,
     },
   }[activeFilter.value]
 })
@@ -373,6 +380,7 @@ async function saved() {
           <v-btn value="active">Active</v-btn>
           <v-btn value="paused">Paused</v-btn>
           <v-btn value="cancelled">Cancelled</v-btn>
+          <v-btn value="archived">Archived</v-btn>
         </v-btn-toggle>
       </div>
 
@@ -403,6 +411,8 @@ async function saved() {
             @toggle="actions.toggle"
             @cancel="cancel"
             @reactivate="reactivate"
+            @archive="actions.archive"
+            @unarchive="actions.unarchive"
             @link="linkPayments"
             @update-amount="actions.updateAmount"
           />

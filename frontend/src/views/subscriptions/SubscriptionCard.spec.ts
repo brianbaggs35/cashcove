@@ -224,7 +224,7 @@ describe('SubscriptionCard', () => {
     expect(wrapper.findAll('a[href="/subscriptions/subscription-streamflix"]')).toHaveLength(1)
   })
 
-  it('offers View first in its menu, above pausing, editing and deleting', async () => {
+  it('offers View first in its menu, above pausing, archiving, editing and deleting', async () => {
     const { wrapper, router } = await render()
     await wrapper.find('[data-test="subscription-actions"]').trigger('click')
     await flushPromises()
@@ -234,6 +234,7 @@ describe('SubscriptionCard', () => {
       'View',
       'Pause matching',
       'Cancel subscription',
+      'Archive subscription',
       'Edit',
       'Delete',
     ])
@@ -397,6 +398,7 @@ describe('SubscriptionCard', () => {
         'View',
         'Pause matching',
         'Cancel subscription',
+        'Archive subscription',
         'Edit',
         'Delete',
       ])
@@ -429,7 +431,13 @@ describe('SubscriptionCard', () => {
       const { wrapper } = await render(changes)
 
       // The one place in the menu changes from cancelling to reactivating, so it is never both.
-      expect(await menu(wrapper)).toEqual(['View', 'Reactivate subscription', 'Edit', 'Delete'])
+      expect(await menu(wrapper)).toEqual([
+        'View',
+        'Reactivate subscription',
+        'Archive subscription',
+        'Edit',
+        'Delete',
+      ])
       await page().find('[data-test="subscription-reactivate"]').trigger('click')
 
       expect(wrapper.emitted('reactivate')?.[0]).toEqual([subscription])
@@ -440,7 +448,13 @@ describe('SubscriptionCard', () => {
       const subscription = makeSubscription({ ends_on: day(-3) })
       const { wrapper } = await render({ ends_on: day(-3) })
 
-      expect(await menu(wrapper)).toEqual(['View', 'Reactivate subscription', 'Edit', 'Delete'])
+      expect(await menu(wrapper)).toEqual([
+        'View',
+        'Reactivate subscription',
+        'Archive subscription',
+        'Edit',
+        'Delete',
+      ])
       await page().find('[data-test="subscription-reactivate"]').trigger('click')
 
       expect(wrapper.emitted('reactivate')?.[0]).toEqual([subscription])
@@ -453,9 +467,82 @@ describe('SubscriptionCard', () => {
         'View',
         'Resume matching',
         'Cancel subscription',
+        'Archive subscription',
         'Edit',
         'Delete',
       ])
+    })
+  })
+
+  describe('when it is archived', () => {
+    const archived = { archived_on: '2026-10-01', active: false }
+    const menu = async (
+      wrapper: Awaited<ReturnType<typeof render>>['wrapper'],
+      prefix = 'subscription',
+    ) => {
+      await wrapper.find(`[data-test="${prefix}-actions"]`).trigger('click')
+      await flushPromises()
+      return page()
+        .findAll('.v-list-item')
+        .map((item) => item.text())
+    }
+
+    it('says so beside its name, next to what it was, and has no chip when it is not', async () => {
+      const { wrapper } = await render(archived)
+      expect(wrapper.find('[data-test="subscription-archived-chip"]').text()).toBe('Archived')
+      expect(wrapper.find('[data-test="subscription-paused-chip"]').exists()).toBe(true)
+
+      const { wrapper: tracked } = await render()
+      expect(tracked.find('[data-test="subscription-archived-chip"]').exists()).toBe(false)
+    })
+
+    it('offers to unarchive it in place of changing how it is tracked, and asks for it', async () => {
+      const subscription = makeSubscription(archived)
+      const { wrapper } = await render(archived)
+
+      // Archived, it is brought back first as it was, so it isn't paused, resumed or cancelled here.
+      expect(await menu(wrapper)).toEqual(['View', 'Unarchive subscription', 'Edit', 'Delete'])
+      await page().find('[data-test="subscription-unarchive"]').trigger('click')
+
+      expect(wrapper.emitted('unarchive')?.[0]).toEqual([subscription])
+      expect(wrapper.emitted()).not.toHaveProperty('archive')
+    })
+
+    it('offers to archive one that is not, and asks for it', async () => {
+      const subscription = makeSubscription()
+      const { wrapper } = await render()
+
+      await menu(wrapper)
+      await page().find('[data-test="subscription-archive"]').trigger('click')
+
+      expect(wrapper.emitted('archive')?.[0]).toEqual([subscription])
+      expect(page().find('[data-test="subscription-unarchive"]').exists()).toBe(false)
+    })
+
+    it('offers to unarchive one that was cancelled too, which stays cancelled', async () => {
+      const changes = { ...archived, active: true, cancelled_on: day(-5), ends_on: day(-5) }
+      const { wrapper } = await render(changes)
+
+      expect(await menu(wrapper)).toEqual(['View', 'Unarchive subscription', 'Edit', 'Delete'])
+      expect(wrapper.find('[data-test="subscription-end-chip"]').text()).toBe('Cancelled')
+    })
+
+    it('names a bill in its menu, with its own test IDs', async () => {
+      const { wrapper } = await mountWithPlugins(SubscriptionCard, {
+        props: {
+          subscription: makeBill(archived),
+          daysUntilDue: 8,
+          alertDays: 3,
+          dueAlertsEnabled: true,
+        },
+        beforeMount: () => seedFinance(),
+      })
+      await flushPromises()
+
+      expect(wrapper.find('[data-test="bill-archived-chip"]').exists()).toBe(true)
+      expect(await menu(wrapper, 'bill')).toContain('Unarchive bill')
+      await page().find('[data-test="bill-unarchive"]').trigger('click')
+      expect(wrapper.emitted('unarchive')?.[0]).toEqual([makeBill(archived)])
     })
   })
 

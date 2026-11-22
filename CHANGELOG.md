@@ -8,6 +8,19 @@ and give it a version and a date when you cut a release (see Releases in the
 
 ## 0.3.2
 
+### Added
+
+- **Archive subscriptions and bills.** **Archive subscription** (or **Archive bill**), in a card's
+  menu and on its page, puts one away without deleting it or anything it tracked: it moves to a
+  new **Archived** filter with every payment, its chart and what refers to it, and **Unarchive**
+  brings it back as it was. A subscription or bill that was still being tracked is paused when
+  archived, so it stops counting toward the totals, the reminders and the budgets; one that was
+  cancelled or has ended stays cancelled or ended. Resuming or reactivating an archived one, or
+  giving it a new end date, takes it out of the archive, and its payee stays taken while it is
+  archived (adding another says to unarchive it). The API gains `archived_on` on both and
+  `POST /api/subscriptions/{id}/archiving` and `/unarchiving` (and the same under `/api/bills`),
+  for admins only.
+
 ### Fixed
 
 - **Connecting a bank again no longer duplicates the accounts you kept.** When you remove a bank and

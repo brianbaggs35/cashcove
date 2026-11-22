@@ -335,6 +335,95 @@ describe('SubscriptionView', () => {
     expect(notices.value.at(-1)?.text).toBe('Deleted Streamflix')
   })
 
+  describe('when it is archived', () => {
+    const archived = { active: false, archived_on: inDays(-4) }
+
+    it('puts it away from the menu, and loads it afresh', async () => {
+      const archive = vi
+        .spyOn(subscriptionsApi, 'archiveSubscription')
+        .mockResolvedValue(makeSubscription(archived))
+      const { find, spy, item, choose } = await render()
+      expect(find('show-archived').exists()).toBe(false)
+      expect(find('show-archived-alert').exists()).toBe(false)
+
+      await choose('show-archive')
+
+      expect(archive).toHaveBeenCalledWith(item.id, { today: todayIso() })
+      expect(notices.value.at(-1)?.text).toBe('Archived Streamflix')
+      expect(spy).toHaveBeenCalledTimes(2)
+    })
+
+    it('says it is archived, and what that keeps, in a bill’s words', async () => {
+      const { find } = await render({ kind: 'bill', changes: archived })
+
+      expect(find('show-archived').text()).toBe('Archived')
+      expect(find('show-archived-alert').text()).toContain(`Archived on ${shown(inDays(-4))}`)
+      expect(find('show-archived-alert').text()).toContain('This bill and every payment it tracked')
+      expect(find('show-archived-alert').text()).toContain('out of the way of your bills')
+    })
+
+    it('shows it as archived instead of paused, and says nothing of being late', async () => {
+      const { find } = await render({ changes: { ...archived, next_due_date: inDays(-6) } })
+
+      expect(find('show-status').text()).toBe('Paused')
+      expect(find('show-archived-alert').exists()).toBe(true)
+      expect(find('show-paused-alert').exists()).toBe(false)
+      expect(find('show-overdue-alert').exists()).toBe(false)
+    })
+
+    it('brings it back from the alert and from the menu, which has nothing else to change it with', async () => {
+      const unarchive = vi
+        .spyOn(subscriptionsApi, 'unarchiveSubscription')
+        .mockResolvedValue(makeSubscription({ active: false }))
+      const { find, item, spy } = await render({ changes: archived })
+
+      await find('show-actions').trigger('click')
+      await flushPromises()
+      expect(
+        page()
+          .findAll('.v-list-item')
+          .map((entry) => entry.text()),
+      ).toEqual(['Unarchive subscription', 'Delete'])
+      await page().find('[data-test="show-unarchive-item"]').trigger('click')
+      await flushPromises()
+      expect(unarchive).toHaveBeenLastCalledWith(item.id)
+      expect(notices.value.at(-1)?.text).toBe('Unarchived Streamflix')
+      expect(spy).toHaveBeenCalledTimes(2)
+
+      await find('show-unarchive').trigger('click')
+      await flushPromises()
+      expect(unarchive).toHaveBeenCalledTimes(2)
+    })
+
+    it('says why it could not be brought back', async () => {
+      vi.spyOn(billsApi, 'unarchiveBill').mockRejectedValue(new Error('Not archived'))
+      const { find } = await render({ kind: 'bill', changes: archived })
+
+      await find('show-unarchive').trigger('click')
+      await flushPromises()
+
+      expect(find('show-error').text()).toContain('Not archived')
+    })
+
+    it('shows a viewer that it is archived, without a way to change that', async () => {
+      const { find } = await render({ role: 'viewer', changes: archived })
+
+      expect(find('show-archived').exists()).toBe(true)
+      expect(find('show-archived-alert').exists()).toBe(true)
+      expect(find('show-unarchive').exists()).toBe(false)
+    })
+
+    it('still says how one that was cancelled ended, as well as that it is archived', async () => {
+      const { find, wrapper } = await render({
+        changes: { cancelled_on: inDays(-12), ends_on: inDays(-10), archived_on: inDays(-4) },
+      })
+
+      expect(find('show-status').text()).toBe('Cancelled')
+      expect(find('show-archived').exists()).toBe(true)
+      expect(wrapper.text()).toContain('Cancelled on')
+    })
+  })
+
   describe('when it ends', () => {
     /** What the actions menu offers, as a person reads it. */
     const menu = async (find: Awaited<ReturnType<typeof render>>['find']): Promise<string[]> => {
@@ -369,7 +458,11 @@ describe('SubscriptionView', () => {
 
       // The one place in the menu is for cancelling or reactivating, so it is never both, and a
       // cancelled one is not paused.
-      expect(await menu(find)).toEqual(['Reactivate subscription', 'Delete'])
+      expect(await menu(find)).toEqual([
+        'Reactivate subscription',
+        'Archive subscription',
+        'Delete',
+      ])
       expect(find('show-change-end').exists()).toBe(false)
       expect(component('SubscriptionReactivateDialog').props('modelValue')).toBe(false)
 
@@ -418,7 +511,11 @@ describe('SubscriptionView', () => {
         `Ended on ${shown(inDays(-3))}. Everything it tracked stays here.`,
       )
       // It can't be cancelled, as it has stopped, so the menu offers to reactivate it.
-      expect(await menu(find)).toEqual(['Reactivate subscription', 'Delete'])
+      expect(await menu(find)).toEqual([
+        'Reactivate subscription',
+        'Archive subscription',
+        'Delete',
+      ])
 
       await find('show-reactivate').trigger('click')
       expect(component('SubscriptionReactivateDialog').props('modelValue')).toBe(true)
@@ -434,7 +531,12 @@ describe('SubscriptionView', () => {
       expect(find('show-end-alert').text()).toContain(
         `Ends on ${shown(inDays(60))}, and no payment is expected on or after that day.`,
       )
-      expect(await menu(find)).toEqual(['Pause matching', 'Cancel subscription', 'Delete'])
+      expect(await menu(find)).toEqual([
+        'Pause matching',
+        'Cancel subscription',
+        'Archive subscription',
+        'Delete',
+      ])
       // Nothing to reactivate, as it hasn't stopped: it can only have its end date moved.
       expect(find('show-reactivate').exists()).toBe(false)
       expect(find('show-change-end').exists()).toBe(true)
@@ -457,14 +559,19 @@ describe('SubscriptionView', () => {
     it('offers to cancel one that carries on, in the words of its kind, and has no alert', async () => {
       const { find } = await render({ kind: 'bill' })
 
-      expect(await menu(find)).toEqual(['Pause matching', 'Cancel bill', 'Delete'])
+      expect(await menu(find)).toEqual(['Pause matching', 'Cancel bill', 'Archive bill', 'Delete'])
       expect(find('show-end-alert').exists()).toBe(false)
       expect(find('show-ends').exists()).toBe(false)
     })
 
     it('still offers to resume one that is paused and not cancelled', async () => {
       const { find } = await render({ changes: { active: false } })
-      expect(await menu(find)).toEqual(['Resume matching', 'Cancel subscription', 'Delete'])
+      expect(await menu(find)).toEqual([
+        'Resume matching',
+        'Cancel subscription',
+        'Archive subscription',
+        'Delete',
+      ])
     })
 
     it('shows a viewer how it ends, without a way to change it', async () => {

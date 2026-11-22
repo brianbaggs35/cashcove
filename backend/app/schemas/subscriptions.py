@@ -84,6 +84,16 @@ class SubscriptionReactivate(BaseModel):
     today: Day | None = None
 
 
+class SubscriptionArchive(BaseModel):
+    """Putting a subscription or bill away: it is kept, with everything it tracked."""
+
+    model_config = STRICT
+
+    # The day it is where the person is, which says whether it has ended. Today where the server
+    # is, when it isn't said.
+    today: Day | None = None
+
+
 class SubscriptionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,6 +115,8 @@ class SubscriptionOut(BaseModel):
     ends_on: dt.date | None = None
     # When a person cancelled it, which a cancelled one always has, and has an end date with.
     cancelled_on: dt.date | None = None
+    # The day it was put away. An archived one is paused or over, and shows apart from the rest.
+    archived_on: dt.date | None = None
     payment_count: int = 0
     # The day of the latest payment linked to it, which is what moves its due date along, and
     # what that payment was for.

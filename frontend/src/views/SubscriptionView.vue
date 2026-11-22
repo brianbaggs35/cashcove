@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {
+  Archive,
+  ArchiveRestore,
   CalendarClock,
   CalendarX,
   CircleCheck,
@@ -130,6 +132,8 @@ const days = computed(() => daysUntil(subscription.value.next_due_date))
 const reminder = computed(() => dueReminder(preferences.saved?.alerts, props.kind))
 const state = computed(() => standing(subscription.value))
 const ended = computed(() => hasEnded(subscription.value))
+/** Put away: kept with everything it tracked, but out of the way of the lists. */
+const archived = computed(() => subscription.value.archived_on !== null)
 const day = (value: string) => formatShortDate(fromIsoDate(value), locale.value)
 /** What the page says about its end, which is only read for one that has one. */
 const endText = computed(() => {
@@ -254,6 +258,15 @@ async function remove(item: Subscription) {
             {{ status.text }}
           </v-chip>
           <v-chip
+            v-if="archived"
+            :prepend-icon="Archive"
+            size="small"
+            variant="tonal"
+            data-test="show-archived"
+          >
+            Archived
+          </v-chip>
+          <v-chip
             v-if="subscription.ends_on && !ended"
             size="small"
             variant="tonal"
@@ -298,28 +311,44 @@ async function remove(item: Subscription) {
               />
             </template>
             <v-list density="compact" nav min-width="200">
+              <!-- One that is put away is brought back first, as it was, and then it can be changed. -->
               <v-list-item
-                v-if="state !== 'cancelled'"
-                :prepend-icon="subscription.active ? CirclePause : CirclePlay"
-                :title="subscription.active ? 'Pause matching' : 'Resume matching'"
-                data-test="show-toggle"
-                @click="actions.toggle(subscription)"
+                v-if="archived"
+                :prepend-icon="ArchiveRestore"
+                :title="`Unarchive ${copy.noun}`"
+                data-test="show-unarchive-item"
+                @click="actions.unarchive(subscription)"
               />
-              <!-- One that has stopped can't be cancelled, and one that hasn't can't be reactivated. -->
-              <v-list-item
-                v-if="state === 'cancelled'"
-                :prepend-icon="RotateCcw"
-                :title="`Reactivate ${copy.noun}`"
-                data-test="show-reactivate-item"
-                @click="reactivating = true"
-              />
-              <v-list-item
-                v-else
-                :prepend-icon="CalendarX"
-                :title="`Cancel ${copy.noun}`"
-                data-test="show-cancel"
-                @click="cancelling = true"
-              />
+              <template v-else>
+                <v-list-item
+                  v-if="state !== 'cancelled'"
+                  :prepend-icon="subscription.active ? CirclePause : CirclePlay"
+                  :title="subscription.active ? 'Pause matching' : 'Resume matching'"
+                  data-test="show-toggle"
+                  @click="actions.toggle(subscription)"
+                />
+                <!-- One that has stopped can't be cancelled, and one that hasn't can't be reactivated. -->
+                <v-list-item
+                  v-if="state === 'cancelled'"
+                  :prepend-icon="RotateCcw"
+                  :title="`Reactivate ${copy.noun}`"
+                  data-test="show-reactivate-item"
+                  @click="reactivating = true"
+                />
+                <v-list-item
+                  v-else
+                  :prepend-icon="CalendarX"
+                  :title="`Cancel ${copy.noun}`"
+                  data-test="show-cancel"
+                  @click="cancelling = true"
+                />
+                <v-list-item
+                  :prepend-icon="Archive"
+                  :title="`Archive ${copy.noun}`"
+                  data-test="show-archive"
+                  @click="actions.archive(subscription)"
+                />
+              </template>
               <v-list-item
                 :prepend-icon="Trash2"
                 title="Delete"
@@ -365,7 +394,32 @@ async function remove(item: Subscription) {
       </v-alert>
 
       <v-alert
-        v-if="state === 'paused'"
+        v-if="archived"
+        color="secondary"
+        variant="tonal"
+        :icon="Archive"
+        class="mb-4"
+        data-test="show-archived-alert"
+      >
+        <p class="ma-0">
+          Archived on {{ day(subscription.archived_on as string) }}. This {{ copy.noun }} and every
+          payment it tracked are kept, but it is out of the way of your {{ copy.nouns }}. Unarchive
+          it to bring it back as it was.
+        </p>
+        <div v-if="auth.isAdmin" class="show-alert__actions">
+          <v-btn
+            variant="text"
+            size="small"
+            data-test="show-unarchive"
+            @click="actions.unarchive(subscription)"
+          >
+            Unarchive
+          </v-btn>
+        </div>
+      </v-alert>
+
+      <v-alert
+        v-else-if="state === 'paused'"
         color="secondary"
         variant="tonal"
         :icon="CirclePause"

@@ -1,4 +1,5 @@
 import {
+  archiveBill,
   cancelBill,
   createBill,
   deleteBill,
@@ -6,6 +7,7 @@ import {
   fetchBills,
   linkBillPayments,
   reactivateBill,
+  unarchiveBill,
   unlinkBillPayment,
   updateBill,
 } from '@/api/bills'
@@ -106,6 +108,23 @@ describe('bill API', () => {
       ['/api/bills/bill-1/payments/t1', 'DELETE'],
     ])
     expect(JSON.parse(fetch.mock.calls[0]![1].body as string)).toEqual({ ids: ['t1', 't2'] })
+  })
+
+  it('archives one and brings it back out of the archive', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ id: 'bill-1', archived_on: '2026-10-19' }))
+      .mockResolvedValueOnce(response({ id: 'bill-1', archived_on: null }))
+    vi.stubGlobal('fetch', fetch)
+
+    await archiveBill('bill-1', { today: '2026-10-19' })
+    await unarchiveBill('bill-1')
+
+    expect(fetch.mock.calls.map(([url, init]) => [url, init.method])).toEqual([
+      ['/api/bills/bill-1/archiving', 'POST'],
+      ['/api/bills/bill-1/unarchiving', 'POST'],
+    ])
+    expect(JSON.parse(fetch.mock.calls[0]![1].body as string)).toEqual({ today: '2026-10-19' })
   })
 
   it('cancels one and reactivates it with its next payment', async () => {

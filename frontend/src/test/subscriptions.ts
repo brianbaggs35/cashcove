@@ -17,6 +17,7 @@ export function makeSubscription(changes: Partial<Subscription> = {}): Subscript
     active: true,
     ends_on: null,
     cancelled_on: null,
+    archived_on: null,
     payment_count: 2,
     last_payment_on: '2026-09-15',
     last_payment_amount: amount,

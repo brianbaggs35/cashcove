@@ -460,7 +460,9 @@ describe('SubscriptionsView', () => {
       const { find } = await render({ items: [active] })
       await find('subscription-search').find('input').setValue('not here')
       await flushPromises()
-      expect(find('subscriptions-none-match').text()).toContain('active, paused and cancelled')
+      expect(find('subscriptions-none-match').text()).toContain(
+        'active, paused, cancelled and archived',
+      )
     })
 
     it('opens the cancel dialog from a card, and loads the list again once it has cancelled', async () => {
@@ -523,17 +525,18 @@ describe('SubscriptionsView', () => {
       expect(component('SubscriptionReactivateDialog').exists()).toBe(false)
     })
 
-    // Active, Paused and Cancelled are the filter's buttons in order. Each is empty when the only
-    // subscription is in another: the cancelled one for the first, the active one for the others.
+    // Active, Paused, Cancelled and Archived are the filter's buttons in order. Each is empty when
+    // the only subscription is in another: the cancelled one for the first, the active one for the others.
     it.each([
       [
         0,
         [cancelled],
         'No active subscriptions',
-        'Everything you track here is paused or cancelled',
+        'Everything you track here is paused, cancelled or archived',
       ],
       [1, [active], 'No paused subscriptions', "Pause matching from a subscription's menu"],
       [2, [active], 'No cancelled subscriptions', 'is kept here, with every payment'],
+      [3, [active], 'No archived subscriptions', 'Archive a subscription from its menu'],
     ])(
       'says what filter %i is for when nothing is in it, rather than that nothing matches',
       async (button, items, title, text) => {
@@ -557,6 +560,120 @@ describe('SubscriptionsView', () => {
       await find('bill-search').find('input').setValue('nothing like it')
       await flushPromises()
       expect(find('bills-none-match').text()).toContain('No matches')
+    })
+  })
+
+  describe('when they are archived', () => {
+    const today = todayIso()
+    const active = makeSubscription({ next_due_date: addDays(today, 2) })
+    const away = makeSubscription({
+      id: 'subscription-away',
+      name: 'Put away',
+      payee: 'Put away',
+      amount: '30.00',
+      active: false,
+      archived_on: addDays(today, -4),
+    })
+    // Archived while it was running down: it stopped, so it is still active, and still archived.
+    const over = makeSubscription({
+      id: 'subscription-over',
+      name: 'Over and put away',
+      payee: 'Over and put away',
+      cancelled_on: addDays(today, -10),
+      ends_on: addDays(today, -8),
+      archived_on: addDays(today, -4),
+    })
+    const names = (wrapper: Awaited<ReturnType<typeof render>>['wrapper']) =>
+      wrapper.findAll('[data-test="subscription-title"]').map((title) => title.text())
+    const show = async (find: Awaited<ReturnType<typeof render>>['find'], button: number) => {
+      await find('subscription-filter').findAll('button').at(button)!.trigger('click')
+      await flushPromises()
+    }
+
+    it('keeps them out of the other lists, the totals and the reminders, and lists them apart', async () => {
+      const { find, wrapper } = await render({ items: [active, away, over] })
+
+      expect(names(wrapper)).toEqual(['Streamflix'])
+      expect(find('subscriptions-count').text()).toContain('1')
+      expect(find('subscriptions-monthly').text()).toContain('$14.99')
+      expect(find('subscriptions-monthly').text()).not.toContain('$44.99')
+
+      await show(find, 1)
+      expect(find('subscriptions-none-match').text()).toContain('No paused subscriptions')
+      await show(find, 2)
+      expect(find('subscriptions-none-match').text()).toContain('No cancelled subscriptions')
+      await show(find, 3)
+      expect(names(wrapper).sort()).toEqual(['Over and put away', 'Put away'])
+    })
+
+    it('searches the archive like the rest', async () => {
+      const { find, wrapper } = await render({ items: [active, away, over] })
+
+      await show(find, 3)
+      await find('subscription-search').find('input').setValue('over')
+      await flushPromises()
+
+      expect(names(wrapper)).toEqual(['Over and put away'])
+    })
+
+    it('puts one away from a card, and loads the list again', async () => {
+      const archive = vi
+        .spyOn(subscriptionsApi, 'archiveSubscription')
+        .mockResolvedValue({ ...active, active: false, archived_on: today })
+      const { component, fetch } = await render({ items: [active] })
+
+      component('SubscriptionCard').vm.$emit('archive', active)
+      await flushPromises()
+
+      expect(archive).toHaveBeenCalledWith(active.id, { today })
+      expect(notices.value.at(-1)?.text).toBe('Archived Streamflix')
+      expect(fetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('brings one back from a card, and loads the list again', async () => {
+      const unarchive = vi
+        .spyOn(subscriptionsApi, 'unarchiveSubscription')
+        .mockResolvedValue({ ...away, archived_on: null })
+      const { component, fetch, find } = await render({ items: [active, away] })
+      await show(find, 3)
+
+      component('SubscriptionCard').vm.$emit('unarchive', away)
+      await flushPromises()
+
+      expect(unarchive).toHaveBeenCalledWith(away.id)
+      expect(notices.value.at(-1)?.text).toBe('Unarchived Put away')
+      expect(fetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('says why one could not be put away', async () => {
+      vi.spyOn(subscriptionsApi, 'archiveSubscription').mockRejectedValue(
+        new Error('Already archived'),
+      )
+      const { component, find } = await render({ items: [active] })
+
+      component('SubscriptionCard').vm.$emit('archive', active)
+      await flushPromises()
+
+      expect(find('subscriptions-error').text()).toContain('Already archived')
+    })
+
+    it('says what the archive is for in a bill’s words, and puts a bill away through the bills API', async () => {
+      const bill = makeBill()
+      const archive = vi
+        .spyOn(billsApi, 'archiveBill')
+        .mockResolvedValue({ ...bill, active: false, archived_on: today })
+      const { component, find } = await render({ kind: 'bill', items: [bill] })
+      await find('bill-filter').findAll('button').at(3)!.trigger('click')
+      await flushPromises()
+      expect(find('bills-none-match').text()).toContain('No archived bills')
+      expect(find('bills-none-match').text()).toContain('Archive a bill from its menu')
+      await find('bill-filter').findAll('button').at(0)!.trigger('click')
+      await flushPromises()
+
+      component('SubscriptionCard').vm.$emit('archive', bill)
+      await flushPromises()
+
+      expect(archive).toHaveBeenCalledWith(bill.id, { today })
     })
   })
 
@@ -671,7 +788,9 @@ describe('SubscriptionsView', () => {
 
       await find('bill-search').find('input').setValue('nothing like it')
       await flushPromises()
-      expect(find('bills-none-match').text()).toContain('active, paused and cancelled bills')
+      expect(find('bills-none-match').text()).toContain(
+        'active, paused, cancelled and archived bills',
+      )
     })
 
     it('changes, pauses, links and deletes through the bills API', async () => {

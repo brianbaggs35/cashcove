@@ -12,6 +12,7 @@ import {
   nextOnSchedule,
   paysAgain,
   priceChange,
+  shelf,
   standing,
 } from '@/views/subscriptions/recurrence'
 
@@ -116,6 +117,34 @@ describe('subscription recurrence', () => {
       [true, '2026-10-01', '2026-09-01', 'cancelled'],
     ])('stands as %s, ends %s, cancelled %s: %s', (active, endsOn, cancelledOn, expected) => {
       expect(standing({ active, ends_on: endsOn, cancelled_on: cancelledOn }, TODAY)).toBe(expected)
+    })
+
+    it.each([
+      // An archived one is only ever in the archive, whatever it was before it was put away.
+      [false, null, null, '2026-10-01', 'archived'],
+      [true, '2026-10-19', '2026-10-01', '2026-10-01', 'archived'],
+      [true, '2026-11-20', null, '2026-10-01', 'archived'],
+      // Otherwise it is on the shelf for where it stands.
+      [true, null, null, null, 'active'],
+      [false, null, null, null, 'paused'],
+      [true, '2026-10-19', null, null, 'cancelled'],
+      [false, '2026-11-20', '2026-10-01', null, 'cancelled'],
+    ])(
+      'with active %s, ends %s, cancelled %s and archived %s it is shelved as %s',
+      (active, endsOn, cancelledOn, archivedOn, expected) => {
+        expect(
+          shelf(
+            { active, ends_on: endsOn, cancelled_on: cancelledOn, archived_on: archivedOn },
+            TODAY,
+          ),
+        ).toBe(expected)
+      },
+    )
+
+    it('shelves against the real today unless told another day', () => {
+      const base = { active: true, cancelled_on: null, archived_on: null }
+      expect(shelf({ ...base, ends_on: todayIso() })).toBe('cancelled')
+      expect(shelf({ ...base, ends_on: addDays(todayIso(), 1) })).toBe('active')
     })
 
     it('stands against the real today unless told another day', () => {

@@ -58,6 +58,39 @@ describe('useRecurringActions', () => {
     expect(changed).not.toHaveBeenCalled()
   })
 
+  it('archives and unarchives through the API of its kind, says so, and loads it afresh', async () => {
+    const subscription = makeSubscription()
+    const bill = makeBill({ archived_on: '2026-10-01', active: false })
+    const archiveSubscription = vi
+      .spyOn(subscriptionsApi, 'archiveSubscription')
+      .mockResolvedValue(subscription)
+    const unarchiveBill = vi.spyOn(billsApi, 'unarchiveBill').mockResolvedValue(bill)
+    const { actions, changed, failed } = await setUp()
+
+    await actions.archive(subscription)
+    // The day is where the person is, so it says whether the one being put away has ended.
+    expect(archiveSubscription).toHaveBeenCalledWith(subscription.id, { today: todayIso() })
+    expect(notices.value.at(-1)?.text).toBe('Archived Streamflix')
+
+    await actions.unarchive(bill)
+    expect(unarchiveBill).toHaveBeenCalledWith(bill.id)
+    expect(notices.value.at(-1)?.text).toBe('Unarchived City Power')
+    expect(changed).toHaveBeenCalledTimes(2)
+    expect(failed).not.toHaveBeenCalled()
+  })
+
+  it('says why archiving or unarchiving did not work, and does not load it afresh', async () => {
+    vi.spyOn(subscriptionsApi, 'archiveSubscription').mockRejectedValue(new Error('No connection'))
+    vi.spyOn(billsApi, 'unarchiveBill').mockRejectedValue(new Error('Not archived'))
+    const { actions, changed, failed } = await setUp()
+
+    await actions.archive(makeSubscription())
+    await actions.unarchive(makeBill())
+
+    expect(failed.mock.calls).toEqual([['No connection'], ['Not archived']])
+    expect(changed).not.toHaveBeenCalled()
+  })
+
   it('makes the last payment the amount, and says so in the household currency', async () => {
     const subscription = makeSubscription({ amount: '15.49', last_payment_amount: '17.99' })
     const update = vi.spyOn(subscriptionsApi, 'updateSubscription').mockResolvedValue(subscription)
