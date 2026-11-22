@@ -27,9 +27,10 @@ describe('AppearanceSection', () => {
     it('offers every palette as a button in a group, with what it is like', async () => {
       const { wrapper } = await mountSection(AppearanceSection)
 
+      // A fieldset, which a screen reader announces as a group named by its legend.
       const group = wrapper.find('[data-test="palette-options"]')
-      expect(group.attributes('role')).toBe('group')
-      expect(group.attributes('aria-label')).toBe('Color theme')
+      expect(group.element.tagName).toBe('FIELDSET')
+      expect(group.find('legend').text()).toBe('Color theme')
       const cards = group.findAll('button')
       expect(cards).toHaveLength(PALETTES.length)
       for (const [index, palette] of PALETTES.entries()) {

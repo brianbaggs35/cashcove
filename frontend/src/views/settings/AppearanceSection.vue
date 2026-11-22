@@ -75,7 +75,8 @@ function swatches(palette: (typeof PALETTES)[number]): string[] {
     subtitle="Saved on this device. Every color theme comes in a light and a dark version."
     :icon="Paintbrush"
   >
-    <div class="palette-grid" role="group" aria-label="Color theme" data-test="palette-options">
+    <fieldset class="palette-grid" data-test="palette-options">
+      <legend class="d-sr-only">Color theme</legend>
       <v-card
         v-for="palette in PALETTES"
         :key="palette.id"
@@ -114,7 +115,7 @@ function swatches(palette: (typeof PALETTES)[number]): string[] {
           <span class="text-body-small text-medium-emphasis">{{ palette.description }}</span>
         </span>
       </v-card>
-    </div>
+    </fieldset>
   </SettingsCard>
 </template>
 
@@ -128,7 +129,12 @@ function swatches(palette: (typeof PALETTES)[number]): string[] {
   border-color: rgba(var(--v-border-color), 0.2);
 }
 
+/* A fieldset names the group of choices for a screen reader; it has no frame of its own. */
 .palette-grid {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
