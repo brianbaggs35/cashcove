@@ -6,7 +6,9 @@ import binascii
 import logging
 import re
 import uuid
+from collections.abc import Collection
 from datetime import datetime
+from typing import Literal
 
 from fastapi import Request, status
 from sqlalchemy import func, select
@@ -41,6 +43,7 @@ from app.plaid.errors import GONE, plaid_failed
 from app.plaid.schedule import next_sync
 from app.plaid.sync import LEASE
 from app.schemas.connections import (
+    AccountChoice,
     AccountsChoice,
     AccountState,
     ConnectionOut,
@@ -305,16 +308,7 @@ def choose_accounts(
         if account_id not in linked and not wanted.separate
     ]
     reuse = reconnections(db, connection, again)
-    for account_id, account in linked.items():
-        wanted = chosen.get(account_id or "")
-        if wanted is not None:
-            account.name = wanted.name or account.name
-        # One the bank no longer shares is left for the next sync to take care of.
-        elif account_id in shared:
-            if choice.removed == "delete":
-                db.delete(account)
-            else:
-                unlink(account)
+    _settle_linked(db, linked, chosen, shared.keys(), choice.removed)
     for account_id, wanted in chosen.items():
         if account_id in linked:
             continue
@@ -327,6 +321,26 @@ def choose_accounts(
             db.add(import_account(connection, new, wanted.name or new.name, now))
     connection.skipped_accounts = sorted(shared.keys() - chosen.keys())
     db.commit()
+
+
+def _settle_linked(
+    db: Session,
+    linked: dict[str | None, Account],
+    chosen: dict[str, AccountChoice],
+    shared: Collection[str],
+    removed: Literal["keep", "delete"],
+) -> None:
+    """Renames the accounts that stay imported, and keeps or deletes the ones that were left out."""
+    for account_id, account in linked.items():
+        wanted = chosen.get(account_id or "")
+        if wanted is not None:
+            account.name = wanted.name or account.name
+        # One the bank no longer shares is left for the next sync to take care of.
+        elif account_id in shared:
+            if removed == "delete":
+                db.delete(account)
+            else:
+                unlink(account)
 
 
 def skip_deleted(db: Session, account: Account) -> None:

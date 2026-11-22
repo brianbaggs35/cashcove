@@ -195,7 +195,8 @@ def reconnections(
         options = [item for item in kept if _is_same(item, account)]
         if options:
             # The oldest of the ones the bank names alike, or of all of them.
-            best = min(options, key=lambda item: not _alike(item, account))
+            alike = [item for item in options if _alike(item, account)]
+            best = (alike or options)[0]
             found[account.id] = best
             kept.remove(best)
     return found
