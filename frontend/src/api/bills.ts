@@ -1,6 +1,7 @@
 import { apiDelete, apiGet, apiPatch, apiPost, apiRequest } from '@/api/client'
 import {
   activeQuery,
+  type ArchiveInput,
   type CancelInput,
   type PaymentsLinked,
   type ReactivateInput,
@@ -27,6 +28,11 @@ export const cancelBill = (id: string, input: CancelInput) =>
 /** Picks a cancelled or ended one up again: no end date, tracked again, next due as given. */
 export const reactivateBill = (id: string, input: ReactivateInput) =>
   apiPost<Bill>(`/bills/${id}/reactivation`, input)
+/** Puts it away, which keeps it and its payments: a tracked one is paused, so it is out of the way. */
+export const archiveBill = (id: string, input: ArchiveInput) =>
+  apiPost<Bill>(`/bills/${id}/archiving`, input)
+/** Brings it back out of the archive, as it was: paused or cancelled, if that is what it was. */
+export const unarchiveBill = (id: string) => apiPost<Bill>(`/bills/${id}/unarchiving`)
 /** Links payments, from any account, to a bill. They take its category. */
 export const linkBillPayments = (id: string, transactionIds: string[]) =>
   apiPost<PaymentsLinked>(`/bills/${id}/payments`, { ids: transactionIds })

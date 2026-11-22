@@ -7,6 +7,7 @@ import type { Transaction } from '@/api/transactions'
 import { confirmAndRun } from '@/composables/confirm'
 import { notify } from '@/composables/notify'
 import { useHousehold } from '@/composables/useHousehold'
+import { todayIso } from '@/utils/dates'
 import { kinds } from '@/views/subscriptions/kinds'
 import { standing } from '@/views/subscriptions/recurrence'
 
@@ -63,9 +64,9 @@ export async function deleteRecurring(subscription: Subscription): Promise<boole
 
 /**
  * What an admin does to a subscription or a bill in one go, from its card or from its own page:
- * pause it or resume it, take a price change on board, or delete it. Cancelling and reactivating
- * each ask for a day, so they have dialogs of their own. `changed` runs after one of the first two
- * went through, to load it afresh, and `failed` hears why one didn't.
+ * pause it or resume it, archive it or bring it back, take a price change on board, or delete it.
+ * Cancelling and reactivating each ask for a day, so they have dialogs of their own. `changed`
+ * runs after one of these went through, to load it afresh, and `failed` hears why one didn't.
  */
 export function useRecurringActions(
   changed: () => Promise<void>,
@@ -85,6 +86,31 @@ export function useRecurringActions(
     }
   }
 
+  /**
+   * Puts it away, which keeps it and everything it tracked but takes it out of the way. It can be
+   * undone, so nothing is asked first.
+   */
+  async function archive(subscription: Subscription) {
+    try {
+      await recurringApi(subscription.kind).archive(subscription.id, { today: todayIso() })
+      notify(`Archived ${subscription.name}`)
+      await changed()
+    } catch (archiveError) {
+      failed(errorMessage(archiveError))
+    }
+  }
+
+  /** Brings it back out of the archive, paused or cancelled if that is what it was. */
+  async function unarchive(subscription: Subscription) {
+    try {
+      await recurringApi(subscription.kind).unarchive(subscription.id)
+      notify(`Unarchived ${subscription.name}`)
+      await changed()
+    } catch (unarchiveError) {
+      failed(errorMessage(unarchiveError))
+    }
+  }
+
   /** A price rise, say: the amount a payment really was becomes the subscription's. */
   async function updateAmount(subscription: Subscription) {
     if (subscription.last_payment_amount === null) return
@@ -99,5 +125,5 @@ export function useRecurringActions(
     }
   }
 
-  return { toggle, updateAmount, remove: deleteRecurring }
+  return { toggle, archive, unarchive, updateAmount, remove: deleteRecurring }
 }

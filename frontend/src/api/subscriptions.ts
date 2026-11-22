@@ -35,6 +35,11 @@ export interface Subscription {
   ends_on: string | null
   /** The day it was cancelled. A cancelled one always has an `ends_on`, and can be reactivated. */
   cancelled_on: string | null
+  /**
+   * The day it was put away. An archived one is kept with everything it tracked, but is out of the
+   * way: archiving pauses one that was still being tracked, and it comes back as it was.
+   */
+  archived_on: string | null
   payment_count: number
   /** The day of the latest payment linked to it, which moves its due date along, and what it was for. */
   last_payment_on: string | null
@@ -133,6 +138,12 @@ export interface ReactivateInput {
   today: string
 }
 
+/** Archiving puts a subscription away without deleting it or anything it tracked. */
+export interface ArchiveInput {
+  /** The day it is where the person is, which says whether it has ended. */
+  today: string
+}
+
 export type SubscriptionChanges = Partial<SubscriptionInput> & { active?: boolean }
 
 /** Which of them to list: all, or only the ones being tracked or only the paused. */
@@ -154,6 +165,12 @@ export const cancelSubscription = (id: string, input: CancelInput) =>
 /** Picks a cancelled or ended one up again: no end date, tracked again, next due as given. */
 export const reactivateSubscription = (id: string, input: ReactivateInput) =>
   apiPost<Subscription>(`/subscriptions/${id}/reactivation`, input)
+/** Puts it away, which keeps it and its payments: a tracked one is paused, so it is out of the way. */
+export const archiveSubscription = (id: string, input: ArchiveInput) =>
+  apiPost<Subscription>(`/subscriptions/${id}/archiving`, input)
+/** Brings it back out of the archive, as it was: paused or cancelled, if that is what it was. */
+export const unarchiveSubscription = (id: string) =>
+  apiPost<Subscription>(`/subscriptions/${id}/unarchiving`)
 /** Links payments, from any account, to a subscription. They take its category. */
 export const linkSubscriptionPayments = (id: string, transactionIds: string[]) =>
   apiPost<PaymentsLinked>(`/subscriptions/${id}/payments`, { ids: transactionIds })

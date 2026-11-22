@@ -18,6 +18,7 @@ from app.finance.categories import find_category
 from app.models import Account, PaymentFrequency, RecurringKind, Subscription, Transaction
 from app.models.base import CENT, utcnow
 from app.schemas.subscriptions import (
+    SubscriptionArchive,
     SubscriptionCancel,
     SubscriptionCreate,
     SubscriptionReactivate,
@@ -175,12 +176,13 @@ def is_stopped(subscription: Subscription, today: dt.date) -> bool:
 
 def standing(subscription: Subscription, today: dt.date) -> str:
     """Where it stands, in words: active or paused, and if it is to end, cancelled or not, and
-    whether it has ended yet."""
+    whether it has ended yet. An archived one says so first."""
+    archived = "archived, " if subscription.archived_on else ""
     ends_on = subscription.ends_on
     if ends_on is None:
-        return "active" if subscription.active else "paused"
+        return f"{archived}{'active' if subscription.active else 'paused'}"
     came = "ended" if ends_on <= today else "ends"
-    return f"{'cancelled, ' if subscription.cancelled_on else ''}{came} {ends_on}"
+    return f"{archived}{'cancelled, ' if subscription.cancelled_on else ''}{came} {ends_on}"
 
 
 def advance_due_date(subscription: Subscription, paid_on: dt.date) -> None:
@@ -292,7 +294,7 @@ def ensure_untracked(
 ) -> None:
     """A payee is tracked once from an account, as a subscription or as a bill, since a payment
     can only be one of them."""
-    query = select(Subscription.kind, Subscription.cancelled_on).where(
+    query = select(Subscription.kind, Subscription.cancelled_on, Subscription.archived_on).where(
         Subscription.account_id == account_id,
         func.lower(func.trim(Subscription.payee)) == normalized_payee(payee),
     )
@@ -301,14 +303,22 @@ def ensure_untracked(
     found = db.execute(query).first()
     if found is None:
         return
-    tracked_as, cancelled_on = found
-    # A cancelled one still tracks it, so it can be reactivated rather than started over.
+    tracked_as, cancelled_on, archived_on = found
+    # A cancelled or archived one still tracks it, so it can be picked up again rather than
+    # started over.
     cancelled = "cancelled " if cancelled_on is not None else ""
-    advice = " Reactivate it, or delete it, to track this payee again." if cancelled else ""
+    archived = "archived " if archived_on is not None else ""
+    advice = ""
+    if archived:
+        advice = " Unarchive it, or delete it, to track this payee again."
+    elif cancelled:
+        advice = " Reactivate it, or delete it, to track this payee again."
+    article = "An" if archived else "A"
     raise ApiError(
         status.HTTP_409_CONFLICT,
         "duplicate_rule",
-        f"A {cancelled}{tracked_as} already tracks this payee from this account.{advice}",
+        f"{article} {archived}{cancelled}{tracked_as} already tracks this payee from this account."
+        f"{advice}",
     )
 
 
@@ -394,6 +404,13 @@ def keep_end(subscription: Subscription, changes: dict[str, Any]) -> None:
         )
 
 
+def keep_archive_fair(subscription: Subscription, today: dt.date) -> None:
+    """An archived one is paused or over. When a change has it carrying on, being matched and
+    reminded of again, it is no longer put away, so it comes out of the archive."""
+    if subscription.active and not is_stopped(subscription, today):
+        subscription.archived_on = None
+
+
 def change_recurring(
     db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionUpdate
 ) -> Subscription:
@@ -430,6 +447,9 @@ def change_recurring(
             .where(Transaction.subscription_id == subscription.id)
             .values(category_id=changes["category_id"])
         )
+    # An archived one is put away for good reason only while it isn't being tracked.
+    if {"active", "ends_on"} & changes.keys():
+        keep_archive_fair(subscription, utcnow().date())
     # Payments that arrived while matching was paused are caught up when it resumes.
     if subscription.active and (matcher_changed or resumed):
         backfill_subscription(db, subscription)
@@ -481,10 +501,41 @@ def reactivate_recurring(
     subscription.cancelled_on = None
     subscription.ends_on = None
     subscription.active = True
+    subscription.archived_on = None
     # Counted on from the date it had, now that no end date cuts the days short.
     subscription.next_due_date = (
         body.next_due_date or due_dates(subscription, today, _add_months(today, 13))[0]
     )
     if resumed:
         backfill_subscription(db, subscription)
+    return subscription
+
+
+def archive_recurring(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionArchive
+) -> Subscription:
+    """Puts it away, which keeps it and everything it tracked and takes it out of the way. One
+    that is still being tracked is paused, since an archived one isn't matched, reminded of or
+    counted. It is unarchived with `unarchive_recurring`, and comes back as it was."""
+    subscription = find_recurring(db, kind, subscription_id, lock=True)
+    today = body.today or utcnow().date()
+    if subscription.archived_on is not None:
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "already_archived", f"This {kind} is already archived."
+        )
+    if subscription.active and not is_stopped(subscription, today):
+        subscription.active = False
+    subscription.archived_on = today
+    return subscription
+
+
+def unarchive_recurring(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID
+) -> Subscription:
+    """Brings an archived one back out of the archive, as it was: paused or cancelled, if that is
+    what it was. Resuming or reactivating it is up to the person."""
+    subscription = find_recurring(db, kind, subscription_id, lock=True)
+    if subscription.archived_on is None:
+        raise ApiError(status.HTTP_409_CONFLICT, "not_archived", f"This {kind} isn't archived.")
+    subscription.archived_on = None
     return subscription

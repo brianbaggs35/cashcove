@@ -1,4 +1,5 @@
 import {
+  archiveSubscription,
   cancelSubscription,
   createSubscription,
   deleteSubscription,
@@ -6,6 +7,7 @@ import {
   fetchSubscriptions,
   linkSubscriptionPayments,
   reactivateSubscription,
+  unarchiveSubscription,
   unlinkSubscriptionPayment,
   updateSubscription,
   type SubscriptionInput,
@@ -107,6 +109,29 @@ describe('subscription API', () => {
       ['/api/subscriptions/sub-1/payments/t1', 'DELETE'],
     ])
     expect(JSON.parse(fetch.mock.calls[0]![1].body as string)).toEqual({ ids: ['t1', 't2'] })
+  })
+
+  it('archives one with the day it is for the person, and brings it back out of the archive', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ id: 'sub-1', archived_on: '2026-10-19' }))
+      .mockResolvedValueOnce(response({ id: 'sub-1', archived_on: null }))
+    vi.stubGlobal('fetch', fetch)
+
+    await expect(archiveSubscription('sub-1', { today: '2026-10-19' })).resolves.toEqual({
+      id: 'sub-1',
+      archived_on: '2026-10-19',
+    })
+    await expect(unarchiveSubscription('sub-1')).resolves.toEqual({
+      id: 'sub-1',
+      archived_on: null,
+    })
+
+    expect(fetch.mock.calls.map(([url, init]) => [url, init.method])).toEqual([
+      ['/api/subscriptions/sub-1/archiving', 'POST'],
+      ['/api/subscriptions/sub-1/unarchiving', 'POST'],
+    ])
+    expect(JSON.parse(fetch.mock.calls[0]![1].body as string)).toEqual({ today: '2026-10-19' })
   })
 
   it('cancels one with the days it was cancelled and ends, and reactivates it with its next payment', async () => {

@@ -40,6 +40,14 @@ its next payment linked and shown on the dashboard. It gives a bill an end date 
 moves and removes it, makes sure deleting says what it removes and points to cancelling, and that
 the API refuses viewers, a second cancellation, reactivating one that has not stopped, a cancelled
 one losing its end date, other kinds of thing, and dates it can't take.
+The Archiving spec archives a subscription and a bill from their cards and a subscription from its
+page, and checks that it leaves the totals, the count and the Active and Paused lists for the
+Archived filter with every payment and its history kept, that its menu offers only Unarchive, that
+unarchiving brings it back paused and ready to resume, and that one that was cancelled is archived
+as it is and comes back cancelled. It also makes sure an archived one still holds its payee, that
+resuming, reactivating or giving it a new end date takes it out of the archive while a rename
+leaves it there, and that the API refuses viewers, a second archive, unarchiving one that is not
+archived, other kinds of thing, and days and fields it can't take.
 The AI specs set each provider up as Settings > AI does (Ollama on the computer and in the cloud,
 Anthropic and OpenAI, each tried before it is saved), ask questions, have the AI look over how
 transactions are sorted (on the AI tab, and as the last step of an import) and apply or dismiss

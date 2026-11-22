@@ -5,9 +5,11 @@ import { choose, exactly, openOverlays, startingWith } from './fields'
 /**
  * What a bill's menu offers. Deleting asks to confirm first. Cancelling and reactivating each
  * open a dialog to say a day, and only one is offered: a bill that has stopped can be
- * reactivated, and any other can be cancelled.
+ * reactivated, and any other can be cancelled. Archiving puts a bill away at once, and an archived
+ * one is offered only to be unarchived (and edited and deleted).
  */
-export type BillAction = 'toggle' | 'cancel' | 'reactivate' | 'edit' | 'delete'
+export type BillAction =
+  'toggle' | 'cancel' | 'reactivate' | 'archive' | 'unarchive' | 'edit' | 'delete'
 
 /** What the add and change dialog asks for, in the order it asks. Leave out what shouldn't change. */
 export interface BillFields {
@@ -63,6 +65,11 @@ export class BillsPage {
     return this.cards.filter({
       has: this.page.getByTestId('bill-title').filter({ hasText: exactly(name) }),
     })
+  }
+
+  /** Lists the bills that are active, paused, cancelled or archived, by the filter's own buttons. */
+  async show(shelf: 'Active' | 'Paused' | 'Cancelled' | 'Archived'): Promise<void> {
+    await this.page.getByTestId('bill-filter').getByRole('button', { name: shelf }).click()
   }
 
   async act(name: string, action: BillAction): Promise<void> {

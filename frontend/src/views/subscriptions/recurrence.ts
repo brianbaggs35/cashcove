@@ -72,6 +72,20 @@ export function priceChange(
  */
 export type Standing = 'active' | 'paused' | 'cancelled'
 
+/**
+ * Where it is kept on its page: with the active, paused or cancelled ones, or in the archive. An
+ * archived one is only ever in the archive, whatever it was before it was put away.
+ */
+export type Shelf = Standing | 'archived'
+
+/** Which shelf a subscription is on: the archive if it was put away, otherwise where it stands. */
+export function shelf(
+  subscription: Pick<Subscription, 'active' | 'ends_on' | 'cancelled_on' | 'archived_on'>,
+  today = todayIso(),
+): Shelf {
+  return subscription.archived_on === null ? standing(subscription, today) : 'archived'
+}
+
 /** Whether the day it ends has come. Nothing else ends it, so it is always read against today. */
 export function hasEnded(subscription: Pick<Subscription, 'ends_on'>, today = todayIso()): boolean {
   return subscription.ends_on !== null && subscription.ends_on <= today

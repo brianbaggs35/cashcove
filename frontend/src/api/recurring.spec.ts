@@ -19,6 +19,7 @@ const input: SubscriptionInput = {
 }
 const cancelled = { cancelled_on: '2026-10-19', ends_on: '2026-11-05' }
 const reactivated = { next_due_date: '2027-01-05', today: '2026-12-20' }
+const archivedToday = { today: '2026-12-20' }
 
 describe('recurringApi', () => {
   it('makes every call for a subscription to the subscriptions API', async () => {
@@ -36,6 +37,8 @@ describe('recurringApi', () => {
       unlink: vi.spyOn(subscriptions, 'unlinkSubscriptionPayment').mockResolvedValue(item),
       cancel: vi.spyOn(subscriptions, 'cancelSubscription').mockResolvedValue(item),
       reactivate: vi.spyOn(subscriptions, 'reactivateSubscription').mockResolvedValue(item),
+      archive: vi.spyOn(subscriptions, 'archiveSubscription').mockResolvedValue(item),
+      unarchive: vi.spyOn(subscriptions, 'unarchiveSubscription').mockResolvedValue(item),
     }
     const api = recurringApi('subscription')
 
@@ -48,6 +51,8 @@ describe('recurringApi', () => {
     await api.unlink('s1', 't1')
     await api.cancel('s1', cancelled)
     await api.reactivate('s1', reactivated)
+    await api.archive('s1', archivedToday)
+    await api.unarchive('s1')
 
     expect(calls.fetch).toHaveBeenCalledWith(true)
     expect(calls.overview).toHaveBeenCalledWith('s1', '2026-10-14')
@@ -58,6 +63,8 @@ describe('recurringApi', () => {
     expect(calls.unlink).toHaveBeenCalledWith('s1', 't1')
     expect(calls.cancel).toHaveBeenCalledWith('s1', cancelled)
     expect(calls.reactivate).toHaveBeenCalledWith('s1', reactivated)
+    expect(calls.archive).toHaveBeenCalledWith('s1', archivedToday)
+    expect(calls.unarchive).toHaveBeenCalledWith('s1')
   })
 
   it('makes every call for a bill to the bills API', async () => {
@@ -73,6 +80,8 @@ describe('recurringApi', () => {
       unlink: vi.spyOn(bills, 'unlinkBillPayment').mockResolvedValue(item),
       cancel: vi.spyOn(bills, 'cancelBill').mockResolvedValue(item),
       reactivate: vi.spyOn(bills, 'reactivateBill').mockResolvedValue(item),
+      archive: vi.spyOn(bills, 'archiveBill').mockResolvedValue(item),
+      unarchive: vi.spyOn(bills, 'unarchiveBill').mockResolvedValue(item),
     }
     const api = recurringApi('bill')
 
@@ -85,6 +94,8 @@ describe('recurringApi', () => {
     await api.unlink('b1', 't2')
     await api.cancel('b1', cancelled)
     await api.reactivate('b1', reactivated)
+    await api.archive('b1', archivedToday)
+    await api.unarchive('b1')
 
     expect(calls.fetch).toHaveBeenCalledWith(false)
     expect(calls.overview).toHaveBeenCalledWith('b1', '2026-10-14')
@@ -95,5 +106,7 @@ describe('recurringApi', () => {
     expect(calls.unlink).toHaveBeenCalledWith('b1', 't2')
     expect(calls.cancel).toHaveBeenCalledWith('b1', cancelled)
     expect(calls.reactivate).toHaveBeenCalledWith('b1', reactivated)
+    expect(calls.archive).toHaveBeenCalledWith('b1', archivedToday)
+    expect(calls.unarchive).toHaveBeenCalledWith('b1')
   })
 })

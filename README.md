@@ -246,6 +246,18 @@ same way. The **Next payment date** is its renewal date, and the end date is the
 renewing. The AI chat can cancel one, set an end date or reactivate one too, as a proposal you
 approve.
 
+To put one away without losing anything, **archive** it. Choose **Archive subscription** (or
+**Archive bill**) from its card's menu or its page's menu and it moves to the **Archived** filter,
+out of the way of the ones you are watching. Nothing is deleted: it keeps every payment linked to
+it, its chart and what refers to it, and it can be undone at any time with **Unarchive**, which
+brings it back as it was. A subscription or bill that was still being tracked is paused when it is
+archived, so it stops counting toward the totals, the reminders and the budgets; one that was
+cancelled or has ended stays cancelled or ended, and keeps matching a last payment that comes in
+late until its end date, as it did before. Resuming or reactivating an archived one, or giving it
+a new end date, takes it out of the archive. Its payee stays taken while it is archived: adding
+another for the same payee and account is refused with advice to unarchive it first. Only admins
+can archive and unarchive; everyone signed in can see the **Archived** filter.
+
 **Settings > Alerts** also sends configured alert rules—upcoming bills and subscriptions, low
 balances, large transactions, budget thresholds and bank-sync problems—by email, Discord, or
 both. An admin can add a Discord webhook or an SMTP server there; the SMTP **Test connection**

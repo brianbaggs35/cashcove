@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {
+  Archive,
+  ArchiveRestore,
   CalendarClock,
   CalendarX,
   CirclePause,
@@ -46,6 +48,8 @@ const emit = defineEmits<{
   delete: [subscription: Subscription]
   cancel: [subscription: Subscription]
   reactivate: [subscription: Subscription]
+  archive: [subscription: Subscription]
+  unarchive: [subscription: Subscription]
   toggle: [subscription: Subscription]
   link: [subscription: Subscription]
   'update-amount': [subscription: Subscription]
@@ -68,6 +72,8 @@ function open() {
   void router.push(page.value)
 }
 const state = computed(() => standing(props.subscription))
+/** Put away: kept with everything it tracked, but out of the way. */
+const archived = computed(() => props.subscription.archived_on !== null)
 const ended = computed(() => hasEnded(props.subscription))
 /** It talks of its next payment: it hasn't stopped, and doesn't end before then. Otherwise, of its end. */
 const expecting = computed(() => expectsPayment(props.subscription))
@@ -156,6 +162,15 @@ const changedPrice = computed(() =>
             >
               Paused
             </v-chip>
+            <v-chip
+              v-if="archived"
+              size="x-small"
+              variant="tonal"
+              :prepend-icon="Archive"
+              :data-test="part('archived-chip')"
+            >
+              Archived
+            </v-chip>
           </div>
           <p class="text-body-small text-medium-emphasis mb-0 mt-1">{{ subscription.payee }}</p>
         </div>
@@ -172,28 +187,44 @@ const changedPrice = computed(() =>
           </template>
           <v-list density="compact" nav min-width="200">
             <v-list-item :prepend-icon="Eye" title="View" :data-test="part('view')" @click="open" />
+            <!-- One that is put away is brought back first, as it was, and then it can be changed. -->
             <v-list-item
-              v-if="state !== 'cancelled'"
-              :prepend-icon="subscription.active ? CirclePause : copy.icon"
-              :title="subscription.active ? 'Pause matching' : 'Resume matching'"
-              :data-test="part('toggle')"
-              @click="emit('toggle', subscription)"
+              v-if="archived"
+              :prepend-icon="ArchiveRestore"
+              :title="`Unarchive ${copy.noun}`"
+              :data-test="part('unarchive')"
+              @click="emit('unarchive', subscription)"
             />
-            <!-- One that has stopped can't be cancelled, and one that hasn't can't be reactivated. -->
-            <v-list-item
-              v-if="state === 'cancelled'"
-              :prepend-icon="RotateCcw"
-              :title="`Reactivate ${copy.noun}`"
-              :data-test="part('reactivate')"
-              @click="emit('reactivate', subscription)"
-            />
-            <v-list-item
-              v-else
-              :prepend-icon="CalendarX"
-              :title="`Cancel ${copy.noun}`"
-              :data-test="part('cancel')"
-              @click="emit('cancel', subscription)"
-            />
+            <template v-else>
+              <v-list-item
+                v-if="state !== 'cancelled'"
+                :prepend-icon="subscription.active ? CirclePause : copy.icon"
+                :title="subscription.active ? 'Pause matching' : 'Resume matching'"
+                :data-test="part('toggle')"
+                @click="emit('toggle', subscription)"
+              />
+              <!-- One that has stopped can't be cancelled, and one that hasn't can't be reactivated. -->
+              <v-list-item
+                v-if="state === 'cancelled'"
+                :prepend-icon="RotateCcw"
+                :title="`Reactivate ${copy.noun}`"
+                :data-test="part('reactivate')"
+                @click="emit('reactivate', subscription)"
+              />
+              <v-list-item
+                v-else
+                :prepend-icon="CalendarX"
+                :title="`Cancel ${copy.noun}`"
+                :data-test="part('cancel')"
+                @click="emit('cancel', subscription)"
+              />
+              <v-list-item
+                :prepend-icon="Archive"
+                :title="`Archive ${copy.noun}`"
+                :data-test="part('archive')"
+                @click="emit('archive', subscription)"
+              />
+            </template>
             <v-list-item
               :prepend-icon="Pencil"
               title="Edit"

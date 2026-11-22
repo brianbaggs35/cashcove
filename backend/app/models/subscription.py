@@ -77,3 +77,7 @@ class Subscription(TimestampMixin, Base):
     # The day it was cancelled, which is how a cancelled one differs from one that ends on its own:
     # it was ended by a person, who can reactivate it. Cancelling always sets `ends_on` too.
     cancelled_on: Mapped[date | None] = mapped_column(Date())
+    # The day it was put away, to keep it out of the way without deleting it or what it tracked.
+    # An archived one is never being tracked: archiving pauses one that was, and it is unarchived
+    # again as soon as it is resumed or reactivated. Null when it isn't archived.
+    archived_on: Mapped[date | None] = mapped_column(Date())

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.auth.deps import AdminAuth, ApiError, CurrentAuth, Db
 from app.finance.recurring_overview import recurring_overview
 from app.finance.subscriptions import (
+    archive_recurring,
     cancel_recurring,
     change_recurring,
     create_recurring,
@@ -26,6 +27,7 @@ from app.finance.subscriptions import (
     link_payments,
     payment_stats,
     reactivate_recurring,
+    unarchive_recurring,
     unlink_payment,
 )
 from app.models import RecurringKind, Subscription, Transaction
@@ -34,6 +36,7 @@ from app.schemas.budget import Day
 from app.schemas.subscriptions import (
     PaymentsLinked,
     RecurringOverview,
+    SubscriptionArchive,
     SubscriptionCancel,
     SubscriptionCreate,
     SubscriptionOut,
@@ -112,6 +115,20 @@ def _reactivate(
     return _out(db, subscription)
 
 
+def _archive(
+    db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: SubscriptionArchive
+) -> SubscriptionOut:
+    subscription = archive_recurring(db, kind, subscription_id, body)
+    db.commit()
+    return _out(db, subscription)
+
+
+def _unarchive(db: Session, kind: RecurringKind, subscription_id: uuid.UUID) -> SubscriptionOut:
+    subscription = unarchive_recurring(db, kind, subscription_id)
+    db.commit()
+    return _out(db, subscription)
+
+
 def _link(
     db: Session, kind: RecurringKind, subscription_id: uuid.UUID, body: TransactionIds
 ) -> PaymentsLinked:
@@ -185,6 +202,16 @@ def recurring_router(kind: RecurringKind) -> APIRouter:
         """Picks a cancelled or ended one up again, to work like any regular one."""
         return _reactivate(db, kind, subscription_id, body)
 
+    def archive_payment(
+        subscription_id: uuid.UUID, body: SubscriptionArchive, auth: AdminAuth, db: Db
+    ) -> SubscriptionOut:
+        """Puts it away, keeping it and everything it tracked. One still being tracked is paused."""
+        return _archive(db, kind, subscription_id, body)
+
+    def unarchive_payment(subscription_id: uuid.UUID, auth: AdminAuth, db: Db) -> SubscriptionOut:
+        """Brings it back out of the archive, as it was."""
+        return _unarchive(db, kind, subscription_id)
+
     def link_payment_transactions(
         subscription_id: uuid.UUID, body: TransactionIds, auth: AdminAuth, db: Db
     ) -> PaymentsLinked:
@@ -212,6 +239,8 @@ def recurring_router(kind: RecurringKind) -> APIRouter:
     )
     router.add_api_route(f"{one}/cancellation", cancel_payment, methods=["POST"])
     router.add_api_route(f"{one}/reactivation", reactivate_payment, methods=["POST"])
+    router.add_api_route(f"{one}/archiving", archive_payment, methods=["POST"])
+    router.add_api_route(f"{one}/unarchiving", unarchive_payment, methods=["POST"])
     router.add_api_route(f"{one}/payments", link_payment_transactions, methods=["POST"])
     router.add_api_route(
         f"{one}/payments/{{transaction_id}}", unlink_payment_transaction, methods=["DELETE"]
