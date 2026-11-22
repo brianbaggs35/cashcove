@@ -102,6 +102,47 @@ function startOf(day: string, by: 'week' | 'month', weekStartsOn: WeekStart): st
 const endOf = (start: string, by: 'week' | 'month') =>
   by === 'week' ? addDays(start, 6) : addDays(addMonths(start, 1), -1)
 
+type Words = ReturnType<typeof formats>
+
+/** A bar for each day of the range. */
+const dayBuckets = (days: readonly UsageDay[], words: Words): UsageBucket[] =>
+  days.map((day) => ({
+    key: day.day,
+    label: words.short(day.day),
+    full: words.long(day.day),
+    calls: day.calls,
+    tokens: day.tokens,
+    cost_micros: day.cost_micros,
+    partial: false,
+  }))
+
+/**
+ * An empty bar for the week or month that starts on `start`, cut short where the range, which
+ * runs from `first` to `last`, starts or ends part-way through it.
+ */
+function emptyBucket(
+  start: string,
+  by: 'week' | 'month',
+  range: { first: string; last: string },
+  words: Words,
+): UsageBucket {
+  const end = endOf(start, by)
+  // ISO dates sort as the days they are.
+  const from = start < range.first ? range.first : start
+  const to = end > range.last ? range.last : end
+  const partial = from !== start || to !== end
+  const whole = by === 'month' && !partial
+  return {
+    key: start,
+    label: by === 'week' ? words.short(from) : words.month(start),
+    full: whole ? words.monthAndYear(start) : words.span(from, to),
+    calls: 0,
+    tokens: 0,
+    cost_micros: 0,
+    partial,
+  }
+}
+
 /**
  * The days of a range as bars: a bar for each day, or each calendar week (from the day the
  * household's weeks start on) or month. A week or month the range cuts into is marked `partial`
@@ -117,41 +158,13 @@ export function bucketize(
   const last = days.at(-1)?.day
   if (first === undefined || last === undefined) return []
   const words = formats(locale)
-
-  if (by === 'day') {
-    return days.map((day) => ({
-      key: day.day,
-      label: words.short(day.day),
-      full: words.long(day.day),
-      calls: day.calls,
-      tokens: day.tokens,
-      cost_micros: day.cost_micros,
-      partial: false,
-    }))
-  }
+  if (by === 'day') return dayBuckets(days, words)
 
   const buckets = new Map<string, UsageBucket>()
   for (const day of days) {
     const start = startOf(day.day, by, weekStartsOn)
-    let bucket = buckets.get(start)
-    if (!bucket) {
-      const end = endOf(start, by)
-      // ISO dates sort as the days they are.
-      const from = start < first ? first : start
-      const to = end > last ? last : end
-      const partial = from !== start || to !== end
-      const whole = by === 'month' && !partial
-      bucket = {
-        key: start,
-        label: by === 'week' ? words.short(from) : words.month(start),
-        full: whole ? words.monthAndYear(start) : words.span(from, to),
-        calls: 0,
-        tokens: 0,
-        cost_micros: 0,
-        partial,
-      }
-      buckets.set(start, bucket)
-    }
+    const bucket = buckets.get(start) ?? emptyBucket(start, by, { first, last }, words)
+    buckets.set(start, bucket)
     bucket.calls += day.calls
     bucket.tokens += day.tokens
     bucket.cost_micros += day.cost_micros
