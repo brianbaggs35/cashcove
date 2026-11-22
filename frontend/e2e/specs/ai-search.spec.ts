@@ -40,8 +40,11 @@ async function expectToList(transactionsPage: TransactionsPage, total: number): 
   }
 }
 
-/** What the address says the tab is showing. */
-const shown = (page: Page) => new URL(page.url()).searchParams
+/**
+ * What the address says the tab is showing. It is read from the browser itself, because
+ * `page.url()` can trail a navigation made on the page, such as a change of filters.
+ */
+const shown = async (page: Page) => new URLSearchParams(await page.evaluate(() => location.search))
 
 /** What the account's name and the bank's would give away. */
 function secretsOf(baseline: BaselineData): RegExp[] {
@@ -89,7 +92,7 @@ test.describe('Finding transactions in plain words', () => {
         'Showing what matches “groceries over $50 spent last month”.',
       )
       // They are the tab's own filters, in the address like any others.
-      const filters = shown(page)
+      const filters = await shown(page)
       expect(filters.getAll('category')).toEqual([groceries])
       expect(filters.get('direction')).toBe('out')
       expect(filters.get('min')).toBe('50.00')
@@ -109,8 +112,8 @@ test.describe('Finding transactions in plain words', () => {
       // And changing one is a tap on its chip.
       await page.getByRole('button', { name: 'Remove At least $50.00' }).click()
       await expect(page.getByTestId('filter-chip-amount')).toHaveCount(0)
-      expect(shown(page).get('min')).toBeNull()
-      expect(shown(page).get('direction')).toBe('out')
+      expect((await shown(page)).get('min')).toBeNull()
+      expect((await shown(page)).get('direction')).toBe('out')
     })
 
     test('replaces the filters that were on, and keeps the page’s own order unless one was asked for', async ({
@@ -124,7 +127,7 @@ test.describe('Finding transactions in plain words', () => {
 
       await transactionsPage.findWithAi('coffee')
 
-      const filters = shown(page)
+      const filters = await shown(page)
       expect(filters.getAll('category')).toEqual([baseline.categories.Coffee.id])
       expect(filters.get('direction')).toBeNull()
       expect(filters.get('status')).toBeNull()
@@ -145,7 +148,7 @@ test.describe('Finding transactions in plain words', () => {
         'Couldn’t use: birthday, the category “Hobbies”.',
       )
       await expect(page.getByTestId('filter-chip-uncategorized')).toBeVisible()
-      expect(shown(page).getAll('category')).toEqual(['none'])
+      expect((await shown(page)).getAll('category')).toEqual(['none'])
     })
 
     test('changes nothing when there was no filter in what was typed', async ({
@@ -159,7 +162,7 @@ test.describe('Finding transactions in plain words', () => {
       await transactionsPage.findWithAi('something blue')
 
       await expect(transactionsPage.aiNothing).toContainText('There was no filter in that.')
-      expect(shown(page).get('direction')).toBe('in')
+      expect((await shown(page)).get('direction')).toBe('in')
       await expect(page.getByTestId('filter-chip-direction')).toHaveText('Money in')
     })
 
@@ -177,8 +180,8 @@ test.describe('Finding transactions in plain words', () => {
 
       await transactionsPage.findWithAi('my biggest purchases')
 
-      expect(shown(page).get('sort')).toBe('amount')
-      expect(shown(page).get('direction')).toBe('out')
+      expect((await shown(page)).get('sort')).toBe('amount')
+      expect((await shown(page)).get('direction')).toBe('out')
       await expect(transactionsPage.rows.first()).toContainText(biggest.items[0]!.payee)
     })
 
@@ -197,7 +200,7 @@ test.describe('Finding transactions in plain words', () => {
       )
 
       const card = baseline.accounts.card
-      expect(shown(page).getAll('account')).toEqual([card.id])
+      expect((await shown(page)).getAll('account')).toEqual([card.id])
       await expect(page.getByTestId(`filter-chip-account-${card.id}`)).toHaveText(card.name)
       const sent = (await harness.aiRequests()).map((request) => request.body).join('\n')
       // It was asked about what is left: the groceries.
@@ -219,7 +222,7 @@ test.describe('Finding transactions in plain words', () => {
 
       await transactionsPage.findWithAi('Everyday checking')
 
-      expect(shown(page).getAll('account')).toEqual([baseline.accounts.checking.id])
+      expect((await shown(page)).getAll('account')).toEqual([baseline.accounts.checking.id])
       expect(await harness.aiRequests()).toEqual([])
     })
 
@@ -251,7 +254,7 @@ test.describe('Finding transactions in plain words', () => {
       holding.release()
       await (await answered).finished()
       await expect(transactionsPage.aiResult).toHaveCount(0)
-      expect(shown(page).getAll('category')).toEqual([])
+      expect((await shown(page)).getAll('category')).toEqual([])
     })
 
     test('says why it failed when the AI can’t be reached', async ({
@@ -274,7 +277,7 @@ test.describe('Finding transactions in plain words', () => {
       await transactionsPage.findWithAi('coffee')
 
       await expect(transactionsPage.aiError).toContainText("The provider didn't accept the key")
-      expect(shown(page).getAll('category')).toEqual([])
+      expect((await shown(page)).getAll('category')).toEqual([])
     })
   })
 
@@ -292,7 +295,7 @@ test.describe('Finding transactions in plain words', () => {
 
       await transactionsPage.findWithAi('coffee')
 
-      expect(shown(page).getAll('category')).toEqual([baseline.categories.Coffee.id])
+      expect((await shown(page)).getAll('category')).toEqual([baseline.categories.Coffee.id])
       await expect(transactionsPage.aiResult).toBeVisible()
     })
   })
