@@ -2,7 +2,8 @@ import { flushPromises } from '@vue/test-utils'
 import { VDataTableServer } from 'vuetify/components'
 
 import type { Transaction } from '@/api/transactions'
-import { latte, makeTransaction, salary, seedFinance, wholeFoods } from '@/test/finance'
+import { click } from '@/test/dom'
+import { coffee, latte, makeTransaction, salary, seedFinance, wholeFoods } from '@/test/finance'
 import { mountWithPlugins } from '@/test/mount'
 import TransactionTable from '@/views/transactions/TransactionTable.vue'
 
@@ -108,6 +109,36 @@ describe('TransactionTable', () => {
     expect(wrapper.emitted('edit')).toEqual([[salary]])
   })
 
+  it('lets admins press a category to choose another, without opening the row', async () => {
+    const { wrapper, rows } = await render()
+    const button = rows()[1]!.find('[data-test="category-button"]')
+    expect(button.attributes('aria-label')).toBe(
+      'Change the category of Whole Foods, now Groceries',
+    )
+
+    await button.trigger('click')
+    await flushPromises()
+    await click(`[data-test="category-option-${coffee.id}"]`)
+    await flushPromises()
+
+    expect(wrapper.emitted('recategorize')).toEqual([[wholeFoods, coffee.id]])
+    expect(wrapper.emitted('open')).toBeUndefined()
+    // One with none is pressed the same way, and can be given one.
+    expect(rows()[3]!.find('[data-test="category-button"]').attributes('aria-label')).toBe(
+      'Change the category of Corner store, now uncategorized',
+    )
+  })
+
+  it('lets admins take a category away', async () => {
+    const { wrapper, rows } = await render()
+
+    await rows()[1]!.find('[data-test="category-button"]').trigger('click')
+    await flushPromises()
+    await click('[data-test="category-option-none"]')
+
+    expect(wrapper.emitted('recategorize')).toEqual([[wholeFoods, null]])
+  })
+
   it('lets admins select transactions', async () => {
     const { wrapper, rows } = await render()
     await rows()[0]!.find('input[type="checkbox"]').trigger('click')
@@ -136,6 +167,9 @@ describe('TransactionTable', () => {
 
   it('shows viewers the details without ways to select', async () => {
     const { wrapper } = await render({ selectable: false })
+    // A category is only shown to them, not pressed.
+    expect(wrapper.find('[data-test="category-button"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="category-chip"]').exists()).toBe(true)
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="transaction-open"]').attributes('aria-label')).toBe(
       'See Blue Bottle',

@@ -344,6 +344,57 @@ describe('TransactionsView', () => {
     expect(dialog().props('modelValue')).toBe(false)
   })
 
+  describe('choosing a category from a row', () => {
+    it('saves it, says so, and loads the list again', async () => {
+      const fetch = vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+      const update = vi
+        .spyOn(api, 'updateTransaction')
+        .mockResolvedValue({ ...wholeFoods, category_id: coffee.id })
+      const { component } = await render()
+
+      component('TransactionTable').vm.$emit('recategorize', wholeFoods, coffee.id)
+      await flushPromises()
+
+      expect(update).toHaveBeenCalledWith(wholeFoods.id, { category_id: coffee.id })
+      expect(notices.value.at(-1)).toMatchObject({
+        text: 'Moved Whole Foods to Coffee',
+        tone: 'success',
+      })
+      expect(fetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('says when it took the category away', async () => {
+      vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+      const update = vi
+        .spyOn(api, 'updateTransaction')
+        .mockResolvedValue({ ...wholeFoods, category_id: null })
+      const { component } = await render()
+
+      component('TransactionTable').vm.$emit('recategorize', wholeFoods, null)
+      await flushPromises()
+
+      expect(update).toHaveBeenCalledWith(wholeFoods.id, { category_id: null })
+      expect(notices.value.at(-1)?.text).toBe('Whole Foods is now uncategorized')
+    })
+
+    it('says why it could not, and keeps the list as it was', async () => {
+      const fetch = vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
+      vi.spyOn(api, 'updateTransaction').mockRejectedValue(new Error('No connection'))
+      const { component, find } = await render()
+
+      component('TransactionTable').vm.$emit('recategorize', wholeFoods, coffee.id)
+      await flushPromises()
+
+      expect(notices.value.at(-1)).toMatchObject({
+        text: "Couldn't change the category. No connection",
+        tone: 'error',
+      })
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(find('transactions-error').exists()).toBe(false)
+      expect(find('transaction-table').exists()).toBe(true)
+    })
+  })
+
   it('shows viewers everything without ways to change it', async () => {
     vi.spyOn(api, 'fetchTransactions').mockResolvedValue(makePage())
     const { find, component } = await render({ role: 'viewer' })
