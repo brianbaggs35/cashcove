@@ -42,6 +42,8 @@ export class TransactionsPage {
   readonly bulkBar: Locator
   /** Shown instead of the list when nothing matches the filters. */
   readonly noneMatch: Locator
+  /** The list of categories a category button opens, while it's open. */
+  readonly categoryMenu: Locator
   /** The button that opens the box for finding transactions by describing them, once AI is set up. */
   readonly aiButton: Locator
   /** That box, what it said of what the AI found, and what it couldn't use. */
@@ -66,6 +68,7 @@ export class TransactionsPage {
     this.filterDialog = page.getByRole('dialog').filter({ has: page.getByTestId('filter-apply') })
     this.bulkBar = page.getByTestId('bulk-bar')
     this.noneMatch = page.getByTestId('transactions-none-match')
+    this.categoryMenu = page.getByTestId('category-menu')
     this.aiButton = page.getByTestId('transaction-ai')
     this.aiSearch = page.getByTestId('ai-search')
     this.aiResult = page.getByTestId('ai-search-result')
@@ -87,6 +90,28 @@ export class TransactionsPage {
   /** A transaction's row or list item, by its payee. */
   row(payee: string | RegExp): Locator {
     return this.rows.filter({ hasText: payee })
+  }
+
+  /**
+   * A transaction's category as a button, which opens the categories to choose another from.
+   * Admins get it in the table on computers; viewers and phones see the category without one.
+   */
+  categoryButton(payee: string | RegExp): Locator {
+    return this.row(payee).getByTestId('category-button')
+  }
+
+  /**
+   * Chooses a category from a transaction's category button, by its name, or `'Uncategorized'`
+   * to take it away, and waits for the list to close.
+   */
+  async recategorize(payee: string | RegExp, category: string): Promise<void> {
+    await this.categoryButton(payee).click()
+    await expect(this.categoryMenu).toBeVisible()
+    await this.categoryMenu
+      .locator('.v-list-item')
+      .filter({ has: this.page.getByText(category, { exact: true }) })
+      .click()
+    await expect(this.categoryMenu).toBeHidden()
   }
 
   /** Opens a transaction's details dialog, as a phone does when tapping its list item. */

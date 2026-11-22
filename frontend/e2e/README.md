@@ -48,6 +48,12 @@ as it is and comes back cancelled. It also makes sure an archived one still hold
 resuming, reactivating or giving it a new end date takes it out of the archive while a rename
 leaves it there, and that the API refuses viewers, a second archive, unarchiving one that is not
 archived, other kinds of thing, and days and fields it can't take.
+The Category button spec, for computers, presses the category on a row of the Transactions table as an
+admin to give an uncategorized transaction one and take it away again, checks the change is saved and
+said, that pressing it doesn't open the transaction's details, that the list is searched and marks what
+the transaction has (choosing that again changes and says nothing), that it works from the keyboard and
+leaves focus on the button, and that it has no accessibility problems open. A viewer is shown the
+category with no button.
 The AI specs set each provider up as Settings > AI does (Ollama on the computer and in the cloud,
 Anthropic and OpenAI, each tried before it is saved), ask questions, have the AI look over how
 transactions are sorted (on the AI tab, and as the last step of an import) and apply or dismiss

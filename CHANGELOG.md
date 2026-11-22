@@ -20,6 +20,11 @@ and give it a version and a date when you cut a release (see Releases in the
   archived (adding another says to unarchive it). The API gains `archived_on` on both and
   `POST /api/subscriptions/{id}/archiving` and `/unarchiving` (and the same under `/api/bills`),
   for admins only.
+- **Choose a transaction's category by pressing it.** In the Transactions table on a computer, the
+  category on each row is now a button, for admins, that opens a searchable list of every category,
+  with **Uncategorized** to take it away; choosing one saves it right away and says so. Pressing it
+  doesn't open the transaction. Viewers, and phones, see the category as before; an admin on a phone
+  still changes it from the transaction's details.
 
 ### Fixed
 

@@ -3,6 +3,7 @@ import { Eye, Pencil } from '@lucide/vue'
 import { ref, watch } from 'vue'
 
 import type { Transaction, TransactionSort } from '@/api/transactions'
+import CategoryButton from '@/components/finance/CategoryButton.vue'
 import CategoryChip from '@/components/finance/CategoryChip.vue'
 import MoneyAmount from '@/components/ui/MoneyAmount.vue'
 import { useHousehold } from '@/composables/useHousehold'
@@ -10,7 +11,10 @@ import { useAccountsStore } from '@/stores/accounts'
 import { formatListDate } from '@/utils/dates'
 import { PAGE_SIZES } from '@/views/transactions/view'
 
-/** The transactions as a table, for wider screens: sortable, paged, and selectable by admins. */
+/**
+ * The transactions as a table, for wider screens: sortable, paged, and selectable by admins, who
+ * can also choose another category by pressing the one a transaction has.
+ */
 const props = defineProps<{
   items: Transaction[]
   total: number
@@ -24,6 +28,7 @@ const selected = defineModel<string[]>('selected', { required: true })
 const emit = defineEmits<{
   open: [transaction: Transaction]
   edit: [transaction: Transaction]
+  recategorize: [transaction: Transaction, categoryId: string | null]
   options: [changes: { page: number; pageSize: number; sort: TransactionSort }]
 }>()
 
@@ -150,7 +155,13 @@ function detail(transaction: Transaction): string | null {
       </div>
     </template>
     <template #[`item.category`]="{ item }">
-      <CategoryChip :category-id="item.category_id" />
+      <CategoryButton
+        v-if="selectable"
+        :category-id="item.category_id"
+        :subject="item.payee"
+        @select="(categoryId) => emit('recategorize', item, categoryId)"
+      />
+      <CategoryChip v-else :category-id="item.category_id" />
     </template>
     <template #[`item.account`]="{ item }">
       <span class="text-body-medium text-no-wrap">{{

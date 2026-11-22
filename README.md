@@ -41,7 +41,10 @@ Setup also adds 37 suggested categories, such as Groceries and Rent & mortgage, 
 like Food & drink. Add, rename, regroup or delete categories and their groups on the
 **Categories** tab. Until you connect a bank through Plaid, add accounts by hand on the
 **Accounts** tab and record their transactions on **Transactions**; an account kept by hand
-moves its balance with them.
+moves its balance with them. On a computer, an admin changes a transaction's category right in
+the table: the category shown on each row is a button that opens a searchable list of every
+category, with **Uncategorized** to take it away. On a phone, or for a viewer, the category is
+shown as it was, and an admin changes it from the transaction's details.
 
 ### Using your own domain
 

@@ -7,6 +7,7 @@ import { errorMessage } from '@/api/client'
 import {
   deleteTransactions,
   fetchTransactions,
+  updateTransaction,
   type Transaction,
   type TransactionPage,
 } from '@/api/transactions'
@@ -140,6 +141,21 @@ const defaultAccount = computed(() => {
 function add() {
   editing.value = null
   dialog.value = true
+}
+
+/** Gives a transaction another category, or none, from the one shown in its row. */
+async function recategorize(transaction: Transaction, categoryId: string | null) {
+  try {
+    await updateTransaction(transaction.id, { category_id: categoryId })
+  } catch (saveError) {
+    notify(`Couldn't change the category. ${errorMessage(saveError)}`, 'error')
+    return
+  }
+  const name = categories.find(categoryId)?.name
+  notify(
+    name ? `Moved ${transaction.payee} to ${name}` : `${transaction.payee} is now uncategorized`,
+  )
+  changed()
 }
 
 function openTransaction(transaction: Transaction) {
@@ -340,6 +356,7 @@ async function removeSelected() {
           :selectable="auth.isAdmin"
           @open="openTransaction"
           @edit="editTransaction"
+          @recategorize="recategorize"
           @options="update"
         />
       </v-card>
