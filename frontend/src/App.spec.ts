@@ -2,7 +2,7 @@ import * as authApi from '@/api/auth'
 import * as healthApi from '@/api/health'
 import App from '@/App.vue'
 import { useAuthStore } from '@/stores/auth'
-import { useThemeStore } from '@/stores/theme'
+import { PALETTE_STORAGE_KEY, useThemeStore } from '@/stores/theme'
 import { makeSessionState, signedOutState } from '@/test/fixtures'
 import { flushPromises, mountWithPlugins } from '@/test/mount'
 import { greeting } from '@/utils/format'
@@ -106,6 +106,25 @@ describe('App', () => {
     useThemeStore().setPreference('light')
     await flushPromises()
     expect(vuetify.theme.name.value).toBe('light')
+    wrapper.unmount()
+  })
+
+  it('gives the light and dark themes the chosen palette, from the start and when it changes', async () => {
+    localStorage.setItem(PALETTE_STORAGE_KEY, 'forest')
+    const { wrapper, vuetify } = await mountWithPlugins(App, { route: '/accounts', width: 1920 })
+    const primary = (name: 'light' | 'dark') =>
+      (vuetify.theme.computedThemes.value[name]!.colors as { primary: string }).primary
+    expect(primary('light')).toBe('#166534')
+    expect(primary('dark')).toBe('#4ade80')
+
+    useThemeStore().setPalette('berry')
+    await flushPromises()
+    expect(primary('light')).toBe('#a21caf')
+    expect(primary('dark')).toBe('#e879f9')
+    // They are still the light and dark themes, so Light, Dark and Match device keep working.
+    useThemeStore().setPreference('dark')
+    await flushPromises()
+    expect(vuetify.theme.name.value).toBe('dark')
     wrapper.unmount()
   })
 

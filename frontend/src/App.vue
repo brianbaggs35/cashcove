@@ -12,6 +12,7 @@ import NotificationHost from '@/components/ui/NotificationHost.vue'
 import AppShell from '@/layouts/AppShell.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { applyPalette } from '@/theme/palettes'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,6 +31,13 @@ onBeforeMount(async () => {
 watch(
   () => themeStore.preference,
   (preference) => theme.change(preference),
+  { immediate: true },
+)
+watch(
+  () => themeStore.palette,
+  (palette) => {
+    applyPalette(theme, palette)
+  },
   { immediate: true },
 )
 

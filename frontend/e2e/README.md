@@ -48,6 +48,12 @@ as it is and comes back cancelled. It also makes sure an archived one still hold
 resuming, reactivating or giving it a new end date takes it out of the archive while a rename
 leaves it there, and that the API refuses viewers, a second archive, unarchiving one that is not
 archived, other kinds of thing, and days and fields it can't take.
+The Themes spec chooses each color theme on Settings > Appearance, as an admin and as a viewer,
+and checks the app is recolored at once in light, dark and Match device, that the choice is
+remembered after a reload and on other pages, that the previews follow the theme being worn, and
+that nothing overflows on a phone. The Themes spec for computers then visits the dashboard, the
+transactions and the Appearance page in every color theme but the original, in both the light and
+the dark theme, and checks each with axe.
 The Category button spec, for computers, presses the category on a row of the Transactions table as an
 admin to give an uncategorized transaction one and take it away again, checks the change is saved and
 said, that pressing it doesn't open the transaction's details, that the list is searched and marks what

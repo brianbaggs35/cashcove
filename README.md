@@ -164,6 +164,16 @@ budget and the Budget tab says so, until they can be.
 - **No lookups at all:** set `CASHCOVE_EXCHANGE_RATE_URL=` to nothing. Only rates already kept
   are used, so accounts in other currencies count only for days Cashcove already has rates for.
 
+### Appearance
+
+**Settings > Appearance** has two choices, both kept on the device you make them on, so everyone
+picks their own and viewers can too. **Theme** is Light, Dark or Match device, which follows the
+system's setting. **Colors** is the color theme: Cashcove (the original teal), Ocean, Forest,
+Berry, Sunset, Graphite and High contrast, which has black and white with strong colors and
+borders. Each comes in a light and a dark version, so it works with all three themes, and the
+previews show it in the one being worn. Every color keeps WCAG AA contrast for the text on it, in
+both versions.
+
 ### Dashboard
 
 The **Dashboard** is the first tab, and where you land after signing in. It is for seeing how the

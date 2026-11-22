@@ -25,6 +25,11 @@ and give it a version and a date when you cut a release (see Releases in the
   with **Uncategorized** to take it away; choosing one saves it right away and says so. Pressing it
   doesn't open the transaction. Viewers, and phones, see the category as before; an admin on a phone
   still changes it from the transaction's details.
+- **More themes in Settings > Appearance.** A new **Colors** choice beside Light, Dark and Match
+  device offers seven color themes: Cashcove (the original), Ocean, Forest, Berry, Sunset,
+  Graphite and High contrast. Each has a light and a dark version, so it works with every theme
+  choice, and every color in them keeps WCAG AA contrast for the text on it. The choice is kept on
+  the device, like the theme, and is the same for admins and viewers.
 
 ### Fixed
 
